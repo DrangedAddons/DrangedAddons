@@ -34,8 +34,10 @@ public static class AppInstaller
             return false;
         }
 
-        // Dev builds (with their .dll alongside) never install.
-        if (AppUpdater.ExePath is not { } exe) return true;
+        // Dev builds (with their .dll alongside) never install, and DRANGEDADDONS_DEV=1 makes a published test
+        // build run in place without offering to install or touching an installed copy.
+        if (AppUpdater.ExePath is not { } exe || Environment.GetEnvironmentVariable("DRANGEDADDONS_DEV") == "1")
+            return true;
 
         if (IsRunningInstalled)
         {

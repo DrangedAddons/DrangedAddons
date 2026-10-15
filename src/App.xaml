@@ -141,7 +141,8 @@
                         <Grid>
                             <ToggleButton Template="{StaticResource DarkComboToggle}" Focusable="False" ClickMode="Press"
                                           IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
-                            <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" IsHitTestVisible="False"
+                            <ContentPresenter Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" IsHitTestVisible="False"
                                               Margin="12,0,30,0" VerticalAlignment="Center" HorizontalAlignment="Left"/>
                             <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True"
                                    Focusable="False" PopupAnimation="Fade">

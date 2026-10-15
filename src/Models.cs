@@ -73,6 +73,29 @@ public sealed record RemoteAddon(
             : LatestRelease;
 }
 
+/// <summary>A game version in the drop-down, labelled with how many DrangedAddons addons it has installed.</summary>
+public sealed class FlavorItem(WowFlavor flavor) : INotifyPropertyChanged
+{
+    int _installed;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public WowFlavor Flavor { get; } = flavor;
+
+    public int Installed
+    {
+        get => _installed;
+        set
+        {
+            if (_installed == value) return;
+            _installed = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Label)));
+        }
+    }
+
+    public string Label => _installed > 0 ? $"{Flavor.DisplayName}  ·  {_installed} installed" : Flavor.DisplayName;
+}
+
 public enum AddonState { NotInstalled, UpdateAvailable, UpToDate, DevCopy }
 
 public sealed class AddonRow : INotifyPropertyChanged

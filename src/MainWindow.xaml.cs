@@ -39,7 +39,19 @@ public partial class MainWindow : Window
         };
     }
 
-    WowFlavor? CurrentFlavor => FlavorList.SelectedItem as WowFlavor;
+    WowFlavor? CurrentFlavor => (FlavorList.SelectedItem as FlavorItem)?.Flavor;
+
+    /// <summary>Refreshes the "N installed" counts in the game-version drop-down.</summary>
+    void UpdateFlavorCounts()
+    {
+        if (FlavorList.ItemsSource is not IEnumerable<FlavorItem> items) return;
+        foreach (var item in items)
+        {
+            var installed = _manifest.For(item.Flavor.AddOnsPath);
+            item.Installed = _remote.Count(addon => Directory.Exists(Path.Combine(item.Flavor.AddOnsPath,
+                installed.GetValueOrDefault(addon.Name)?.Folders.FirstOrDefault() ?? addon.Name)));
+        }
+    }
 
     void LoadFlavors()
     {
@@ -53,10 +65,11 @@ public partial class MainWindow : Window
         }
 
         RootText.Text = _root;
-        var flavors = WowLocator.GetFlavors(_root);
+        var flavors = WowLocator.GetFlavors(_root).Select(f => new FlavorItem(f)).ToList();
         FlavorList.ItemsSource = flavors;
+        UpdateFlavorCounts();
         var wanted = _settings.Flavor ?? WowLocator.RegistryFlavor() ?? "_retail_";
-        FlavorList.SelectedItem = flavors.FirstOrDefault(f => f.Folder.Equals(wanted, StringComparison.OrdinalIgnoreCase))
+        FlavorList.SelectedItem = flavors.FirstOrDefault(f => f.Flavor.Folder.Equals(wanted, StringComparison.OrdinalIgnoreCase))
                                   ?? flavors.FirstOrDefault();
     }
 
@@ -206,6 +219,7 @@ public partial class MainWindow : Window
         UpdateAllButton.IsEnabled = !_working && updates > 0;
         UpdateAllButton.Content = updates > 0 ? $"Update all ({updates})" : "Update all";
         OpenFolderButton.IsEnabled = OpenFolderMenu.IsEnabled = CurrentFlavor is not null;
+        UpdateFlavorCounts();
 
         EmptyText.Text = _root is null ? "Pick your World of Warcraft folder to get started."
             : _loadError is not null ? _loadError

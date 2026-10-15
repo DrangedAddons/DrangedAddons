@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+- The game-version drop-down shows how many DrangedAddons addons each game has installed
+  (e.g. "Classic Beta · 1 installed").
+
 ## 0.8.1
 - App icon: an impossible (Penrose) triangle in three golds on black, used for the window, taskbar, shortcuts and
   Settings → Apps.

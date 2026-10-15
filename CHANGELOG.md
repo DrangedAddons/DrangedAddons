@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.9.3
+- The game-version drop-down shows just the count: "Classic Beta (1)".
+
 ## 0.9.2
 - Fixed "Couldn't update DrangedAddons: Access to the path …DrangedAddons.exe.old is denied" when an older copy
   of the app was still running from a previous update. Leftover old copies are cleaned up on the next launch.

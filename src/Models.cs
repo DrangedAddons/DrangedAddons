@@ -93,7 +93,7 @@ public sealed class FlavorItem(WowFlavor flavor) : INotifyPropertyChanged
         }
     }
 
-    public string Label => _installed > 0 ? $"{Flavor.DisplayName}  ·  {_installed} installed" : Flavor.DisplayName;
+    public string Label => _installed > 0 ? $"{Flavor.DisplayName} ({_installed})" : Flavor.DisplayName;
 }
 
 public enum AddonState { NotInstalled, UpdateAvailable, UpToDate, DevCopy }

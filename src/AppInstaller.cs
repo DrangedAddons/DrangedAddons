@@ -84,11 +84,7 @@ public static class AppInstaller
     {
         Directory.CreateDirectory(InstallDir);
         if (File.Exists(InstalledExe))
-        {
-            var old = InstalledExe + ".old";
-            if (File.Exists(old)) File.Delete(old);
-            File.Move(InstalledExe, old);
-        }
+            AppUpdater.SetAside(InstalledExe);
         File.Copy(sourceExe, InstalledExe);
     }
 

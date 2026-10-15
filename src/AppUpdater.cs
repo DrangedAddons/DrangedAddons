@@ -54,7 +54,6 @@ public static class AppUpdater
     {
         var exe = ExePath ?? throw new InvalidOperationException("This copy of DrangedAddons can't update itself.");
         var newPath = exe + ".new";
-        var oldPath = exe + ".old";
 
         try
         {
@@ -72,8 +71,7 @@ public static class AppUpdater
             throw new InvalidDataException("The downloaded update looks incomplete. Try again later.");
         }
 
-        if (File.Exists(oldPath)) File.Delete(oldPath);
-        File.Move(exe, oldPath);
+        var oldPath = SetAside(exe);
         try
         {
             File.Move(newPath, exe);
@@ -86,21 +84,49 @@ public static class AppUpdater
         Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
     }
 
-    /// <summary>Removes the previous .exe left by an update. It may still be closing, so retry for a few seconds.</summary>
+    /// <summary>
+    /// Renames <paramref name="exe"/> out of the way (it may be running) and returns where it went. Normally
+    /// "DrangedAddons.exe.old"; if an older copy there is still running and can't be removed, a uniquely named one.
+    /// </summary>
+    internal static string SetAside(string exe)
+    {
+        var oldPath = exe + ".old";
+        try
+        {
+            if (File.Exists(oldPath)) File.Delete(oldPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            oldPath = $"{exe}.{DateTime.Now:yyyyMMddHHmmss}.old";
+        }
+        File.Move(exe, oldPath);
+        return oldPath;
+    }
+
+    /// <summary>Removes previous copies left by updates. One may still be closing, so retry for a few seconds.</summary>
     public static async Task CleanUpAsync()
     {
         if (ExePath is not { } exe) return;
-        var oldPath = exe + ".old";
-        for (var attempt = 0; attempt < 20 && File.Exists(oldPath); attempt++)
+        var dir = Path.GetDirectoryName(exe)!;
+        var pattern = Path.GetFileName(exe) + "*.old"; // DrangedAddons.exe.old and DrangedAddons.exe.<time>.old
+        for (var attempt = 0; attempt < 20; attempt++)
         {
-            try
+            var leftovers = Directory.GetFiles(dir, pattern);
+            if (leftovers.Length == 0) break;
+            var locked = false;
+            foreach (var file in leftovers)
             {
-                File.Delete(oldPath);
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    locked = true; // still running; try again shortly, or next launch
+                }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                await Task.Delay(500);
-            }
+            if (!locked) break;
+            await Task.Delay(500);
         }
         try
         {

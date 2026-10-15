@@ -1,7 +1,8 @@
 # Changelog
 
 ## 0.8.1
-- App icon: a black cat on a gold tile, used for the window, taskbar, shortcuts and Settings → Apps.
+- App icon: an impossible (Penrose) triangle in three golds on black, used for the window, taskbar, shortcuts and
+  Settings → Apps.
 
 ## 0.8.0
 - Installs like a normal app: the first time you run the downloaded `DrangedAddons.exe` it offers to install itself

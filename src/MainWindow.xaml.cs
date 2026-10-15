@@ -203,7 +203,7 @@ public partial class MainWindow : Window
         var updates = _rows.Count(r => r.State == AddonState.UpdateAvailable);
         UpdateAllButton.IsEnabled = !_working && updates > 0;
         UpdateAllButton.Content = updates > 0 ? $"Update all ({updates})" : "Update all";
-        OpenFolderButton.IsEnabled = CurrentFlavor is not null;
+        OpenFolderButton.IsEnabled = OpenFolderMenu.IsEnabled = CurrentFlavor is not null;
 
         EmptyText.Text = _root is null ? "Pick your World of Warcraft folder to get started."
             : _loadError is not null ? _loadError
@@ -228,6 +228,7 @@ public partial class MainWindow : Window
         _working = working;
         RefreshButton.IsEnabled = !working;
         ChangeFolderButton.IsEnabled = !working;
+        ChangeFolderMenu.IsEnabled = !working;
         FlavorList.IsEnabled = !working;
         if (working) UpdateAllButton.IsEnabled = false;
         if (status is not null) StatusText.Text = status;
@@ -357,24 +358,55 @@ public partial class MainWindow : Window
 
     AppRelease? _appUpdate;
 
-    async Task CheckForAppUpdateAsync()
+    /// <summary>
+    /// Shows the update bar when a newer app release exists. When <paramref name="interactive"/> (Help menu),
+    /// always reports the outcome and offers to update straight away.
+    /// </summary>
+    async Task CheckForAppUpdateAsync(bool interactive = false)
     {
         await AppUpdater.CleanUpAsync();
-        if (!AppUpdater.CanSelfUpdate) return;
+        if (!AppUpdater.CanSelfUpdate && !interactive) return;
         try
         {
             _appUpdate = await AppUpdater.CheckAsync(_github);
         }
-        catch
+        catch (Exception ex)
         {
-            return; // not being able to check for an app update shouldn't get in the way of addons
+            // Not being able to check for an app update shouldn't get in the way of addons, unless asked.
+            if (interactive) ShowMessage($"Couldn't check for app updates:\n\n{ex.Message}", MessageBoxImage.Warning);
+            return;
         }
-        if (_appUpdate is null) return;
+
+        if (_appUpdate is null)
+        {
+            if (interactive) ShowMessage($"You're on the latest version of DrangedAddons ({AppUpdater.CurrentVersion}).");
+            return;
+        }
+
         UpdateBannerText.Text = $"DrangedAddons {_appUpdate.Version} is available (you have {AppUpdater.CurrentVersion}).";
         UpdateBanner.Visibility = Visibility.Visible;
+        if (!interactive) return;
+
+        if (!AppUpdater.CanSelfUpdate)
+        {
+            ShowMessage($"DrangedAddons {_appUpdate.Version} is available, but this copy can't update itself. " +
+                        "Download it from the releases page (Help → DrangedAddons on GitHub).");
+            return;
+        }
+        var answer = MessageBox.Show(this,
+            $"DrangedAddons {_appUpdate.Version} is available (you have {AppUpdater.CurrentVersion}).\n\n" +
+            "Update now? DrangedAddons will restart.",
+            "DrangedAddons", MessageBoxButton.YesNo, MessageBoxImage.Information);
+        if (answer == MessageBoxResult.Yes)
+            await ApplySelfUpdateAsync();
     }
 
-    async void SelfUpdate_Click(object sender, RoutedEventArgs e)
+    void ShowMessage(string text, MessageBoxImage image = MessageBoxImage.Information) =>
+        MessageBox.Show(this, text, "DrangedAddons", MessageBoxButton.OK, image);
+
+    async void SelfUpdate_Click(object sender, RoutedEventArgs e) => await ApplySelfUpdateAsync();
+
+    async Task ApplySelfUpdateAsync()
     {
         if (_appUpdate is null || _working) return;
         SetWorking(true, $"Downloading DrangedAddons {_appUpdate.Version}…");
@@ -436,6 +468,19 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(flavor.AddOnsPath);
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{flavor.AddOnsPath}\"") { UseShellExecute = true });
     }
+
+    async void CheckAppUpdates_Click(object sender, RoutedEventArgs e) => await CheckForAppUpdateAsync(interactive: true);
+
+    void OpenAppRepo_Click(object sender, RoutedEventArgs e) =>
+        Process.Start(new ProcessStartInfo($"https://github.com/{GitHubClient.Org}/{GitHubClient.Org}/releases")
+            { UseShellExecute = true });
+
+    void About_Click(object sender, RoutedEventArgs e) =>
+        ShowMessage($"DrangedAddons {AppUpdater.CurrentVersion}\n\n" +
+                    "Installs and updates the World of Warcraft addons from github.com/DrangedAddons.\n\n" +
+                    $"App settings are kept in {Storage.Dir}.");
+
+    void Exit_Click(object sender, RoutedEventArgs e) => Close();
 
     void ReleaseNotes_Click(object sender, RoutedEventArgs e)
     {

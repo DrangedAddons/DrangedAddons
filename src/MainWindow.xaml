@@ -5,7 +5,22 @@
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI" FontSize="13">
-    <Grid Margin="20">
+    <DockPanel>
+    <Menu DockPanel.Dock="Top" Style="{StaticResource DarkMenu}">
+        <MenuItem Header="_File">
+            <MenuItem x:Name="OpenFolderMenu" Header="Open AddOns folder" Click="OpenFolder_Click"/>
+            <MenuItem x:Name="ChangeFolderMenu" Header="Change WoW folder…" Click="ChangeFolder_Click"/>
+            <Separator Style="{StaticResource MenuSeparator}"/>
+            <MenuItem Header="Exit" Click="Exit_Click"/>
+        </MenuItem>
+        <MenuItem Header="_Help">
+            <MenuItem Header="Check for app updates" Click="CheckAppUpdates_Click"/>
+            <MenuItem Header="DrangedAddons on GitHub" Click="OpenAppRepo_Click"/>
+            <Separator Style="{StaticResource MenuSeparator}"/>
+            <MenuItem Header="About DrangedAddons" Click="About_Click"/>
+        </MenuItem>
+    </Menu>
+    <Grid Margin="20,16,20,20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -128,4 +143,5 @@
 
         <TextBlock x:Name="StatusText" Grid.Row="3" Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}"/>
     </Grid>
+    </DockPanel>
 </Window>

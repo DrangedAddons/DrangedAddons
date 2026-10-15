@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+- Menu bar: **File** (Open AddOns folder, Change WoW folder…, Exit) and **Help** (Check for app updates,
+  DrangedAddons on GitHub, About).
+- **Help → Check for app updates** always reports back: it offers to update and restart straight away, or says
+  you're already on the latest version.
+
 ## 0.6.0
 - Addons can say which games they're for: an addon whose `.toc` has `## X-DrangedAddons-Games: _classic_beta_, _forever_`
   is only listed in those games (still listed where it's already installed). Without the line, it's listed everywhere.

@@ -1,0 +1,53 @@
+# Builds DrangedAddons.exe and publishes a GitHub Release when a version tag (v*) is pushed.
+# Ordinary pushes to main do nothing - only a deliberately pushed tag cuts a release, and the
+# release is what every copy of the app offers as its "Restart to update".
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Check the tag matches the app version
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/DrangedAddons.csproj | tr -d '\r')
+          if [ "v${VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} doesn't match the <Version> ${VERSION} in src/DrangedAddons.csproj" >&2
+            exit 1
+          fi
+
+      - name: Build DrangedAddons.exe
+        run: dotnet publish src -c Release -o publish
+
+      - name: Release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          tr -d '\r' < CHANGELOG.md | awk -v v="## ${VERSION}" '
+            $0 == v { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' > notes.md
+          if [ ! -s notes.md ]; then echo "DrangedAddons ${GITHUB_REF_NAME}" > notes.md; fi
+          cat notes.md
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" publish/DrangedAddons.exe \
+            --title "DrangedAddons ${GITHUB_REF_NAME}" --notes-file notes.md

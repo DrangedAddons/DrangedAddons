@@ -1,0 +1,115 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+using Microsoft.Win32;
+
+namespace DrangedAddons;
+
+public sealed record WowFlavor(string Folder, string DisplayName, string AddOnsPath)
+{
+    public override string ToString() => DisplayName;
+}
+
+/// <summary>Finds the World of Warcraft root folder and the game versions (_retail_, _classic_era_, ...) inside it.</summary>
+public static class WowLocator
+{
+    static readonly Regex FlavorFolder = new(@"^_[a-z0-9_]+_$", RegexOptions.IgnoreCase);
+
+    static readonly Dictionary<string, string> KnownNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["_retail_"] = "Retail",
+        ["_ptr_"] = "Retail PTR",
+        ["_xptr_"] = "Retail XPTR",
+        ["_beta_"] = "Retail Beta",
+        ["_classic_"] = "Classic",
+        ["_classic_ptr_"] = "Classic PTR",
+        ["_classic_beta_"] = "Classic Beta",
+        ["_classic_era_"] = "Classic Era",
+        ["_classic_era_ptr_"] = "Classic Era PTR",
+        ["_anniversary_"] = "Anniversary",
+    };
+
+    public static string? RegistryInstallPath()
+    {
+        foreach (var key in new[]
+                 {
+                     @"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft",
+                     @"SOFTWARE\Blizzard Entertainment\World of Warcraft",
+                 })
+        {
+            try
+            {
+                using var k = Registry.LocalMachine.OpenSubKey(key);
+                if (k?.GetValue("InstallPath") is string path && path.Length > 0)
+                    return path;
+            }
+            catch
+            {
+                // Unreadable key: try the next one.
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The game-version folder the Battle.net launcher last registered, e.g. "_retail_".</summary>
+    public static string? RegistryFlavor() =>
+        RegistryInstallPath() is { } path ? Path.GetFileName(path.TrimEnd('\\', '/')) : null;
+
+    public static string? FindRoot()
+    {
+        var candidates = new List<string>();
+        if (RegistryInstallPath() is { } registered)
+            candidates.Add(registered);
+        foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
+        {
+            var r = drive.RootDirectory.FullName;
+            candidates.Add(Path.Combine(r, "Program Files (x86)", "World of Warcraft"));
+            candidates.Add(Path.Combine(r, "Program Files", "World of Warcraft"));
+            candidates.Add(Path.Combine(r, "Games", "World of Warcraft"));
+            candidates.Add(Path.Combine(r, "World of Warcraft"));
+        }
+        return candidates.Select(NormalizeRoot).FirstOrDefault(r => r is not null);
+    }
+
+    /// <summary>Accepts the WoW root or any game-version folder inside it; returns the root if it holds at least one game version.</summary>
+    public static string? NormalizeRoot(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path.Trim()).TrimEnd('\\', '/');
+            if (FlavorFolder.IsMatch(Path.GetFileName(full)))
+                full = Path.GetDirectoryName(full)!;
+            return Directory.Exists(full) && GetFlavors(full).Count > 0 ? full : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static List<WowFlavor> GetFlavors(string root)
+    {
+        var flavors = new List<WowFlavor>();
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(root))
+            {
+                var name = Path.GetFileName(dir);
+                if (!FlavorFolder.IsMatch(name)) continue;
+                var isGame = Directory.Exists(Path.Combine(dir, "Interface"))
+                             || Directory.EnumerateFiles(dir, "Wow*.exe").Any();
+                if (!isGame) continue;
+                flavors.Add(new WowFlavor(name, DisplayName(name), Path.Combine(dir, "Interface", "AddOns")));
+            }
+        }
+        catch
+        {
+            // Inaccessible folder: report whatever was found.
+        }
+        return flavors.OrderBy(f => f.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    static string DisplayName(string folder) =>
+        KnownNames.TryGetValue(folder, out var name)
+            ? name
+            : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(folder.Trim('_').Replace('_', ' '));
+}

@@ -40,6 +40,7 @@ public partial class VersionsWindow : Window
         Func<string?> installedVersion, Func<AddonVersion, Window, Task<bool>> install)
     {
         InitializeComponent();
+        DarkTitleBar.Apply(this);
         if (icon is not null)
         {
             HeaderIcon.Source = icon;

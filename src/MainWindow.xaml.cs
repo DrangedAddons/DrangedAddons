@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        DarkTitleBar.Apply(this);
         VersionText.Text = $"v{AppUpdater.CurrentVersion}";
         AddonList.ItemsSource = _rows;
         BetaCheck.IsChecked = _settings.ShowBeta;

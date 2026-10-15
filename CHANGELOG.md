@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+- Addons can say which games they're for: an addon whose `.toc` has `## X-DrangedAddons-Games: _classic_beta_, _forever_`
+  is only listed in those games (still listed where it's already installed). Without the line, it's listed everywhere.
+
 ## 0.5.0
 - The app now updates itself: when a newer DrangedAddons release exists, a bar offers "Restart to update".
 - Addon icons: `icon.ico` (or `icon.png`) from the root of each addon repo is shown next to its name.

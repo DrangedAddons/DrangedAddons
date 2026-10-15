@@ -6,7 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>0.7.0</Version>
+    <Version>0.8.0</Version>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <Product>DrangedAddons</Product>
     <AssemblyTitle>DrangedAddons</AssemblyTitle>
   </PropertyGroup>

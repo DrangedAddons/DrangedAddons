@@ -36,8 +36,10 @@ App data (settings, install records, HTTP cache) lives in `%AppData%\DrangedAddo
 ## Getting the app
 
 Download `DrangedAddons.exe` from the [latest release](https://github.com/DrangedAddons/DrangedAddons/releases/latest)
-and run it; there's nothing to install. After that the app keeps itself up to date: when a newer release exists it
-shows a "Restart to update" bar. This repo is the app itself, so it never appears in its own addon list.
+and run it. The first run offers to install it for your Windows account (`%LocalAppData%\Programs\DrangedAddons`,
+Start menu and desktop shortcuts, listed in Settings → Apps; no administrator prompt). After that the app keeps
+itself up to date: when a newer release exists it shows a "Restart to update" bar. This repo is the app itself, so it
+never appears in its own addon list.
 
 Windows SmartScreen may warn about an unrecognised app the first time: choose **More info → Run anyway**.
 

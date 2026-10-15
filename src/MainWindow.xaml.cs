@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         Title = $"DrangedAddons {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}";
         AddonList.ItemsSource = _rows;
         BetaCheck.IsChecked = _settings.ShowBeta;
+        UninstallAppMenu.Visibility = AppInstaller.IsRunningInstalled ? Visibility.Visible : Visibility.Collapsed;
         Loaded += async (_, _) =>
         {
             LoadFlavors();
@@ -481,6 +482,12 @@ public partial class MainWindow : Window
                     $"App settings are kept in {Storage.Dir}.");
 
     void Exit_Click(object sender, RoutedEventArgs e) => Close();
+
+    void UninstallApp_Click(object sender, RoutedEventArgs e)
+    {
+        if (AppInstaller.Uninstall())
+            Application.Current.Shutdown();
+    }
 
     void ReleaseNotes_Click(object sender, RoutedEventArgs e)
     {

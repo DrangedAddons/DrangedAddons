@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+- Installs like a normal app: the first time you run the downloaded `DrangedAddons.exe` it offers to install itself
+  to `%LocalAppData%\Programs\DrangedAddons` with Start menu and desktop shortcuts and an entry in Settings → Apps
+  (no administrator prompt, and self-updates keep working). Running a downloaded copy again just opens the installed
+  one, upgrading it first if the download is newer.
+- **File → Uninstall DrangedAddons…** (or Settings → Apps) removes the app; installed addons and app settings are kept.
+- Dialogs use the modern Windows style.
+
 ## 0.7.0
 - Menu bar: **File** (Open AddOns folder, Change WoW folder…, Exit) and **Help** (Check for app updates,
   DrangedAddons on GitHub, About).

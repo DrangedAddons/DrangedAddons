@@ -18,7 +18,7 @@ public static class AppUpdater
     public static string CurrentVersion => typeof(AppUpdater).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     /// <summary>The running .exe, or null when it can't replace itself (a dev build with its .dll beside it).</summary>
-    static string? ExePath
+    internal static string? ExePath
     {
         get
         {

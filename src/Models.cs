@@ -58,8 +58,13 @@ public sealed record RemoteAddon(
     string DefaultBranch,
     string? TocPath,
     AddonVersion? LatestRelease,
-    AddonVersion? LatestBeta)
+    AddonVersion? LatestBeta,
+    IReadOnlyList<string> Games)
 {
+    /// <summary>Whether it's for this game-version folder: listed in its .toc, or no games listed at all.</summary>
+    public bool IsFor(string flavorFolder) =>
+        Games.Count == 0 || Games.Contains(flavorFolder, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The version to offer: the branch head only when betas are shown and it's newer than the latest release.</summary>
     public AddonVersion? LatestFor(bool includeBeta) =>
         includeBeta && LatestBeta is { } beta

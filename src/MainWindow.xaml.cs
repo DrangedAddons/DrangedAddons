@@ -94,6 +94,8 @@ public partial class MainWindow : Window
             {
                 // Without betas, an addon that has never been tagged has nothing to offer yet.
                 if (remote.LatestFor(_settings.ShowBeta) is not { } latest) continue;
+                // Only in the games it's for - unless it's already in this one (so it can still be managed).
+                if (!remote.IsFor(flavor.Folder) && !IsInstalledIn(remote.Name, flavor)) continue;
                 if (!_icons.TryGetValue(remote.Name, out var icon))
                     _icons[remote.Name] = icon = AddonIcons.LoadCached(remote.Name);
                 var row = new AddonRow(remote, latest) { Icon = icon };
@@ -113,6 +115,10 @@ public partial class MainWindow : Window
         foreach (var row in _rows.Where(r => r.Name == addon.Name))
             row.Icon = icon;
     }
+
+    bool IsInstalledIn(string name, WowFlavor flavor) =>
+        _manifest.For(flavor.AddOnsPath).ContainsKey(name)
+        || Directory.Exists(Path.Combine(flavor.AddOnsPath, name));
 
     string MainFolder(AddonRow row, WowFlavor flavor) =>
         Path.Combine(flavor.AddOnsPath,

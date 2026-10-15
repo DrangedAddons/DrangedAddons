@@ -29,6 +29,21 @@ public static class AddonInstaller
         return null;
     }
 
+    /// <summary>
+    /// The game-version folders an addon is for, from its .toc's "## X-DrangedAddons-Games:" line
+    /// (e.g. "_classic_beta_, _forever_"). Empty when the line is missing: the addon is for every game.
+    /// </summary>
+    public static IReadOnlyList<string> ParseTocGames(IEnumerable<string> lines)
+    {
+        const string key = "## X-DrangedAddons-Games:";
+        foreach (var line in lines)
+        {
+            if (!line.StartsWith(key, StringComparison.OrdinalIgnoreCase)) continue;
+            return line[key.Length..].Split([',', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+        return [];
+    }
+
     public static string? ParseTocVersion(IEnumerable<string> lines)
     {
         foreach (var line in lines)

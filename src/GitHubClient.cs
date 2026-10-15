@@ -68,7 +68,11 @@ public sealed class GitHubClient
         var release = releaseTask.Result;
         var (tocPath, head) = headTask.Result;
         if (release is null && head is null) return null;
-        return new RemoteAddon(repo, description, branch, tocPath, release, head);
+        // which games it's for (its .toc on the default branch; none listed: every game)
+        var games = tocPath is not null && head?.Commit is { } sha
+            ? await GetTocGamesAsync(repo, sha, tocPath, ct)
+            : [];
+        return new RemoteAddon(repo, description, branch, tocPath, release, head, games);
     }
 
     async Task<AddonVersion?> GetLatestReleaseAsync(string repo, CancellationToken ct)
@@ -239,6 +243,21 @@ public sealed class GitHubClient
         var version = text is null ? null : AddonInstaller.ParseTocVersion(text.Split('\n'));
         lock (_tocVersions) _tocVersions[key] = version ?? "";
         return version;
+    }
+
+    /// <summary>The games its .toc lists at this commit (cached with the versions: commits never change).</summary>
+    async Task<IReadOnlyList<string>> GetTocGamesAsync(string repo, string sha, string path, CancellationToken ct)
+    {
+        var key = $"games|{repo}@{sha}:{path}";
+        lock (_tocVersions)
+        {
+            if (_tocVersions.TryGetValue(key, out var known))
+                return known.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        }
+        var text = await GetRawAsync(repo, sha, path, ct);
+        var games = text is null ? [] : AddonInstaller.ParseTocGames(text.Split('\n'));
+        lock (_tocVersions) _tocVersions[key] = string.Join(',', games);
+        return games;
     }
 
     async Task<string?> GetRawAsync(string repo, string gitRef, string path, CancellationToken ct)

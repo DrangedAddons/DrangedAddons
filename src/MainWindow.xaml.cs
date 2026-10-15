@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = $"DrangedAddons {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}";
+        VersionText.Text = $"v{AppUpdater.CurrentVersion}";
         AddonList.ItemsSource = _rows;
         BetaCheck.IsChecked = _settings.ShowBeta;
         UninstallAppMenu.Visibility = AppInstaller.IsRunningInstalled ? Visibility.Visible : Visibility.Collapsed;
@@ -476,10 +476,17 @@ public partial class MainWindow : Window
         Process.Start(new ProcessStartInfo($"https://github.com/{GitHubClient.Org}/{GitHubClient.Org}/releases")
             { UseShellExecute = true });
 
-    void About_Click(object sender, RoutedEventArgs e) =>
+    async void About_Click(object sender, RoutedEventArgs e)
+    {
+        var access = await GitHubClient.IsSignedInAsync()
+            ? "Signed in to GitHub through the GitHub CLI (5,000 checks an hour)."
+            : "Using GitHub without signing in (60 checks an hour per internet connection).";
         ShowMessage($"DrangedAddons {AppUpdater.CurrentVersion}\n\n" +
                     "Installs and updates the World of Warcraft addons from github.com/DrangedAddons.\n\n" +
-                    $"App settings are kept in {Storage.Dir}.");
+                    $"{access}\n\n" +
+                    $"Installed in {(AppInstaller.IsRunningInstalled ? AppInstaller.InstallDir : Path.GetDirectoryName(Environment.ProcessPath))}\n" +
+                    $"App settings are kept in {Storage.Dir}");
+    }
 
     void Exit_Click(object sender, RoutedEventArgs e) => Close();
 

@@ -7,6 +7,9 @@
   one, upgrading it first if the download is newer.
 - **File → Uninstall DrangedAddons…** (or Settings → Apps) removes the app; installed addons and app settings are kept.
 - Dialogs use the modern Windows style.
+- The window is just called "DrangedAddons"; the version is shown bottom-right and in Help → About.
+- If the GitHub CLI is signed in on the PC (or `GH_TOKEN` / `GITHUB_TOKEN` is set), the app uses that login:
+  5,000 GitHub checks an hour instead of 60 shared by the whole internet connection. Help → About shows which.
 
 ## 0.7.0
 - Menu bar: **File** (Open AddOns folder, Change WoW folder…, Exit) and **Help** (Check for app updates,

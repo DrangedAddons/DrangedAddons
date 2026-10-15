@@ -142,7 +142,11 @@
                        TextWrapping="Wrap" MaxWidth="460" Foreground="{StaticResource MutedBrush}" Visibility="Collapsed"/>
         </Grid>
 
-        <TextBlock x:Name="StatusText" Grid.Row="3" Margin="0,8,0,0" Foreground="{StaticResource MutedBrush}"/>
+        <DockPanel Grid.Row="3" Margin="0,8,0,0">
+            <TextBlock x:Name="VersionText" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}"
+                       ToolTip="Help → Check for app updates"/>
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
+        </DockPanel>
     </Grid>
     </DockPanel>
 </Window>

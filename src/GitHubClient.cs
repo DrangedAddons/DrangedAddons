@@ -11,9 +11,11 @@ public sealed class RateLimitException(DateTimeOffset? reset) : Exception(
 public sealed record CachedResponse(string ETag, string Body);
 
 /// <summary>
-/// Reads the public DrangedAddons org anonymously. API responses are cached with ETags, and GitHub doesn't count
-/// "304 Not Modified" replies against the 60-requests-per-hour anonymous limit. File contents at a commit come from
+/// Reads the public DrangedAddons org. API responses are cached with ETags, and GitHub doesn't count
+/// "304 Not Modified" replies against the hourly limit. File contents at a commit come from
 /// raw.githubusercontent.com and source zips from codeload.github.com, neither of which uses that limit.
+/// Anonymous use gets 60 API requests an hour per internet connection; when the GitHub CLI is signed in on this PC
+/// (or GH_TOKEN / GITHUB_TOKEN is set), its login is used instead for 5,000 an hour.
 /// </summary>
 public sealed class GitHubClient
 {
@@ -22,6 +24,46 @@ public sealed class GitHubClient
     const string TocCacheFile = "toc-versions.json";
 
     static readonly HttpClient Http = CreateHttp();
+
+    // Looked up once in the background; only ever sent to api.github.com.
+    static readonly Task<string?> TokenTask = Task.Run(FindToken);
+    static volatile bool _tokenRejected;
+
+    /// <summary>Whether API requests are signed in (5,000 an hour) rather than anonymous (60 an hour).</summary>
+    public static async Task<bool> IsSignedInAsync() => !_tokenRejected && await TokenTask is not null;
+
+    static string? FindToken()
+    {
+        foreach (var name in new[] { "GH_TOKEN", "GITHUB_TOKEN" })
+        {
+            if (Environment.GetEnvironmentVariable(name) is { Length: > 0 } token)
+                return token.Trim();
+        }
+        try
+        {
+            var info = new System.Diagnostics.ProcessStartInfo("gh", "auth token")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var gh = System.Diagnostics.Process.Start(info);
+            if (gh is null) return null;
+            var output = gh.StandardOutput.ReadToEndAsync();
+            if (!gh.WaitForExit(5000))
+            {
+                gh.Kill();
+                return null;
+            }
+            var token = output.Result.Trim();
+            return gh.ExitCode == 0 && token.Length > 0 ? token : null;
+        }
+        catch
+        {
+            return null; // GitHub CLI not installed: stay anonymous
+        }
+    }
 
     readonly Dictionary<string, CachedResponse> _cache = Storage.Load<Dictionary<string, CachedResponse>>(CacheFile);
 
@@ -320,8 +362,17 @@ public sealed class GitHubClient
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         if (cached is not null)
             request.Headers.TryAddWithoutValidation("If-None-Match", cached.ETag);
+        var token = _tokenRejected ? null : await TokenTask;
+        if (token is not null)
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
 
         using var response = await Http.SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.Unauthorized && token is not null)
+        {
+            // Expired or revoked login: carry on anonymously.
+            _tokenRejected = true;
+            return await GetJsonAsync(url, ct);
+        }
         if (response.StatusCode == HttpStatusCode.NotModified && cached is not null)
             return cached.Body;
         if (response.StatusCode == HttpStatusCode.NotFound)

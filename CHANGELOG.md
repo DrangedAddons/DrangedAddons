@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1
+- A purple **BETA** bubble next to an addon's name when the version shown is an untagged beta build rather than a
+  full tagged release (hover it for details). It replaces the "(beta)" text after version numbers.
+
 ## 0.12.0
 - Each row in the list has one thing on the right: an **Install / Update / Pull** button when there's something to
   do, otherwise "✓ Up to date" (or "Git working copy"). The details page does the same.

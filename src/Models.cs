@@ -154,10 +154,24 @@ public sealed class AddonRow : INotifyPropertyChanged
 
     /// <summary>Compact version for the list row: the installed one (→ the newer one when there's an update), else the latest.</summary>
     public string RowVersionText => _installedVersion is null
-        ? $"v{Latest.Label}"
+        ? $"v{Latest.Version}"
         : _state == AddonState.UpdateAvailable
-            ? $"v{_installedVersion}  →  {Latest.Label}"
+            ? $"v{_installedVersion}  →  {Latest.Version}"
             : $"v{_installedVersion}";
+
+    bool _installedIsBeta;
+
+    /// <summary>
+    /// Whether the version shown is an untagged beta build: the installed one, or (not installed / an update on
+    /// offer) the version being offered.
+    /// </summary>
+    public bool IsBeta => _installedVersion is null || _state == AddonState.UpdateAvailable
+        ? !Latest.IsRelease
+        : _installedIsBeta;
+
+    public string BetaTip => _installedVersion is not null && _state != AddonState.UpdateAvailable
+        ? "The installed version is a beta: an untagged build from the addon's main branch, not a full tagged release."
+        : "This version is a beta: an untagged build from the addon's main branch, not a full tagged release.";
 
     public string RowSubText => Remote.Author is { } a ? $"{RowVersionText}  ·  by {a}" : RowVersionText;
 
@@ -221,10 +235,11 @@ public sealed class AddonRow : INotifyPropertyChanged
         _ => "Move this addon's folders to the Recycle Bin. Your settings are kept.",
     };
 
-    public void Update(AddonState state, string? installedVersion)
+    public void Update(AddonState state, string? installedVersion, bool installedIsBeta = false)
     {
         _state = state;
         _installedVersion = installedVersion;
+        _installedIsBeta = installedIsBeta;
         RaiseAll();
     }
 

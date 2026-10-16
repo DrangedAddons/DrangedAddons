@@ -131,7 +131,12 @@
                                                Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}"/>
                                     </Grid>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                            <Border Style="{StaticResource BetaBubble}">
+                                                <TextBlock Text="BETA" Foreground="White" FontSize="9.5" FontWeight="Bold"/>
+                                            </Border>
+                                        </StackPanel>
                                         <TextBlock Text="{Binding RowSubText}" Foreground="{StaticResource MutedBrush}" FontSize="12"
                                                    TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
@@ -188,6 +193,9 @@
                                         <Border Background="{Binding StatusBrush}" CornerRadius="9" Padding="8,1"
                                                 Margin="12,0,0,0" VerticalAlignment="Center">
                                             <TextBlock Text="{Binding StatusText}" Foreground="#111111" FontSize="11" FontWeight="SemiBold"/>
+                                        </Border>
+                                        <Border Style="{StaticResource BetaBubble}">
+                                            <TextBlock Text="BETA" Foreground="White" FontSize="10.5" FontWeight="Bold"/>
                                         </Border>
                                     </StackPanel>
                                     <TextBlock Text="{Binding AuthorText}" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>

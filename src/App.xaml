@@ -91,6 +91,18 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Small "BETA" bubble for untagged builds (DataContext = an AddonRow). -->
+        <Style x:Key="BetaBubble" TargetType="Border">
+            <Setter Property="Background" Value="#7E5BD0"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="6,0,6,1"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Help"/>
+            <Setter Property="ToolTip" Value="{Binding BetaTip}"/>
+            <Setter Property="Visibility" Value="{Binding IsBeta, Converter={StaticResource BoolToVis}}"/>
+        </Style>
+
         <!-- Compact clickable row in the addon list. -->
         <Style x:Key="AddonRow" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource PanelBrush}"/>

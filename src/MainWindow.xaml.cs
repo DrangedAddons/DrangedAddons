@@ -346,8 +346,7 @@ public partial class MainWindow : Window
         // Trust our own record first; fall back to the .toc for copies installed by hand.
         var version = record?.Version ?? AddonInstaller.ReadTocVersion(mainFolder);
         var upToDate = version is not null && Versions.Compare(version, row.LatestVersion) >= 0;
-        var label = version is null ? "unknown" : record?.IsBeta == true ? $"{version} (beta)" : version;
-        row.Update(upToDate ? AddonState.UpToDate : AddonState.UpdateAvailable, label);
+        row.Update(upToDate ? AddonState.UpToDate : AddonState.UpdateAvailable, version ?? "unknown", record?.IsBeta == true);
     }
 
     /// <summary>The installed version in this game folder, or null if it isn't installed.</summary>

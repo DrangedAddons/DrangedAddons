@@ -11,7 +11,7 @@ import math
 import sys
 
 import numpy as np
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 S = 1024
 SS = 4                      # supersampling factor for smooth edges
@@ -21,7 +21,10 @@ PAD = 30                    # keep the triangle this far inside the tile edge
 GOLD = (212, 167, 44, 255)
 DARK_GOLD = (160, 120, 24, 255)
 BLACK = (0, 0, 0, 255)
-THREE_TONES = [(236, 194, 78, 255), (212, 167, 44, 255), (150, 112, 22, 255)]
+# Pale gold, rich gold, deep bronze: far enough apart to stay distinct at 16 px.
+THREE_TONES = [(253, 232, 160, 255), (210, 150, 24, 255), (98, 64, 10, 255)]
+OUTLINE = 22               # black outline (and gap fill) at 1024 px; small icon frames get a thicker one
+SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 MODE = "three"  # "three": one tone per piece; "two": lit outer faces, shaded inner faces
 BACKGROUND = "transparent"  # "transparent": the triangle alone; "tile": on a black rounded tile
 EDGE = 8                    # with no tile, keep the triangle this far from the icon's edge
@@ -98,13 +101,14 @@ def fold_sectors(mask):
     return sectors, (cx, cy)
 
 
-def main(template, out_ico, out_png):
-    alpha = Image.open(template).getchannel("A")
+def render(alpha, outline):
+    """The icon at S x S px, with a black outline `outline` px wide (in S-px units) around the shape."""
     bbox = alpha.getbbox()
     if BACKGROUND == "tile":
         inner = rounded((TILE[0] + PAD, TILE[1] + PAD, TILE[2] - PAD, TILE[3] - PAD), max(RADIUS - PAD, 0), SS)
     else:
-        inner = rounded((EDGE, EDGE, S - EDGE, S - EDGE), 0, SS)
+        margin = EDGE + outline
+        inner = rounded((margin, margin, S - margin, S - margin), 0, SS)
     lo, hi = 100.0, float(S)
     for _ in range(18):  # binary search for the largest size that stays inside the tile
         mid = (lo + hi) / 2
@@ -113,37 +117,46 @@ def main(template, out_ico, out_png):
         else:
             hi = mid
     whole = place(alpha, bbox, lo)
-    sectors, (cx, cy) = fold_sectors(whole)
 
     big = Image.new("RGBA", (S * SS, S * SS), (0, 0, 0, 0))
     if BACKGROUND == "tile":
         big.paste(Image.new("RGBA", big.size, BLACK), (0, 0), rounded(TILE, RADIUS, SS))
+    if outline:
+        # Round dilation: blur, then threshold where a straight edge's blur falls to ~2% (2 sigma out).
+        small = whole.resize((S, S), Image.BILINEAR)
+        halo = small.filter(ImageFilter.GaussianBlur(outline / 2)).point(lambda v: 255 if v > 6 else 0)
+        halo = halo.resize(big.size, Image.BICUBIC).point(lambda v: 255 if v >= 128 else 0)
+        big.paste(Image.new("RGBA", big.size, BLACK), (0, 0), halo)
+
     if MODE == "three":
-        # One tone per piece: bright, mid and deep gold, so the three bars read as separate objects.
+        # One tone per piece, so the three bars read as separate objects.
         for piece, tone in zip(components(alpha), THREE_TONES):
             big.paste(Image.new("RGBA", big.size, tone), (0, 0), place(piece, bbox, lo))
-        return finish(big, out_ico, out_png, lo, alpha)
+    else:
+        sectors, (cx, cy) = fold_sectors(whole)
+        gold, dark = Image.new("RGBA", big.size, GOLD), Image.new("RGBA", big.size, DARK_GOLD)
+        for piece in components(alpha):
+            piece_mask = place(piece, bbox, lo)
+            parts = [ImageChops.multiply(piece_mask, s) for s in sectors]
+            parts = [p for p in parts if p.getbbox()]
+            # The part farther from the centre is the outer face (lit); the nearer one is the inner face (shaded).
+            def mean_dist(p):
+                ys, xs = np.nonzero(np.array(p.resize((S, S))) > 0)
+                return np.hypot(xs * SS - cx, ys * SS - cy).mean() if len(xs) else 0
+            parts.sort(key=mean_dist, reverse=True)
+            for i, part in enumerate(parts):
+                big.paste(gold if i == 0 else dark, (0, 0), part)
+    return big.resize((S, S), Image.LANCZOS)
 
-    gold, dark = Image.new("RGBA", big.size, GOLD), Image.new("RGBA", big.size, DARK_GOLD)
-    for piece in components(alpha):
-        piece_mask = place(piece, bbox, lo)
-        parts = [ImageChops.multiply(piece_mask, s) for s in sectors]
-        parts = [p for p in parts if p.getbbox()]
-        # The part farther from the centre is the outer face (lit); the nearer one is the inner face (shaded).
-        def mean_dist(p):
-            ys, xs = np.nonzero(np.array(p.resize((S, S))) > 0)
-            return np.hypot(xs * SS - cx, ys * SS - cy).mean() if len(xs) else 0
-        parts.sort(key=mean_dist, reverse=True)
-        for i, part in enumerate(parts):
-            big.paste(gold if i == 0 else dark, (0, 0), part)
-    return finish(big, out_ico, out_png, lo, alpha)
 
-
-def finish(big, out_ico, out_png, lo, alpha):
-    icon = big.resize((S, S), Image.LANCZOS)
+def main(template, out_ico, out_png):
+    alpha = Image.open(template).getchannel("A")
+    icon = render(alpha, OUTLINE)
     icon.save(out_png)
-    icon.save(out_ico, format="ICO", sizes=[(s, s) for s in (16, 20, 24, 32, 40, 48, 64, 128, 256)])
-    print(f"triangle width {lo:.0f}px of {S}px; {len(components(alpha))} pieces")
+    # Each icon size gets an outline at least ~1.2 px wide at that size, so it still shows on the taskbar.
+    frames = [render(alpha, max(OUTLINE, 1.2 * S / size)).resize((size, size), Image.LANCZOS) for size in SIZES]
+    frames[-1].save(out_ico, format="ICO", sizes=[(f.width, f.height) for f in frames], append_images=frames[:-1])
+    print(f"{len(components(alpha))} pieces; outline {OUTLINE}px at {S}px, thicker in small frames")
 
 
 if __name__ == "__main__":

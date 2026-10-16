@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.9.4
+- The app icon has a transparent background (no black tile), so the triangle fills the whole icon.
+
 ## 0.9.3
 - The game-version drop-down shows just the count: "Classic Beta (1)".
 

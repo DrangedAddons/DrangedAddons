@@ -1,4 +1,5 @@
-"""DrangedAddons app icon: the Penrose triangle template in two golds on a black rounded tile, as large as fits.
+"""DrangedAddons app icon: the Penrose triangle template in golds, as large as fits (transparent background by
+default, or on a black rounded tile with BACKGROUND = "tile").
 
 Usage: python tools/make_icon.py tools/icon-template.png src/app.ico <preview.png> [three|two]
 
@@ -22,6 +23,8 @@ DARK_GOLD = (160, 120, 24, 255)
 BLACK = (0, 0, 0, 255)
 THREE_TONES = [(236, 194, 78, 255), (212, 167, 44, 255), (150, 112, 22, 255)]
 MODE = "three"  # "three": one tone per piece; "two": lit outer faces, shaded inner faces
+BACKGROUND = "transparent"  # "transparent": the triangle alone; "tile": on a black rounded tile
+EDGE = 8                    # with no tile, keep the triangle this far from the icon's edge
 
 
 def components(alpha):
@@ -98,7 +101,10 @@ def fold_sectors(mask):
 def main(template, out_ico, out_png):
     alpha = Image.open(template).getchannel("A")
     bbox = alpha.getbbox()
-    inner = rounded((TILE[0] + PAD, TILE[1] + PAD, TILE[2] - PAD, TILE[3] - PAD), max(RADIUS - PAD, 0), SS)
+    if BACKGROUND == "tile":
+        inner = rounded((TILE[0] + PAD, TILE[1] + PAD, TILE[2] - PAD, TILE[3] - PAD), max(RADIUS - PAD, 0), SS)
+    else:
+        inner = rounded((EDGE, EDGE, S - EDGE, S - EDGE), 0, SS)
     lo, hi = 100.0, float(S)
     for _ in range(18):  # binary search for the largest size that stays inside the tile
         mid = (lo + hi) / 2
@@ -110,7 +116,8 @@ def main(template, out_ico, out_png):
     sectors, (cx, cy) = fold_sectors(whole)
 
     big = Image.new("RGBA", (S * SS, S * SS), (0, 0, 0, 0))
-    big.paste(Image.new("RGBA", big.size, BLACK), (0, 0), rounded(TILE, RADIUS, SS))
+    if BACKGROUND == "tile":
+        big.paste(Image.new("RGBA", big.size, BLACK), (0, 0), rounded(TILE, RADIUS, SS))
     if MODE == "three":
         # One tone per piece: bright, mid and deep gold, so the three bars read as separate objects.
         for piece, tone in zip(components(alpha), THREE_TONES):
@@ -136,7 +143,7 @@ def finish(big, out_ico, out_png, lo, alpha):
     icon = big.resize((S, S), Image.LANCZOS)
     icon.save(out_png)
     icon.save(out_ico, format="ICO", sizes=[(s, s) for s in (16, 20, 24, 32, 40, 48, 64, 128, 256)])
-    print(f"triangle width {lo / (TILE[2] - TILE[0]):.0%} of the tile; {len(components(alpha))} pieces")
+    print(f"triangle width {lo:.0f}px of {S}px; {len(components(alpha))} pieces")
 
 
 if __name__ == "__main__":

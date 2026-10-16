@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 ## 0.12.1
 - A purple **BETA** bubble next to an addon's name when the version shown is an untagged beta build rather than a
@@ -7,22 +7,22 @@
 
 ## 0.12.0
 - Each row in the list has one thing on the right: an **Install / Update / Pull** button when there's something to
-  do, otherwise "âœ“ Up to date" (or "Git working copy"). The details page does the same.
+  do, otherwise "✓ Up to date" (or "Git working copy"). The details page does the same.
 - **Right-click an addon** for Open details, Browse folder, View changelog and, set apart in red, **Delete addon**.
 - Deleting an addon asks to confirm, then whether to delete its saved settings too (account-wide and per
   character); "Keep settings" is the default. Everything goes to the Recycle Bin. The details page's Uninstall
   button uses the same steps.
 
 ## 0.11.0
-- **Compact addon list.** Each addon is one slim row: icon, name, version (with "â†’ new version" when there's an
+- **Compact addon list.** Each addon is one slim row: icon, name, version (with "→ new version" when there's an
   update), author (from the addon's `.toc`) and its status.
 - **Details page.** Click an addon for its details: a larger icon, description, version info and links, and the
-  Install / Update / Pull, Versionsâ€¦ and Uninstall buttons. The back arrow (or Esc, or the mouse's back button)
+  Install / Update / Pull, Versions… and Uninstall buttons. The back arrow (or Esc, or the mouse's back button)
   returns to the list.
 
 ## 0.10.0
 - **Runs in the system tray.** Closing the window keeps DrangedAddons running in the tray; click the tray icon to
-  open it again, right-click it for Open / Check for updates / Exit. File â†’ Exit quits for real.
+  open it again, right-click it for Open / Check for updates / Exit. File → Exit quits for real.
 - While running it checks for addon and app updates every hour and shows a Windows notification for anything new
   (only while the window is hidden). Clicking the notification opens the app.
 - File menu settings (both on by default): **Keep running in the tray when closed** and **Show update
@@ -43,7 +43,7 @@
   backgrounds. Small icon sizes get a proportionally thicker outline.
 - The logo is shown, larger, next to the DrangedAddons heading in the window.
 - Checking for app updates (Help menu or "Check for updates") reports in the bar under the header instead of a
-  pop-up: "Checking for app updatesâ€¦", then either the update offer or "You're on the latest version", which
+  pop-up: "Checking for app updates…", then either the update offer or "You're on the latest version", which
   hides itself after a few seconds.
 - About, confirmations and error messages use the app's own dark window instead of Windows message boxes, so
   there's no "ding".
@@ -55,33 +55,33 @@
 - The game-version drop-down shows just the count: "Classic Beta (1)".
 
 ## 0.9.2
-- Fixed "Couldn't update DrangedAddons: Access to the path â€¦DrangedAddons.exe.old is denied" when an older copy
+- Fixed "Couldn't update DrangedAddons: Access to the path …DrangedAddons.exe.old is denied" when an older copy
   of the app was still running from a previous update. Leftover old copies are cleaned up on the next launch.
 
 ## 0.9.1
 - The game-version drop-down shows how many DrangedAddons addons each game has installed
-  (e.g. "Classic Beta Â· 1 installed").
+  (e.g. "Classic Beta · 1 installed").
 
 ## 0.8.1
 - App icon: an impossible (Penrose) triangle in three golds on black, used for the window, taskbar, shortcuts and
-  Settings â†’ Apps.
+  Settings → Apps.
 - Dark title bar, matching the app's background.
 
 ## 0.8.0
 - Installs like a normal app: the first time you run the downloaded `DrangedAddons.exe` it offers to install itself
-  to `%LocalAppData%\Programs\DrangedAddons` with Start menu and desktop shortcuts and an entry in Settings â†’ Apps
+  to `%LocalAppData%\Programs\DrangedAddons` with Start menu and desktop shortcuts and an entry in Settings → Apps
   (no administrator prompt, and self-updates keep working). Running a downloaded copy again just opens the installed
   one, upgrading it first if the download is newer.
-- **File â†’ Uninstall DrangedAddonsâ€¦** (or Settings â†’ Apps) removes the app; installed addons and app settings are kept.
+- **File → Uninstall DrangedAddons…** (or Settings → Apps) removes the app; installed addons and app settings are kept.
 - Dialogs use the modern Windows style.
-- The window is just called "DrangedAddons"; the version is shown bottom-right and in Help â†’ About.
+- The window is just called "DrangedAddons"; the version is shown bottom-right and in Help → About.
 - If the GitHub CLI is signed in on the PC (or `GH_TOKEN` / `GITHUB_TOKEN` is set), the app uses that login:
-  5,000 GitHub checks an hour instead of 60 shared by the whole internet connection. Help â†’ About shows which.
+  5,000 GitHub checks an hour instead of 60 shared by the whole internet connection. Help → About shows which.
 
 ## 0.7.0
-- Menu bar: **File** (Open AddOns folder, Change WoW folderâ€¦, Exit) and **Help** (Check for app updates,
+- Menu bar: **File** (Open AddOns folder, Change WoW folder…, Exit) and **Help** (Check for app updates,
   DrangedAddons on GitHub, About).
-- **Help â†’ Check for app updates** always reports back: it offers to update and restart straight away, or says
+- **Help → Check for app updates** always reports back: it offers to update and restart straight away, or says
   you're already on the latest version.
 
 ## 0.6.0
@@ -102,7 +102,7 @@
 
 ## 0.2.0
 - **Show beta versions**: also offer untagged versions from each addon's main branch.
-- **Versionsâ€¦**: browse every version with its changelog notes and install any of them.
+- **Versions…**: browse every version with its changelog notes and install any of them.
 
 ## 0.1.0
 - First version: install, update and uninstall DrangedAddons addons from their GitHub releases.

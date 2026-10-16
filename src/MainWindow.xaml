@@ -100,8 +100,7 @@
                 <ItemsControl x:Name="AddonList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Style="{StaticResource AddonRow}" MouseLeftButtonUp="Row_Click"
-                                    ToolTip="{Binding Description}">
+                            <Border Style="{StaticResource AddonRow}" MouseLeftButtonUp="Row_Click">
                                 <Border.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="Open details" FontWeight="SemiBold" Click="RowDetails_Click"/>

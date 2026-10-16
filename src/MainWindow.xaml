@@ -40,9 +40,13 @@
                 <Button x:Name="UpdateAllButton" Content="Update all" Style="{StaticResource AccentBtn}"
                         Click="UpdateAll_Click" Margin="8,0,0,0" IsEnabled="False"/>
             </StackPanel>
-            <StackPanel>
-                <TextBlock Text="DrangedAddons" FontSize="22" FontWeight="SemiBold"/>
-                <TextBlock Text="Addons from github.com/DrangedAddons" Foreground="{StaticResource MutedBrush}"/>
+            <StackPanel Orientation="Horizontal">
+                <Image Source="logo.png" Width="48" Height="48" Margin="0,0,12,0" VerticalAlignment="Center"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="DrangedAddons" FontSize="22" FontWeight="SemiBold"/>
+                    <TextBlock Text="Addons from github.com/DrangedAddons" Foreground="{StaticResource MutedBrush}"/>
+                </StackPanel>
             </StackPanel>
         </DockPanel>
 

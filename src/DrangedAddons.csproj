@@ -14,6 +14,11 @@
     <AssemblyTitle>DrangedAddons</AssemblyTitle>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Header logo; regenerate with tools/make_icon.py alongside app.ico -->
+    <Resource Include="logo.png" />
+  </ItemGroup>
+
   <!-- dotnet publish -c Release  →  one self-contained DrangedAddons.exe that friends can run without installing .NET -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

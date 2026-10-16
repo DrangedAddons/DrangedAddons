@@ -1,7 +1,7 @@
 """DrangedAddons app icon: the Penrose triangle template in golds, as large as fits (transparent background by
 default, or on a black rounded tile with BACKGROUND = "tile").
 
-Usage: python tools/make_icon.py tools/icon-template.png src/app.ico <preview.png> [three|two]
+Usage: python tools/make_icon.py tools/icon-template.png src/app.ico <preview.png> [three|two] [src/logo.png]
 
 The template (transparent background) is three separate pieces. Each piece runs along the outside of one side and
 folds round a corner into the inside of the next, so it is split along the corners' fold lines (corner → centre):
@@ -23,8 +23,9 @@ DARK_GOLD = (160, 120, 24, 255)
 BLACK = (0, 0, 0, 255)
 # Pale gold, rich gold, deep bronze: far enough apart to stay distinct at 16 px.
 THREE_TONES = [(253, 232, 160, 255), (210, 150, 24, 255), (98, 64, 10, 255)]
-OUTLINE = 22               # black outline (and gap fill) at 1024 px; small icon frames get a thicker one
+OUTLINE = 20               # black border inside each piece at 1024 px; small icon frames get a thicker one
 SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
+GROW = 7                   # grow each piece by this many px (1024 scale) to narrow the gaps between them
 MODE = "three"  # "three": one tone per piece; "two": lit outer faces, shaded inner faces
 BACKGROUND = "transparent"  # "transparent": the triangle alone; "tile": on a black rounded tile
 EDGE = 8                    # with no tile, keep the triangle this far from the icon's edge
@@ -101,13 +102,28 @@ def fold_sectors(mask):
     return sectors, (cx, cy)
 
 
+def dilate(mask, px):
+    """Grows a (SS-scale) mask by px (S-px units) with a round brush."""
+    grown = mask.resize((S, S), Image.BILINEAR).filter(ImageFilter.GaussianBlur(px / 2)).point(lambda v: 255 if v > 6 else 0)
+    return ImageChops.lighter(mask, grown.resize(mask.size, Image.BICUBIC).point(lambda v: 255 if v >= 128 else 0))
+
+
+def erode(mask, px):
+    """Shrinks a (SS-scale) mask by px (S-px units) with a round brush: dilate the outside, then invert."""
+    outside = mask.resize((S, S), Image.BILINEAR).point(lambda v: 255 - v)
+    grown = outside.filter(ImageFilter.GaussianBlur(px / 2)).point(lambda v: 255 if v > 6 else 0)
+    inside = grown.point(lambda v: 255 - v)
+    return inside.resize(mask.size, Image.BICUBIC).point(lambda v: 255 if v >= 128 else 0)
+
+
 def render(alpha, outline):
-    """The icon at S x S px, with a black outline `outline` px wide (in S-px units) around the shape."""
+    """The icon at S x S px. Each piece gets a black border `outline` px wide (S-px units) drawn inside its edge,
+    so the transparent gaps between the pieces stay open."""
     bbox = alpha.getbbox()
     if BACKGROUND == "tile":
         inner = rounded((TILE[0] + PAD, TILE[1] + PAD, TILE[2] - PAD, TILE[3] - PAD), max(RADIUS - PAD, 0), SS)
     else:
-        margin = EDGE + outline
+        margin = EDGE
         inner = rounded((margin, margin, S - margin, S - margin), 0, SS)
     lo, hi = 100.0, float(S)
     for _ in range(18):  # binary search for the largest size that stays inside the tile
@@ -121,17 +137,16 @@ def render(alpha, outline):
     big = Image.new("RGBA", (S * SS, S * SS), (0, 0, 0, 0))
     if BACKGROUND == "tile":
         big.paste(Image.new("RGBA", big.size, BLACK), (0, 0), rounded(TILE, RADIUS, SS))
-    if outline:
-        # Round dilation: blur, then threshold where a straight edge's blur falls to ~2% (2 sigma out).
-        small = whole.resize((S, S), Image.BILINEAR)
-        halo = small.filter(ImageFilter.GaussianBlur(outline / 2)).point(lambda v: 255 if v > 6 else 0)
-        halo = halo.resize(big.size, Image.BICUBIC).point(lambda v: 255 if v >= 128 else 0)
-        big.paste(Image.new("RGBA", big.size, BLACK), (0, 0), halo)
-
     if MODE == "three":
         # One tone per piece, so the three bars read as separate objects.
         for piece, tone in zip(components(alpha), THREE_TONES):
-            big.paste(Image.new("RGBA", big.size, tone), (0, 0), place(piece, bbox, lo))
+            mask = place(piece, bbox, lo)
+            if GROW:
+                mask = dilate(mask, GROW)  # narrows the gaps between the pieces
+            if outline:
+                big.paste(Image.new("RGBA", big.size, BLACK), (0, 0), mask)
+                mask = erode(mask, outline)
+            big.paste(Image.new("RGBA", big.size, tone), (0, 0), mask)
     else:
         sectors, (cx, cy) = fold_sectors(whole)
         gold, dark = Image.new("RGBA", big.size, GOLD), Image.new("RGBA", big.size, DARK_GOLD)
@@ -153,8 +168,11 @@ def main(template, out_ico, out_png):
     alpha = Image.open(template).getchannel("A")
     icon = render(alpha, OUTLINE)
     icon.save(out_png)
-    # Each icon size gets an outline at least ~1.2 px wide at that size, so it still shows on the taskbar.
-    frames = [render(alpha, max(OUTLINE, 1.2 * S / size)).resize((size, size), Image.LANCZOS) for size in SIZES]
+    if len(sys.argv) > 5:  # optional in-app logo (e.g. src/logo.png)
+        icon.resize((256, 256), Image.LANCZOS).save(sys.argv[5])
+    # Each icon size gets a border at least ~0.5 px wide at that size, so it still shows on the taskbar
+    # without eating the bars (which are only ~3 px wide at 16 px).
+    frames = [render(alpha, max(OUTLINE, 0.5 * S / size)).resize((size, size), Image.LANCZOS) for size in SIZES]
     frames[-1].save(out_ico, format="ICO", sizes=[(f.width, f.height) for f in frames], append_images=frames[:-1])
     print(f"{len(components(alpha))} pieces; outline {OUTLINE}px at {S}px, thicker in small frames")
 

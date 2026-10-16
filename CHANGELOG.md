@@ -1,9 +1,10 @@
 # Changelog
 
 ## 0.9.5
-- App icon: stronger contrast between the three golds (pale gold, rich gold, deep bronze) and a black outline
-  around and between the bars, so it stays distinct at small sizes and on light backgrounds. Small icon sizes get
-  a proportionally thicker outline.
+- App icon: stronger contrast between the three golds (pale gold, rich gold, deep bronze), and each bar has its own
+  black outline with the gaps between them kept open, so it stays distinct at small sizes and on light
+  backgrounds. Small icon sizes get a proportionally thicker outline.
+- The logo is shown, larger, next to the DrangedAddons heading in the window.
 
 ## 0.9.4
 - The app icon has a transparent background (no black tile), so the triangle fills the whole icon.

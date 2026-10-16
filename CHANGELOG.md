@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.9.6
+- About no longer mentions GitHub sign-in.
+
 ## 0.9.5
 - App icon: stronger contrast between the three golds (pale gold, rich gold, deep bronze), and each bar has its own
   black outline with the gaps between them kept open, so it stays distinct at small sizes and on light

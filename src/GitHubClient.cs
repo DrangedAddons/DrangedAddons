@@ -29,9 +29,6 @@ public sealed class GitHubClient
     static readonly Task<string?> TokenTask = Task.Run(FindToken);
     static volatile bool _tokenRejected;
 
-    /// <summary>Whether API requests are signed in (5,000 an hour) rather than anonymous (60 an hour).</summary>
-    public static async Task<bool> IsSignedInAsync() => !_tokenRejected && await TokenTask is not null;
-
     static string? FindToken()
     {
         foreach (var name in new[] { "GH_TOKEN", "GITHUB_TOKEN" })

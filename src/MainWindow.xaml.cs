@@ -502,14 +502,10 @@ public partial class MainWindow : Window
         Process.Start(new ProcessStartInfo($"https://github.com/{GitHubClient.Org}/{GitHubClient.Org}/releases")
             { UseShellExecute = true });
 
-    async void About_Click(object sender, RoutedEventArgs e)
+    void About_Click(object sender, RoutedEventArgs e)
     {
-        var access = await GitHubClient.IsSignedInAsync()
-            ? "Signed in to GitHub through the GitHub CLI (5,000 checks an hour)."
-            : "Using GitHub without signing in (60 checks an hour per internet connection).";
         DarkDialog.Show(this, $"DrangedAddons {AppUpdater.CurrentVersion}",
             "Installs and updates the World of Warcraft addons from github.com/DrangedAddons.\n\n" +
-            $"{access}\n\n" +
             $"Installed in {(AppInstaller.IsRunningInstalled ? AppInstaller.InstallDir : Path.GetDirectoryName(Environment.ProcessPath))}\n" +
             $"App settings are kept in {Storage.Dir}",
             primary: "Close", showLogo: true);

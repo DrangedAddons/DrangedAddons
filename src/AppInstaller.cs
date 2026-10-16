@@ -94,6 +94,7 @@ public static class AppInstaller
     static void Register()
     {
         using var key = Registry.CurrentUser.CreateSubKey(UninstallKey);
+        var previousVersion = key.GetValue("DisplayVersion") as string;
         key.SetValue("DisplayName", "DrangedAddons");
         key.SetValue("DisplayVersion", AppUpdater.CurrentVersion);
         key.SetValue("Publisher", "DrangedAddons");
@@ -105,6 +106,28 @@ public static class AppInstaller
         key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
         if (File.Exists(InstalledExe))
             key.SetValue("EstimatedSize", (int)(new FileInfo(InstalledExe).Length / 1024), RegistryValueKind.DWord);
+
+        // First run of a new version: Windows caches shortcut icons (Start, taskbar pins, desktop) and won't notice
+        // that the .exe behind them changed, so tell it to refresh them.
+        if (previousVersion != AppUpdater.CurrentVersion)
+            RefreshShellIcons();
+    }
+
+    const int SHCNE_UPDATEITEM = 0x00002000;
+    const int SHCNE_ASSOCCHANGED = 0x08000000;
+    const uint SHCNF_IDLIST = 0x0000;
+    const uint SHCNF_PATHW = 0x0005;
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern void SHChangeNotify(int eventId, uint flags, string? item1, IntPtr item2);
+
+    static void RefreshShellIcons()
+    {
+        foreach (var path in new[] { InstalledExe, StartMenuShortcut, DesktopShortcut })
+        {
+            if (File.Exists(path)) SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, path, IntPtr.Zero);
+        }
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, null, IntPtr.Zero);
     }
 
     static void CreateShortcut(string path)

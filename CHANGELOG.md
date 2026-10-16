@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.7
+- After an update, the app tells Windows to refresh its cached icons, so Start menu, taskbar and desktop shortcuts
+  pick up a new app icon without waiting for a sign-out.
+
 ## 0.9.6
 - About no longer mentions GitHub sign-in.
 

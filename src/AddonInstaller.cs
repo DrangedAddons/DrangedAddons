@@ -44,13 +44,17 @@ public static class AddonInstaller
         return [];
     }
 
-    public static string? ParseTocVersion(IEnumerable<string> lines)
+    public static string? ParseTocVersion(IEnumerable<string> lines) => ParseTocField(lines, "Version");
+
+    /// <summary>A "## Field: value" line from a .toc (packager placeholders like @project-version@ count as missing).</summary>
+    public static string? ParseTocField(IEnumerable<string> lines, string field)
     {
+        var prefix = $"## {field}:";
         foreach (var line in lines)
         {
-            if (!line.StartsWith("## Version:", StringComparison.OrdinalIgnoreCase)) continue;
-            var version = line["## Version:".Length..].Trim();
-            if (version.Length > 0 && !version.StartsWith('@')) return version;
+            if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            var value = line[prefix.Length..].Trim();
+            if (value.Length > 0 && !value.StartsWith('@')) return value;
         }
         return null;
     }

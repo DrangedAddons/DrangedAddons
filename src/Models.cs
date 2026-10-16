@@ -64,6 +64,9 @@ public sealed record RemoteAddon(
     AddonVersion? LatestBeta,
     IReadOnlyList<string> Games)
 {
+    /// <summary>"## Author:" from the addon's .toc, when it has one.</summary>
+    public string? Author { get; init; }
+
     /// <summary>Whether it's for this game-version folder: listed in its .toc, or no games listed at all.</summary>
     public bool IsFor(string flavorFolder) =>
         Games.Count == 0 || Games.Contains(flavorFolder, StringComparer.OrdinalIgnoreCase);
@@ -146,6 +149,17 @@ public sealed class AddonRow : INotifyPropertyChanged
         ? $"Released {Latest.Date.ToLocalTime():d MMM yyyy}"
         : $"Beta build, committed {Latest.Date.ToLocalTime():d MMM yyyy}";
     public string LinkText => Latest.IsRelease ? "Release notes" : "View commit";
+    public string? Author => Remote.Author;
+    public string AuthorText => Remote.Author is { } a ? $"by {a}" : "";
+
+    /// <summary>Compact version for the list row: the installed one (→ the newer one when there's an update), else the latest.</summary>
+    public string RowVersionText => _installedVersion is null
+        ? $"v{Latest.Label}"
+        : _state == AddonState.UpdateAvailable
+            ? $"v{_installedVersion}  →  {Latest.Label}"
+            : $"v{_installedVersion}";
+
+    public string RowSubText => Remote.Author is { } a ? $"{RowVersionText}  ·  by {a}" : RowVersionText;
 
     public AddonState State => _state;
     public string? InstalledVersion => _installedVersion;

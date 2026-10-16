@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+- **Compact addon list.** Each addon is one slim row: icon, name, version (with "→ new version" when there's an
+  update), author (from the addon's `.toc`) and its status.
+- **Details page.** Click an addon for its details: a larger icon, description, version info and links, and the
+  Install / Update / Pull, Versions… and Uninstall buttons. The back arrow (or Esc, or the mouse's back button)
+  returns to the list.
+
 ## 0.10.0
 - **Runs in the system tray.** Closing the window keeps DrangedAddons running in the tray; click the tray icon to
   open it again, right-click it for Open / Check for updates / Exit. File → Exit quits for real.

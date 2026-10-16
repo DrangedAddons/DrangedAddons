@@ -95,19 +95,20 @@
         </StackPanel>
 
         <Grid Grid.Row="2">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <!-- Addon list: one compact row per addon; click a row for its details. -->
+            <ScrollViewer x:Name="ListScroll" VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="AddonList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Margin="0,0,0,8" Padding="14" CornerRadius="8"
-                                    Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                            <Border Style="{StaticResource AddonRow}" MouseLeftButtonUp="Row_Click"
+                                    ToolTip="{Binding Description}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <Grid Width="32" Height="32" VerticalAlignment="Top" Margin="0,2,12,0">
+                                    <Grid Width="32" Height="32" Margin="0,0,12,0" VerticalAlignment="Center">
                                         <Border CornerRadius="6" Background="{StaticResource Panel2Brush}"
                                                 BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
                                                 Visibility="{Binding NoIcon, Converter={StaticResource BoolToVis}}">
@@ -115,38 +116,18 @@
                                                        Foreground="{StaticResource AccentBrush}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
-                                        <Image Source="{Binding Icon}" RenderOptions.BitmapScalingMode="HighQuality"
+                                        <Image Source="{Binding Icon}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"
                                                Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}"/>
                                     </Grid>
-                                    <StackPanel Grid.Column="1">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold"/>
-                                            <Border Background="{Binding StatusBrush}" CornerRadius="9" Padding="8,1"
-                                                    Margin="10,0,0,0" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding StatusText}" Foreground="#111111"
-                                                           FontSize="11" FontWeight="SemiBold"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <TextBlock Text="{Binding Description}" Foreground="{StaticResource MutedBrush}"
-                                                   TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                        <TextBlock Margin="0,6,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap">
-                                            <Run Text="{Binding VersionText, Mode=OneWay}"/>
-                                            <Run Text="  ·  "/>
-                                            <Run Text="{Binding ReleasedText, Mode=OneWay}"/>
-                                            <Run Text="  ·  "/>
-                                            <Hyperlink Click="ReleaseNotes_Click" Foreground="{StaticResource AccentBrush}"><Run Text="{Binding LinkText, Mode=OneWay}"/></Hyperlink>
-                                        </TextBlock>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding RowSubText}" Foreground="{StaticResource MutedBrush}" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
-                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                                        <Button Content="Versions…" Style="{StaticResource GhostBtn}" Margin="0,0,8,0"
-                                                Click="Versions_Click"
-                                                Visibility="{Binding CanPickVersion, Converter={StaticResource BoolToVis}}"/>
-                                        <Button Content="Uninstall" Style="{StaticResource GhostBtn}" Margin="0,0,8,0"
-                                                Click="Uninstall_Click" IsEnabled="{Binding CanUninstall}"
-                                                ToolTip="{Binding UninstallTip}" ToolTipService.ShowOnDisabled="True"/>
-                                        <Button Content="{Binding ActionText}" Style="{StaticResource ActionBtn}" MinWidth="120"
-                                                IsEnabled="{Binding ActionEnabled}" Click="Action_Click"/>
-                                    </StackPanel>
+                                    <Border Grid.Column="2" Background="{Binding StatusBrush}" CornerRadius="9" Padding="8,1"
+                                            Margin="12,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding StatusText}" Foreground="#111111" FontSize="11" FontWeight="SemiBold"/>
+                                    </Border>
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -155,6 +136,73 @@
             </ScrollViewer>
             <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
                        TextWrapping="Wrap" MaxWidth="460" Foreground="{StaticResource MutedBrush}" Visibility="Collapsed"/>
+
+            <!-- Details page for one addon (DataContext = its AddonRow). -->
+            <DockPanel x:Name="DetailsPanel" Visibility="Collapsed">
+                <Button DockPanel.Dock="Top" Style="{StaticResource GhostBtn}" HorizontalAlignment="Left" Padding="10,5"
+                        Margin="0,0,0,12" Click="Back_Click" ToolTip="Back to the addon list (Esc)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE72B;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Addons" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Padding="20" CornerRadius="8" VerticalAlignment="Top"
+                            Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Width="64" Height="64" Margin="0,0,16,0" VerticalAlignment="Top">
+                                    <Border CornerRadius="10" Background="{StaticResource Panel2Brush}"
+                                            BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                            Visibility="{Binding NoIcon, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="{Binding Initial}" FontSize="28" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource AccentBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <Image Source="{Binding Icon}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"
+                                           Visibility="{Binding HasIcon, Converter={StaticResource BoolToVis}}"/>
+                                </Grid>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Name}" FontSize="22" FontWeight="SemiBold"/>
+                                        <Border Background="{Binding StatusBrush}" CornerRadius="9" Padding="8,1"
+                                                Margin="12,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding StatusText}" Foreground="#111111" FontSize="11" FontWeight="SemiBold"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding AuthorText}" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,16,0,0"/>
+
+                            <TextBlock Margin="0,12,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap">
+                                <Run Text="{Binding VersionText, Mode=OneWay}"/>
+                                <Run Text="  ·  "/>
+                                <Run Text="{Binding ReleasedText, Mode=OneWay}"/>
+                                <Run Text="  ·  "/>
+                                <Hyperlink Click="ReleaseNotes_Click" Foreground="{StaticResource AccentBrush}"><Run Text="{Binding LinkText, Mode=OneWay}"/></Hyperlink>
+                            </TextBlock>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                                <Button Content="{Binding ActionText}" Style="{StaticResource ActionBtn}" MinWidth="130"
+                                        IsEnabled="{Binding ActionEnabled}" Click="Action_Click"/>
+                                <Button Content="Versions…" Style="{StaticResource GhostBtn}" Margin="8,0,0,0"
+                                        Click="Versions_Click"
+                                        Visibility="{Binding CanPickVersion, Converter={StaticResource BoolToVis}}"/>
+                                <Button Content="Uninstall" Style="{StaticResource GhostBtn}" Margin="8,0,0,0"
+                                        Click="Uninstall_Click" IsEnabled="{Binding CanUninstall}"
+                                        ToolTip="{Binding UninstallTip}" ToolTipService.ShowOnDisabled="True"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </DockPanel>
         </Grid>
 
         <DockPanel Grid.Row="3" Margin="0,8,0,0">

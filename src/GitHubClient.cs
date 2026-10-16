@@ -111,7 +111,10 @@ public sealed class GitHubClient
         var games = tocPath is not null && head?.Commit is { } sha
             ? await GetTocGamesAsync(repo, sha, tocPath, ct)
             : [];
-        return new RemoteAddon(repo, description, branch, tocPath, release, head, games);
+        var author = tocPath is not null && head?.Commit is { } headSha
+            ? await GetTocAuthorAsync(repo, headSha, tocPath, ct)
+            : null;
+        return new RemoteAddon(repo, description, branch, tocPath, release, head, games) { Author = author };
     }
 
     async Task<AddonVersion?> GetLatestReleaseAsync(string repo, CancellationToken ct)
@@ -297,6 +300,21 @@ public sealed class GitHubClient
         var games = text is null ? [] : AddonInstaller.ParseTocGames(text.Split('\n'));
         lock (_tocVersions) _tocVersions[key] = string.Join(',', games);
         return games;
+    }
+
+    /// <summary>"## Author:" from the .toc at a commit (cached; commits never change).</summary>
+    async Task<string?> GetTocAuthorAsync(string repo, string sha, string path, CancellationToken ct)
+    {
+        var key = $"author|{repo}@{sha}:{path}";
+        lock (_tocVersions)
+        {
+            if (_tocVersions.TryGetValue(key, out var known))
+                return known.Length > 0 ? known : null;
+        }
+        var text = await GetRawAsync(repo, sha, path, ct);
+        var author = text is null ? null : AddonInstaller.ParseTocField(text.Split('\n'), "Author");
+        lock (_tocVersions) _tocVersions[key] = author ?? "";
+        return author;
     }
 
     async Task<string?> GetRawAsync(string repo, string gitRef, string path, CancellationToken ct)

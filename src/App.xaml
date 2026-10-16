@@ -65,6 +65,23 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Compact clickable row in the addon list. -->
+        <Style x:Key="AddonRow" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource Panel2Brush}"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Menu bar (File / Help). -->
         <Style x:Key="DarkMenu" TargetType="Menu">
             <Setter Property="Background" Value="{StaticResource PanelBrush}"/>

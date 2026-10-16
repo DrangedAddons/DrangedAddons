@@ -208,7 +208,64 @@ public partial class MainWindow : Window
             foreach (var row in _rows.Where(r => r.State == AddonState.DevCopy))
                 _ = CheckGitAsync(row, flavor, fetch: true);
         }
+
+        // Rows are rebuilt on refresh / game change: keep an open details page on the same addon if it's still listed.
+        if (_detailsFor is { } name)
+        {
+            if (_rows.FirstOrDefault(r => r.Name == name) is { } same) DetailsPanel.DataContext = same;
+            else ShowList();
+        }
         UpdateSummary();
+    }
+
+    // ---- List / details navigation ------------------------------------------------------------------------------
+
+    string? _detailsFor;
+
+    void Row_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is AddonRow row) ShowDetails(row);
+    }
+
+    void ShowDetails(AddonRow row)
+    {
+        _detailsFor = row.Name;
+        DetailsPanel.DataContext = row;
+        DetailsPanel.Visibility = Visibility.Visible;
+        ListScroll.Visibility = Visibility.Collapsed;
+        EmptyText.Visibility = Visibility.Collapsed;
+    }
+
+    void ShowList()
+    {
+        _detailsFor = null;
+        DetailsPanel.Visibility = Visibility.Collapsed;
+        DetailsPanel.DataContext = null;
+        ListScroll.Visibility = Visibility.Visible;
+        UpdateSummary(); // restores the "no addons" message if the list is empty
+    }
+
+    void Back_Click(object sender, RoutedEventArgs e) => ShowList();
+
+    // Esc or the mouse's back button also go back to the list.
+    protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape && _detailsFor is not null)
+        {
+            ShowList();
+            e.Handled = true;
+        }
+        base.OnPreviewKeyDown(e);
+    }
+
+    protected override void OnPreviewMouseDown(System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == System.Windows.Input.MouseButton.XButton1 && _detailsFor is not null)
+        {
+            ShowList();
+            e.Handled = true;
+        }
+        base.OnPreviewMouseDown(e);
     }
 
     async Task RefreshIconAsync(RemoteAddon addon)
@@ -313,7 +370,7 @@ public partial class MainWindow : Window
         EmptyText.Text = _root is null ? "Pick your World of Warcraft folder to get started."
             : _loadError is not null ? _loadError
             : "No addons with a packaged release were found in the DrangedAddons organisation.";
-        EmptyText.Visibility = _rows.Count == 0 && !_working ? Visibility.Visible : Visibility.Collapsed;
+        EmptyText.Visibility = _rows.Count == 0 && !_working && _detailsFor is null ? Visibility.Visible : Visibility.Collapsed;
 
         if (_working) return;
         if (_loadError is not null)

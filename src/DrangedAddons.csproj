@@ -6,7 +6,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>0.9.7</Version>
+    <!-- Only for the tray icon (NotifyIcon); WinForms names are used qualified so they don't clash with WPF. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Version>0.10.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Regenerate with tools/make_icon.py -->
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -17,6 +19,10 @@
   <ItemGroup>
     <!-- Header logo; regenerate with tools/make_icon.py alongside app.ico -->
     <Resource Include="logo.png" />
+    <!-- Tray icon -->
+    <Resource Include="app.ico" />
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
   </ItemGroup>
 
   <!-- dotnet publish -c Release  →  one self-contained DrangedAddons.exe that friends can run without installing .NET -->

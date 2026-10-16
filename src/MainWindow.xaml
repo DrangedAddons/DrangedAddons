@@ -11,6 +11,11 @@
             <MenuItem x:Name="OpenFolderMenu" Header="Open AddOns folder" Click="OpenFolder_Click"/>
             <MenuItem x:Name="ChangeFolderMenu" Header="Change WoW folder…" Click="ChangeFolder_Click"/>
             <Separator Style="{StaticResource MenuSeparator}"/>
+            <MenuItem x:Name="CloseToTrayMenu" Header="Keep running in the tray when closed" IsCheckable="True"
+                      Click="CloseToTray_Click"/>
+            <MenuItem x:Name="NotificationsMenu" Header="Show update notifications" IsCheckable="True"
+                      Click="Notifications_Click"/>
+            <Separator Style="{StaticResource MenuSeparator}"/>
             <MenuItem x:Name="UninstallAppMenu" Header="Uninstall DrangedAddons…" Click="UninstallApp_Click"/>
             <MenuItem Header="Exit" Click="Exit_Click"/>
         </MenuItem>

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0
+- **Runs in the system tray.** Closing the window keeps DrangedAddons running in the tray; click the tray icon to
+  open it again, right-click it for Open / Check for updates / Exit. File → Exit quits for real.
+- While running it checks for addon and app updates every hour and shows a Windows notification for anything new
+  (only while the window is hidden). Clicking the notification opens the app.
+- File menu settings (both on by default): **Keep running in the tray when closed** and **Show update
+  notifications**.
+- Only one copy runs at a time: opening DrangedAddons again (e.g. from a pinned shortcut) brings the running
+  window back instead of starting a second copy.
+
 ## 0.9.7
 - After an update, the app tells Windows to refresh its cached icons, so Start menu, taskbar and desktop shortcuts
   pick up a new app icon without waiting for a sign-out.

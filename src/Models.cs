@@ -9,6 +9,9 @@ public sealed class AppSettings
     public string? WowRoot { get; set; }
     public string? Flavor { get; set; }
     public bool ShowBeta { get; set; }
+    public bool CloseToTray { get; set; } = true;
+    public bool UpdateNotifications { get; set; } = true;
+    public bool TrayTipShown { get; set; }
 }
 
 public sealed class InstalledRecord

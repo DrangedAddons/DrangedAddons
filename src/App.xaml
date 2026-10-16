@@ -81,7 +81,11 @@
                     <ControlTemplate TargetType="MenuItem">
                         <Border x:Name="Item" Background="Transparent" CornerRadius="4" Padding="10,5">
                             <Grid>
-                                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock x:Name="Check" Text="✓" Width="20" Visibility="Collapsed" VerticalAlignment="Center"
+                                               Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"/>
+                                    <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+                                </StackPanel>
                                 <Popup IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
                                        Placement="Bottom" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
                                     <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}"
@@ -94,6 +98,12 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
                                 <Setter TargetName="Item" Property="Background" Value="{StaticResource Panel2Brush}"/>
+                            </Trigger>
+                            <Trigger Property="IsCheckable" Value="True">
+                                <Setter TargetName="Check" Property="Visibility" Value="Hidden"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Item" Property="Opacity" Value="0.5"/>

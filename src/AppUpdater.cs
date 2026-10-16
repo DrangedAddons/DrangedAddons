@@ -81,7 +81,8 @@ public static class AppUpdater
             File.Move(oldPath, exe); // put the running copy back
             throw;
         }
-        Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+        // --replace: the new copy waits for this one to finish closing instead of just showing its window.
+        Process.Start(new ProcessStartInfo(exe, "--replace") { UseShellExecute = true });
     }
 
     /// <summary>

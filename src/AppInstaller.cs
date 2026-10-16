@@ -49,12 +49,15 @@ public static class AppInstaller
         {
             // Already installed: a newer download upgrades it, then the installed copy opens either way.
             var installed = FileVersionInfo.GetVersionInfo(InstalledExe).FileVersion ?? "0";
-            if (Versions.Compare(AppUpdater.CurrentVersion, installed) > 0)
+            var upgrade = Versions.Compare(AppUpdater.CurrentVersion, installed) > 0;
+            if (upgrade)
             {
                 CopyIn(exe);
                 Register();
             }
-            Launch();
+            // After an upgrade the new installed copy replaces one that may be running in the tray; otherwise a
+            // running copy just shows its window.
+            Launch(replace: upgrade);
             return false;
         }
 
@@ -87,8 +90,12 @@ public static class AppInstaller
         File.Copy(sourceExe, InstalledExe);
     }
 
-    static void Launch() =>
-        Process.Start(new ProcessStartInfo(InstalledExe) { UseShellExecute = true, WorkingDirectory = InstallDir });
+    static void Launch(bool replace = false) =>
+        Process.Start(new ProcessStartInfo(InstalledExe, replace ? "--replace" : "")
+        {
+            UseShellExecute = true,
+            WorkingDirectory = InstallDir,
+        });
 
     /// <summary>The Settings → Apps entry (per-user, no admin needed).</summary>
     static void Register()

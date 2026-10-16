@@ -32,12 +32,99 @@ public partial class MainWindow : Window
         AddonList.ItemsSource = _rows;
         BetaCheck.IsChecked = _settings.ShowBeta;
         UninstallAppMenu.Visibility = AppInstaller.IsRunningInstalled ? Visibility.Visible : Visibility.Collapsed;
+        CloseToTrayMenu.IsChecked = _settings.CloseToTray;
+        NotificationsMenu.IsChecked = _settings.UpdateNotifications;
+
+        _tray = new TrayIcon(ShowFromTray, CheckFromTray, App.ExitApp);
+        _backgroundCheck.Tick += async (_, _) => await BackgroundCheckAsync();
+        _backgroundCheck.Start();
+        Closing += OnClosing;
+        Closed += (_, _) => _tray?.Dispose();
+
         Loaded += async (_, _) =>
         {
             LoadFlavors();
             _ = CheckForAppUpdateAsync();
             await RefreshAsync();
+            NotifyNewUpdates();
         };
+    }
+
+    // ---- Tray -------------------------------------------------------------------------------------------------
+
+    TrayIcon? _tray;
+    readonly System.Windows.Threading.DispatcherTimer _backgroundCheck = new() { Interval = TimeSpan.FromHours(1) };
+    readonly HashSet<string> _notified = new();
+
+    /// <summary>Closing the window hides it to the tray (unless that's turned off, or the app is really exiting).</summary>
+    void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (App.IsExiting || !_settings.CloseToTray) return;
+        e.Cancel = true;
+        Hide();
+        if (!_settings.TrayTipShown && _settings.UpdateNotifications)
+        {
+            _settings.TrayTipShown = true;
+            Storage.Save(SettingsFile, _settings);
+            _tray?.Notify("DrangedAddons is still running",
+                "It keeps checking for updates in the background. Right-click the tray icon to exit.");
+        }
+    }
+
+    public void ShowFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true; // bring it in front of whatever has focus
+        Topmost = false;
+    }
+
+    async void CheckFromTray()
+    {
+        ShowFromTray();
+        _ = CheckForAppUpdateAsync(interactive: true);
+        await RefreshAsync();
+        NotifyNewUpdates();
+    }
+
+    /// <summary>Hourly: check addons and the app; tell the user about anything new if the window is hidden.</summary>
+    async Task BackgroundCheckAsync()
+    {
+        if (_working) return;
+        await RefreshAsync();
+        await CheckForAppUpdateAsync();
+        NotifyNewUpdates();
+    }
+
+    /// <summary>
+    /// Shows a Windows notification for updates not mentioned before, but only while the window is hidden;
+    /// when it's open they're already on screen.
+    /// </summary>
+    void NotifyNewUpdates()
+    {
+        var fresh = _rows.Where(r => r.State == AddonState.UpdateAvailable)
+            .Select(r => $"{r.Name} {r.Latest.Label}")
+            .Where(_notified.Add)
+            .ToList();
+        if (_appUpdate is { } app && _notified.Add($"app {app.Version}"))
+            fresh.Add($"DrangedAddons {app.Version} (the app itself)");
+        if (fresh.Count == 0 || !_settings.UpdateNotifications || (IsVisible && WindowState != WindowState.Minimized))
+            return;
+        _tray?.Notify(fresh.Count == 1 ? "Update available" : $"{fresh.Count} updates available",
+            string.Join("\n", fresh) + "\nClick to open DrangedAddons.");
+    }
+
+    void CloseToTray_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.CloseToTray = CloseToTrayMenu.IsChecked;
+        Storage.Save(SettingsFile, _settings);
+    }
+
+    void Notifications_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.UpdateNotifications = NotificationsMenu.IsChecked;
+        Storage.Save(SettingsFile, _settings);
     }
 
     WowFlavor? CurrentFlavor => (FlavorList.SelectedItem as FlavorItem)?.Flavor;
@@ -218,6 +305,8 @@ public partial class MainWindow : Window
         var updates = _rows.Count(r => r.State == AddonState.UpdateAvailable);
         UpdateAllButton.IsEnabled = !_working && updates > 0;
         UpdateAllButton.Content = updates > 0 ? $"Update all ({updates})" : "Update all";
+        if (_tray is not null)
+            _tray.Tooltip = updates > 0 ? $"DrangedAddons — {updates} update{(updates == 1 ? "" : "s")} available" : "DrangedAddons";
         OpenFolderButton.IsEnabled = OpenFolderMenu.IsEnabled = CurrentFlavor is not null;
         UpdateFlavorCounts();
 
@@ -444,7 +533,7 @@ public partial class MainWindow : Window
         try
         {
             await AppUpdater.ApplyAsync(_github, _appUpdate);
-            Application.Current.Shutdown();
+            App.ExitApp();
         }
         catch (Exception ex)
         {
@@ -511,12 +600,12 @@ public partial class MainWindow : Window
             primary: "Close", showLogo: true);
     }
 
-    void Exit_Click(object sender, RoutedEventArgs e) => Close();
+    void Exit_Click(object sender, RoutedEventArgs e) => App.ExitApp();
 
     void UninstallApp_Click(object sender, RoutedEventArgs e)
     {
         if (AppInstaller.Uninstall(this))
-            Application.Current.Shutdown();
+            App.ExitApp();
     }
 
     void ReleaseNotes_Click(object sender, RoutedEventArgs e)

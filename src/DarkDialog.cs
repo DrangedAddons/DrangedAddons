@@ -11,9 +11,12 @@ namespace DrangedAddons;
 /// </summary>
 public static class DarkDialog
 {
-    /// <summary>Shows a message. Returns true when the main button was chosen.</summary>
+    /// <summary>
+    /// Shows a message. Returns true when the main button was chosen. <paramref name="danger"/> makes the main button
+    /// red; <paramref name="defaultSecondary"/> makes the other button the one Enter picks.
+    /// </summary>
     public static bool Show(Window? owner, string heading, string message, string primary = "OK", string? secondary = null,
-        bool showLogo = false)
+        bool showLogo = false, bool danger = false, bool defaultSecondary = false)
     {
         var res = Application.Current.Resources;
         var window = new Window
@@ -76,14 +79,16 @@ public static class DarkDialog
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 20, 0, 0),
         };
+        Button? other = null;
         if (secondary is not null)
         {
-            var other = new Button
+            other = new Button
             {
                 Content = secondary,
                 Style = (Style)res["Btn"],
                 MinWidth = 90,
                 IsCancel = true,
+                IsDefault = defaultSecondary,
                 Margin = new Thickness(0, 0, 8, 0),
             };
             other.Click += (_, _) => window.Close();
@@ -92,9 +97,9 @@ public static class DarkDialog
         var main = new Button
         {
             Content = primary,
-            Style = (Style)res["AccentBtn"],
+            Style = (Style)res[danger ? "DangerBtn" : "AccentBtn"],
             MinWidth = 90,
-            IsDefault = true,
+            IsDefault = !(defaultSecondary && other is not null),
             IsCancel = secondary is null,
         };
         main.Click += (_, _) =>
@@ -108,7 +113,7 @@ public static class DarkDialog
         layout.Children.Add(body);
         layout.Children.Add(buttons);
         window.Content = layout;
-        window.Loaded += (_, _) => main.Focus();
+        window.Loaded += (_, _) => (defaultSecondary && other is not null ? other : main).Focus();
         window.ShowDialog();
         return result;
     }

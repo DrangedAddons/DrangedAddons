@@ -216,6 +216,37 @@ public static class AddonInstaller
         }
     }
 
+    /// <summary>
+    /// The addon's saved settings in this game's WTF folder: SavedVariables\&lt;Folder&gt;.lua (and .lua.bak) for every
+    /// account, and the per-character copies under each realm\character.
+    /// </summary>
+    public static List<string> FindSavedVariables(string addOnsPath, IEnumerable<string> folders)
+    {
+        var gameDir = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(addOnsPath).TrimEnd('\\', '/')))!;
+        var accounts = Path.Combine(gameDir, "WTF", "Account");
+        var files = new List<string>();
+        if (!Directory.Exists(accounts)) return files;
+        var names = folders.SelectMany(f => new[] { f + ".lua", f + ".lua.bak" }).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in Directory.EnumerateDirectories(accounts, "SavedVariables", System.IO.SearchOption.AllDirectories))
+        {
+            foreach (var file in Directory.EnumerateFiles(dir))
+            {
+                if (names.Contains(Path.GetFileName(file))) files.Add(file);
+            }
+        }
+        return files;
+    }
+
+    /// <summary>Moves the given files to the Recycle Bin.</summary>
+    public static void RecycleFiles(IEnumerable<string> files)
+    {
+        foreach (var file in files)
+        {
+            if (File.Exists(file))
+                FileSystem.DeleteFile(file, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+        }
+    }
+
     static void TryDelete(string dir)
     {
         try

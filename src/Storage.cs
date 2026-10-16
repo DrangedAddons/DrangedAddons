@@ -5,8 +5,10 @@ namespace DrangedAddons;
 /// <summary>JSON files under %AppData%\DrangedAddons.</summary>
 public static class Storage
 {
+    // Test builds (DRANGEDADDONS_DEV=1) keep their own settings so they never touch the real app's.
     public static readonly string Dir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DrangedAddons");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        Environment.GetEnvironmentVariable("DRANGEDADDONS_DEV") == "1" ? "DrangedAddons-dev" : "DrangedAddons");
 
     static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 

@@ -325,6 +325,21 @@ public sealed class GitHubClient
         return await response.Content.ReadAsStringAsync(ct);
     }
 
+    /// <summary>Whether a file exists at a branch or commit (false if GitHub can't be reached).</summary>
+    public async Task<bool> HasFileAsync(string repo, string gitRef, string path)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, $"https://raw.githubusercontent.com/{Org}/{repo}/{gitRef}/{path}");
+            using var response = await Http.SendAsync(request);
+            return response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>A file's bytes at a branch or commit, or null if it doesn't exist.</summary>
     public async Task<byte[]?> GetRawBytesAsync(string repo, string gitRef, string path, CancellationToken ct = default)
     {

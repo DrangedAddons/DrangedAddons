@@ -49,6 +49,32 @@
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
 
+        <SolidColorBrush x:Key="DangerBrush" Color="#E05A4F"/>
+
+        <!-- Destructive actions (Delete). -->
+        <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource Btn}">
+            <Setter Property="Background" Value="#B83A30"/>
+            <Setter Property="BorderBrush" Value="#B83A30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <!-- Dark right-click menu (its items use the MenuItem style below). -->
+        <Style TargetType="ContextMenu">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="HasDropShadow" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}"
+                                BorderThickness="1" CornerRadius="6" Padding="4" MinWidth="200">
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="GhostBtn" TargetType="Button" BasedOn="{StaticResource Btn}">
             <Setter Property="Background" Value="Transparent"/>
         </Style>

@@ -487,27 +487,76 @@ public partial class MainWindow : Window
         if (_working || CurrentFlavor is not { } flavor || (sender as FrameworkElement)?.DataContext is not AddonRow row)
             return;
 
+        DeleteAddon(row, flavor);
+    }
+
+    /// <summary>
+    /// Deletes an addon from this game: asks to confirm, then whether to delete its saved settings too
+    /// (default no). Everything goes to the Recycle Bin.
+    /// </summary>
+    void DeleteAddon(AddonRow row, WowFlavor flavor)
+    {
+        if (!row.CanUninstall) return;
         var installed = _manifest.For(flavor.AddOnsPath);
         var folders = installed.TryGetValue(row.Name, out var record) ? record.Folders : new List<string> { row.Name };
-        if (!DarkDialog.Show(this, $"Uninstall {row.Name} from {flavor.DisplayName}?",
+        if (!DarkDialog.Show(this, $"Delete {row.Name} from {flavor.DisplayName}?",
                 "These folders will be moved to the Recycle Bin:\n"
-                + string.Join("\n", folders.Select(f => "  • " + f))
-                + "\n\nYour addon settings (in the WTF folder) are kept.",
-                primary: "Uninstall", secondary: "Cancel"))
+                + string.Join("\n", folders.Select(f => "  • " + f)),
+                primary: "Delete", secondary: "Cancel", danger: true))
             return;
+
+        var settingsFiles = AddonInstaller.FindSavedVariables(flavor.AddOnsPath, folders);
+        var deleteSettings = settingsFiles.Count > 0 && DarkDialog.Show(this, $"Also delete {row.Name}'s saved settings?",
+            $"{settingsFiles.Count} settings file{(settingsFiles.Count == 1 ? "" : "s")} (account-wide and per character) "
+            + "would be moved to the Recycle Bin. Keep them if you might reinstall it later.\n\n"
+            + "If World of Warcraft is running, close it first, or it will write them back when you log out.",
+            primary: "Delete settings", secondary: "Keep settings", danger: true, defaultSecondary: true);
 
         try
         {
             AddonInstaller.Uninstall(flavor.AddOnsPath, folders);
             installed.Remove(row.Name);
             Storage.Save(ManifestFile, _manifest);
+            if (deleteSettings) AddonInstaller.RecycleFiles(settingsFiles);
         }
         catch (Exception ex)
         {
-            DarkDialog.Show(this, $"Couldn't uninstall {row.Name}", ex.Message);
+            DarkDialog.Show(this, $"Couldn't delete {row.Name}", ex.Message);
         }
         Evaluate(row, flavor);
         UpdateSummary();
+    }
+
+    // ---- Row right-click menu -----------------------------------------------------------------------------------
+
+    static AddonRow? RowOf(object sender) => (sender as FrameworkElement)?.DataContext as AddonRow;
+
+    void RowDetails_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is { } row) ShowDetails(row);
+    }
+
+    void RowBrowse_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is not { } row || CurrentFlavor is not { } flavor) return;
+        var folder = MainFolder(row, flavor);
+        if (Directory.Exists(folder))
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
+    }
+
+    async void RowChangelog_Click(object sender, RoutedEventArgs e)
+    {
+        if (RowOf(sender) is not { } row) return;
+        var repo = $"https://github.com/{GitHubClient.Org}/{row.Name}";
+        var url = await _github.HasFileAsync(row.Name, row.Remote.DefaultBranch, "CHANGELOG.md")
+            ? $"{repo}/blob/{row.Remote.DefaultBranch}/CHANGELOG.md"
+            : $"{repo}/releases";
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
+    void RowDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_working && RowOf(sender) is { } row && CurrentFlavor is { } flavor) DeleteAddon(row, flavor);
     }
 
     async void Refresh_Click(object sender, RoutedEventArgs e)

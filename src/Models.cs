@@ -205,6 +205,14 @@ public sealed class AddonRow : INotifyPropertyChanged
     public bool ActionEnabled => !IsBusy && IsPrimaryAction;
     public bool CanUninstall => !IsBusy && _state is AddonState.UpdateAvailable or AddonState.UpToDate;
     public bool CanPickVersion => !IsBusy && _state != AddonState.DevCopy;
+    public bool CanBrowse => _state != AddonState.NotInstalled;
+    /// <summary>The action button shows only while there's something to do (or it's doing it); otherwise a label.</summary>
+    public bool ShowRowAction => IsPrimaryAction || IsBusy;
+    public bool ShowRowLabel => !ShowRowAction;
+
+    /// <summary>What's shown instead of a button when there's nothing to do.</summary>
+    public string RowLabel => _state == AddonState.DevCopy ? "Git working copy" : "✓  Up to date";
+    public Brush RowLabelBrush => _state == AddonState.DevCopy ? InfoBrush : GoodBrush;
 
     public string UninstallTip => _state switch
     {

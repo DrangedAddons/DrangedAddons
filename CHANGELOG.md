@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0
+- Each row in the list has one thing on the right: an **Install / Update / Pull** button when there's something to
+  do, otherwise "✓ Up to date" (or "Git working copy"). The details page does the same.
+- **Right-click an addon** for Open details, Browse folder, View changelog and, set apart in red, **Delete addon**.
+- Deleting an addon asks to confirm, then whether to delete its saved settings too (account-wide and per
+  character); "Keep settings" is the default. Everything goes to the Recycle Bin. The details page's Uninstall
+  button uses the same steps.
+
 ## 0.11.0
 - **Compact addon list.** Each addon is one slim row: icon, name, version (with "→ new version" when there's an
   update), author (from the addon's `.toc`) and its status.

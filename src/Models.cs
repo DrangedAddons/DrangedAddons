@@ -165,13 +165,17 @@ public sealed class AddonRow : INotifyPropertyChanged
     /// Whether the version shown is an untagged beta build: the installed one, or (not installed / an update on
     /// offer) the version being offered.
     /// </summary>
-    public bool IsBeta => _installedVersion is null || _state == AddonState.UpdateAvailable
-        ? !Latest.IsRelease
-        : _installedIsBeta;
+    public bool IsBeta => _installedIsBeta || OfferedIsBeta;
 
-    public string BetaTip => _installedVersion is not null && _state != AddonState.UpdateAvailable
-        ? "The installed version is a beta: an untagged build from the addon's main branch, not a full tagged release."
-        : "This version is a beta: an untagged build from the addon's main branch, not a full tagged release.";
+    bool OfferedIsBeta => (_installedVersion is null || _state == AddonState.UpdateAvailable) && !Latest.IsRelease;
+
+    public string BetaTip => (_installedIsBeta, OfferedIsBeta) switch
+    {
+        (true, true) => "Both the installed version and the update are betas: untagged builds from the addon's main branch, not full tagged releases.",
+        (true, false) => "The installed version is a beta: an untagged build from the addon's main branch, not a full tagged release.",
+        _ when _installedVersion is null => "This version is a beta: an untagged build from the addon's main branch, not a full tagged release.",
+        _ => "The update is a beta: an untagged build from the addon's main branch, not a full tagged release.",
+    };
 
     public string RowSubText => Remote.Author is { } a ? $"{RowVersionText}  ·  by {a}" : RowVersionText;
 

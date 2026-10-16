@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DarkTitleBar.Apply(this);
+        _updateBannerBackground = UpdateBanner.Background;
         VersionText.Text = $"v{AppUpdater.CurrentVersion}";
         AddonList.ItemsSource = _rows;
         BetaCheck.IsChecked = _settings.ShowBeta;
@@ -164,11 +165,10 @@ public partial class MainWindow : Window
         }
         catch (GitException ex)
         {
-            MessageBox.Show(this,
-                $"Git didn't pull {row.Name}, so nothing in the folder was changed:\n\n{ex.Message}\n\n"
+            DarkDialog.Show(this, $"Git didn't pull {row.Name}, so nothing in the folder was changed",
+                $"{ex.Message}\n\n"
                 + "This usually means you have local commits that aren't on GitHub yet, or uncommitted edits to the same "
-                + "files. Commit, stash or push your work, then try again (or pull from your own Git tool).",
-                "DrangedAddons", MessageBoxButton.OK, MessageBoxImage.Warning);
+                + "files. Commit, stash or push your work, then try again (or pull from your own Git tool).");
         }
         finally
         {
@@ -273,8 +273,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(owner ?? this, $"Couldn't install {row.Name} {version.Label}:\n\n{ex.Message}", "DrangedAddons",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            DarkDialog.Show(owner ?? this, $"Couldn't install {row.Name} {version.Label}", ex.Message);
             return false;
         }
         finally
@@ -344,12 +343,12 @@ public partial class MainWindow : Window
 
         var installed = _manifest.For(flavor.AddOnsPath);
         var folders = installed.TryGetValue(row.Name, out var record) ? record.Folders : new List<string> { row.Name };
-        var answer = MessageBox.Show(this,
-            $"Uninstall {row.Name} from {flavor.DisplayName}?\n\nThese folders will be moved to the Recycle Bin:\n"
-            + string.Join("\n", folders.Select(f => "  • " + f))
-            + "\n\nYour addon settings (in the WTF folder) are kept.",
-            "DrangedAddons", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (answer != MessageBoxResult.OK) return;
+        if (!DarkDialog.Show(this, $"Uninstall {row.Name} from {flavor.DisplayName}?",
+                "These folders will be moved to the Recycle Bin:\n"
+                + string.Join("\n", folders.Select(f => "  • " + f))
+                + "\n\nYour addon settings (in the WTF folder) are kept.",
+                primary: "Uninstall", secondary: "Cancel"))
+            return;
 
         try
         {
@@ -359,8 +358,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Couldn't uninstall {row.Name}:\n\n{ex.Message}", "DrangedAddons",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            DarkDialog.Show(this, $"Couldn't uninstall {row.Name}", ex.Message);
         }
         Evaluate(row, flavor);
         UpdateSummary();
@@ -368,20 +366,48 @@ public partial class MainWindow : Window
 
     async void Refresh_Click(object sender, RoutedEventArgs e)
     {
-        _ = CheckForAppUpdateAsync();
+        _ = CheckForAppUpdateAsync(interactive: true);
         await RefreshAsync();
     }
 
     AppRelease? _appUpdate;
+    int _bannerToken;
+    readonly System.Windows.Media.Brush _updateBannerBackground;
 
     /// <summary>
-    /// Shows the update bar when a newer app release exists. When <paramref name="interactive"/> (Help menu),
-    /// always reports the outcome and offers to update straight away.
+    /// Shows the bar under the header: gold with "Restart to update" for an available update, or a plain status
+    /// ("checking…", "you're on the latest version") that can hide itself after a while.
+    /// </summary>
+    void ShowBanner(string text, bool isUpdate, TimeSpan? hideAfter = null)
+    {
+        var token = ++_bannerToken;
+        UpdateBannerText.Text = text;
+        UpdateBannerButtons.Visibility = isUpdate ? Visibility.Visible : Visibility.Collapsed;
+        SelfUpdateButton.Visibility = isUpdate && AppUpdater.CanSelfUpdate ? Visibility.Visible : Visibility.Collapsed;
+        UpdateBanner.Background = isUpdate ? _updateBannerBackground : (System.Windows.Media.Brush)FindResource("PanelBrush");
+        UpdateBanner.BorderBrush = (System.Windows.Media.Brush)FindResource(isUpdate ? "AccentBrush" : "LineBrush");
+        UpdateBannerText.FontWeight = isUpdate ? FontWeights.SemiBold : FontWeights.Normal;
+        UpdateBanner.Visibility = Visibility.Visible;
+        if (hideAfter is { } delay)
+            _ = HideBannerLaterAsync(token, delay);
+    }
+
+    async Task HideBannerLaterAsync(int token, TimeSpan delay)
+    {
+        await Task.Delay(delay);
+        if (token == _bannerToken) UpdateBanner.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Shows the update bar when a newer app release exists. When <paramref name="interactive"/> (Help menu or
+    /// "Check for updates"), the bar also says it's checking and what it found, then hides again if there's nothing.
     /// </summary>
     async Task CheckForAppUpdateAsync(bool interactive = false)
     {
         await AppUpdater.CleanUpAsync();
         if (!AppUpdater.CanSelfUpdate && !interactive) return;
+        if (interactive && _appUpdate is null)
+            ShowBanner("Checking for app updates…", isUpdate: false);
         try
         {
             _appUpdate = await AppUpdater.CheckAsync(_github);
@@ -389,36 +415,23 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             // Not being able to check for an app update shouldn't get in the way of addons, unless asked.
-            if (interactive) ShowMessage($"Couldn't check for app updates:\n\n{ex.Message}", MessageBoxImage.Warning);
+            if (interactive) ShowBanner($"Couldn't check for app updates: {ex.Message}", isUpdate: false, TimeSpan.FromSeconds(8));
             return;
         }
 
         if (_appUpdate is null)
         {
-            if (interactive) ShowMessage($"You're on the latest version of DrangedAddons ({AppUpdater.CurrentVersion}).");
+            if (interactive)
+                ShowBanner($"You're on the latest version of DrangedAddons ({AppUpdater.CurrentVersion}).", isUpdate: false,
+                    TimeSpan.FromSeconds(4));
             return;
         }
 
-        UpdateBannerText.Text = $"DrangedAddons {_appUpdate.Version} is available (you have {AppUpdater.CurrentVersion}).";
-        UpdateBanner.Visibility = Visibility.Visible;
-        if (!interactive) return;
-
-        if (!AppUpdater.CanSelfUpdate)
-        {
-            ShowMessage($"DrangedAddons {_appUpdate.Version} is available, but this copy can't update itself. " +
-                        "Download it from the releases page (Help → DrangedAddons on GitHub).");
-            return;
-        }
-        var answer = MessageBox.Show(this,
-            $"DrangedAddons {_appUpdate.Version} is available (you have {AppUpdater.CurrentVersion}).\n\n" +
-            "Update now? DrangedAddons will restart.",
-            "DrangedAddons", MessageBoxButton.YesNo, MessageBoxImage.Information);
-        if (answer == MessageBoxResult.Yes)
-            await ApplySelfUpdateAsync();
+        ShowBanner(AppUpdater.CanSelfUpdate
+            ? $"DrangedAddons {_appUpdate.Version} is available (you have {AppUpdater.CurrentVersion})."
+            : $"DrangedAddons {_appUpdate.Version} is available. This copy can't update itself: download it from the releases page.",
+            isUpdate: true);
     }
-
-    void ShowMessage(string text, MessageBoxImage image = MessageBoxImage.Information) =>
-        MessageBox.Show(this, text, "DrangedAddons", MessageBoxButton.OK, image);
 
     async void SelfUpdate_Click(object sender, RoutedEventArgs e) => await ApplySelfUpdateAsync();
 
@@ -435,8 +448,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Couldn't update DrangedAddons:\n\n{ex.Message}", "DrangedAddons",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            DarkDialog.Show(this, "Couldn't update DrangedAddons", ex.Message);
             SelfUpdateButton.IsEnabled = true;
             SelfUpdateButton.Content = "Restart to update";
             SetWorking(false);
@@ -468,9 +480,8 @@ public partial class MainWindow : Window
         var root = WowLocator.NormalizeRoot(dialog.FolderName);
         if (root is null)
         {
-            MessageBox.Show(this,
-                "That doesn't look like a World of Warcraft folder. Pick the folder that contains _retail_, _classic_ and so on.",
-                "DrangedAddons", MessageBoxButton.OK, MessageBoxImage.Information);
+            DarkDialog.Show(this, "That isn't a World of Warcraft folder",
+                "Pick the folder that contains _retail_, _classic_ and so on.");
             return;
         }
         _settings.WowRoot = root;
@@ -496,18 +507,19 @@ public partial class MainWindow : Window
         var access = await GitHubClient.IsSignedInAsync()
             ? "Signed in to GitHub through the GitHub CLI (5,000 checks an hour)."
             : "Using GitHub without signing in (60 checks an hour per internet connection).";
-        ShowMessage($"DrangedAddons {AppUpdater.CurrentVersion}\n\n" +
-                    "Installs and updates the World of Warcraft addons from github.com/DrangedAddons.\n\n" +
-                    $"{access}\n\n" +
-                    $"Installed in {(AppInstaller.IsRunningInstalled ? AppInstaller.InstallDir : Path.GetDirectoryName(Environment.ProcessPath))}\n" +
-                    $"App settings are kept in {Storage.Dir}");
+        DarkDialog.Show(this, $"DrangedAddons {AppUpdater.CurrentVersion}",
+            "Installs and updates the World of Warcraft addons from github.com/DrangedAddons.\n\n" +
+            $"{access}\n\n" +
+            $"Installed in {(AppInstaller.IsRunningInstalled ? AppInstaller.InstallDir : Path.GetDirectoryName(Environment.ProcessPath))}\n" +
+            $"App settings are kept in {Storage.Dir}",
+            primary: "Close", showLogo: true);
     }
 
     void Exit_Click(object sender, RoutedEventArgs e) => Close();
 
     void UninstallApp_Click(object sender, RoutedEventArgs e)
     {
-        if (AppInstaller.Uninstall())
+        if (AppInstaller.Uninstall(this))
             Application.Current.Shutdown();
     }
 

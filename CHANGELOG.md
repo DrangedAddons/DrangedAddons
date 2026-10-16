@@ -5,6 +5,11 @@
   black outline with the gaps between them kept open, so it stays distinct at small sizes and on light
   backgrounds. Small icon sizes get a proportionally thicker outline.
 - The logo is shown, larger, next to the DrangedAddons heading in the window.
+- Checking for app updates (Help menu or "Check for updates") reports in the bar under the header instead of a
+  pop-up: "Checking for app updates…", then either the update offer or "You're on the latest version", which
+  hides itself after a few seconds.
+- About, confirmations and error messages use the app's own dark window instead of Windows message boxes, so
+  there's no "ding".
 
 ## 0.9.4
 - The app icon has a transparent background (no black tile), so the triangle fills the whole icon.

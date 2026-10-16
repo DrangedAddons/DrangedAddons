@@ -55,7 +55,7 @@
         <Border x:Name="UpdateBanner" Visibility="Collapsed" Margin="0,0,0,12" Padding="12,8" CornerRadius="8"
                 Background="#2A2410" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <StackPanel x:Name="UpdateBannerButtons" DockPanel.Dock="Right" Orientation="Horizontal">
                     <Button Content="What's new" Style="{StaticResource GhostBtn}" Click="WhatsNew_Click"/>
                     <Button x:Name="SelfUpdateButton" Content="Restart to update" Style="{StaticResource AccentBtn}"
                             Click="SelfUpdate_Click" Margin="8,0,0,0"/>

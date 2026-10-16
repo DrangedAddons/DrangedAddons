@@ -58,22 +58,21 @@ public static class AppInstaller
             return false;
         }
 
-        var answer = MessageBox.Show(
-            "Install DrangedAddons?\n\n" +
-            $"It will be installed for your Windows account in\n{InstallDir}\n" +
-            "with Start menu and desktop shortcuts, and can be removed from Settings → Apps.\n\n" +
-            "Choose No to just run it this once without installing.",
-            "DrangedAddons", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (answer != MessageBoxResult.Yes) return true;
+        if (!DarkDialog.Show(null, "Install DrangedAddons?",
+                $"It will be installed for your Windows account in\n{InstallDir}\n" +
+                "with Start menu and desktop shortcuts, and can be removed from Settings → Apps.\n\n" +
+                "Choose \"Just run it\" to use it this once without installing.",
+                primary: "Install", secondary: "Just run it", showLogo: true))
+            return true;
 
         CopyIn(exe);
         Register();
         CreateShortcut(StartMenuShortcut);
         CreateShortcut(DesktopShortcut);
-        MessageBox.Show(
-            "DrangedAddons is installed. Open it from the Start menu or the desktop shortcut from now on.\n\n" +
+        DarkDialog.Show(null, "DrangedAddons is installed",
+            "Open it from the Start menu or the desktop shortcut from now on.\n\n" +
             $"You can delete the file you downloaded ({exe}).",
-            "DrangedAddons", MessageBoxButton.OK, MessageBoxImage.Information);
+            primary: "Open DrangedAddons", showLogo: true);
         Launch();
         return false;
     }
@@ -132,12 +131,12 @@ public static class AppInstaller
     /// Removes the app (from Settings → Apps or File → Uninstall). Installed addons and their settings in the
     /// WoW folder are not touched.
     /// </summary>
-    public static bool Uninstall()
+    public static bool Uninstall(Window? owner = null)
     {
-        var answer = MessageBox.Show(
-            "Uninstall DrangedAddons?\n\nYour installed addons and their settings in the World of Warcraft folder are not touched.",
-            "DrangedAddons", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (answer != MessageBoxResult.Yes) return false;
+        if (!DarkDialog.Show(owner, "Uninstall DrangedAddons?",
+                "Your installed addons and their settings in the World of Warcraft folder are not touched.",
+                primary: "Uninstall", secondary: "Cancel", showLogo: true))
+            return false;
 
         foreach (var shortcut in new[] { StartMenuShortcut, DesktopShortcut })
         {
@@ -154,7 +153,7 @@ public static class AppInstaller
             UseShellExecute = false,
             WorkingDirectory = Path.GetTempPath(),
         });
-        MessageBox.Show("DrangedAddons has been uninstalled.", "DrangedAddons", MessageBoxButton.OK, MessageBoxImage.Information);
+        DarkDialog.Show(owner, "DrangedAddons has been uninstalled", "");
         return true;
     }
 }

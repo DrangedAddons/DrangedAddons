@@ -95,6 +95,20 @@
         </StackPanel>
 
         <Grid Grid.Row="2">
+            <DockPanel x:Name="ListPanel">
+            <!-- Tabs (installed / everything) and search. -->
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                <TextBox x:Name="SearchBox" DockPanel.Dock="Right" Width="260" VerticalAlignment="Center"
+                         Style="{StaticResource SearchBox}" Tag="Search addons…  (Ctrl+F)"
+                         TextChanged="Search_TextChanged"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                    <RadioButton x:Name="MyAddonsTab" GroupName="AddonTabs" Style="{StaticResource TabButton}"
+                                 Content="My Addons" IsChecked="True" Checked="Tab_Checked"/>
+                    <RadioButton x:Name="BrowseTab" GroupName="AddonTabs" Style="{StaticResource TabButton}"
+                                 Content="Browse" Checked="Tab_Checked"/>
+                </StackPanel>
+            </DockPanel>
+            <Grid>
             <!-- Addon list: one compact row per addon; click a row for its details. -->
             <ScrollViewer x:Name="ListScroll" VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="AddonList">
@@ -155,6 +169,8 @@
             </ScrollViewer>
             <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
                        TextWrapping="Wrap" MaxWidth="460" Foreground="{StaticResource MutedBrush}" Visibility="Collapsed"/>
+            </Grid>
+            </DockPanel>
 
             <!-- Details page for one addon (DataContext = its AddonRow). -->
             <DockPanel x:Name="DetailsPanel" Visibility="Collapsed">

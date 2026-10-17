@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0
+- **My Addons / Browse tabs.** My Addons lists only what's installed in the selected game version; Browse lists
+  every available addon (installed ones included). Each tab shows its count, and the app remembers the last one
+  (starting on Browse if nothing is installed yet).
+- **Search box** on both tabs: filters by name, description or author as you type. Ctrl+F jumps to it, Esc clears it.
+
 ## 0.12.1
 - A purple **BETA** bubble next to an addon's name when the version shown is an untagged beta build rather than a
   full tagged release (hover it for details). It replaces the "(beta)" text after version numbers.

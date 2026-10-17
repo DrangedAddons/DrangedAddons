@@ -30,6 +30,9 @@ public partial class MainWindow : Window
         _updateBannerBackground = UpdateBanner.Background;
         VersionText.Text = $"v{AppUpdater.CurrentVersion}";
         AddonList.ItemsSource = _rows;
+        _view = System.Windows.Data.CollectionViewSource.GetDefaultView(_rows);
+        _view.Filter = item => item is AddonRow row && ShowsInList(row);
+        if (_settings.Tab == "browse") BrowseTab.IsChecked = true;
         BetaCheck.IsChecked = _settings.ShowBeta;
         UninstallAppMenu.Visibility = AppInstaller.IsRunningInstalled ? Visibility.Visible : Visibility.Collapsed;
         CloseToTrayMenu.IsChecked = _settings.CloseToTray;
@@ -46,8 +49,40 @@ public partial class MainWindow : Window
             LoadFlavors();
             _ = CheckForAppUpdateAsync();
             await RefreshAsync();
+            // First run: start on My Addons if anything is installed here, otherwise on Browse.
+            if (_settings.Tab is null && !_rows.Any(r => r.State != AddonState.NotInstalled))
+                BrowseTab.IsChecked = true;
             NotifyNewUpdates();
         };
+    }
+
+    // ---- Tabs and search ----------------------------------------------------------------------------------------
+
+    readonly System.ComponentModel.ICollectionView _view;
+
+    bool OnBrowseTab => BrowseTab.IsChecked == true;
+
+    /// <summary>My Addons shows what's installed in this game; Browse shows everything. Both apply the search.</summary>
+    bool ShowsInList(AddonRow row)
+    {
+        if (!OnBrowseTab && row.State == AddonState.NotInstalled) return false;
+        var words = SearchBox.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) return true;
+        var haystack = $"{row.Name} {row.Description} {row.Author}";
+        return words.All(w => haystack.Contains(w, StringComparison.OrdinalIgnoreCase));
+    }
+
+    void Tab_Checked(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        _settings.Tab = OnBrowseTab ? "browse" : "my";
+        Storage.Save(SettingsFile, _settings);
+        UpdateSummary();
+    }
+
+    void Search_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (IsLoaded) UpdateSummary();
     }
 
     // ---- Tray -------------------------------------------------------------------------------------------------
@@ -232,8 +267,7 @@ public partial class MainWindow : Window
         _detailsFor = row.Name;
         DetailsPanel.DataContext = row;
         DetailsPanel.Visibility = Visibility.Visible;
-        ListScroll.Visibility = Visibility.Collapsed;
-        EmptyText.Visibility = Visibility.Collapsed;
+        ListPanel.Visibility = Visibility.Collapsed;
     }
 
     void ShowList()
@@ -241,18 +275,31 @@ public partial class MainWindow : Window
         _detailsFor = null;
         DetailsPanel.Visibility = Visibility.Collapsed;
         DetailsPanel.DataContext = null;
-        ListScroll.Visibility = Visibility.Visible;
+        ListPanel.Visibility = Visibility.Visible;
         UpdateSummary(); // restores the "no addons" message if the list is empty
     }
 
     void Back_Click(object sender, RoutedEventArgs e) => ShowList();
 
-    // Esc or the mouse's back button also go back to the list.
+    // Esc: back to the list from details, else clear the search. Ctrl+F: search. Mouse back button: back.
     protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key == System.Windows.Input.Key.Escape && _detailsFor is not null)
         {
             ShowList();
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Escape && SearchBox.Text.Length > 0)
+        {
+            SearchBox.Clear();
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.F
+                 && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
+        {
+            if (_detailsFor is not null) ShowList();
+            SearchBox.Focus();
+            SearchBox.SelectAll();
             e.Handled = true;
         }
         base.OnPreviewKeyDown(e);
@@ -366,10 +413,19 @@ public partial class MainWindow : Window
         OpenFolderButton.IsEnabled = OpenFolderMenu.IsEnabled = CurrentFlavor is not null;
         UpdateFlavorCounts();
 
+        // Tabs and search: re-filter (installs/uninstalls move rows between tabs) and show the counts.
+        _view.Refresh();
+        var shown = _rows.Count(ShowsInList);
+        MyAddonsTab.Content = $"My Addons ({_rows.Count(r => r.State != AddonState.NotInstalled)})";
+        BrowseTab.Content = $"Browse ({_rows.Count})";
+
+        var query = SearchBox.Text.Trim();
         EmptyText.Text = _root is null ? "Pick your World of Warcraft folder to get started."
             : _loadError is not null ? _loadError
-            : "No addons with a packaged release were found in the DrangedAddons organisation.";
-        EmptyText.Visibility = _rows.Count == 0 && !_working && _detailsFor is null ? Visibility.Visible : Visibility.Collapsed;
+            : _rows.Count == 0 ? "No addons with a packaged release were found in the DrangedAddons organisation."
+            : query.Length > 0 ? $"No addons match “{query}”."
+            : $"Nothing installed for {CurrentFlavor?.DisplayName ?? "this game"} yet. Find addons in Browse.";
+        EmptyText.Visibility = shown == 0 && !_working && _detailsFor is null ? Visibility.Visible : Visibility.Collapsed;
 
         if (_working) return;
         if (_loadError is not null)

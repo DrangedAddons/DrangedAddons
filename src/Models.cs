@@ -10,6 +10,8 @@ public sealed class AppSettings
     public string? Flavor { get; set; }
     public bool ShowBeta { get; set; }
     public bool CloseToTray { get; set; } = true;
+    /// <summary>"my" or "browse"; null until chosen (then: My Addons if anything's installed, else Browse).</summary>
+    public string? Tab { get; set; }
     public bool UpdateNotifications { get; set; } = true;
     public bool TrayTipShown { get; set; }
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.5
+- An installed beta whose version has since been published as a tagged release is now treated as that release:
+  the BETA bubble goes away (e.g. CraftRoute 0.83.3 installed from main just before v0.83.3 was tagged).
+
 ## 0.17.4
 - Fixed "Couldn't load versions: … 403 (Forbidden)". A GitHub token that isn't allowed to see something (e.g. one
   tied to the org and awaiting approval) is now skipped in favour of a normal anonymous request, and GitHub's

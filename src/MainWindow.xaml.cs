@@ -572,6 +572,15 @@ public partial class MainWindow : Window
         // Trust our own record first; fall back to the .toc for copies installed by hand.
         var version = record?.Version ?? AddonInstaller.ReadTocVersion(mainFolder);
         var upToDate = version is not null && Versions.Compare(version, row.LatestVersion) >= 0;
+
+        // A beta whose version has since been published as a release is that release now: stop calling it a beta.
+        if (record is { IsBeta: true } && version is not null
+            && row.Remote.LatestRelease is { } release && Versions.Compare(release.Version, version) == 0)
+        {
+            record.IsBeta = false;
+            record.Commit = null;
+            Storage.Save(ManifestFile, _manifest);
+        }
         row.Update(upToDate ? AddonState.UpToDate : AddonState.UpdateAvailable, version ?? "unknown", record?.IsBeta == true);
     }
 

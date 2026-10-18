@@ -17,14 +17,20 @@ public static class AppUpdater
 
     public static string CurrentVersion => typeof(AppUpdater).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
-    /// <summary>The running .exe, or null when it can't replace itself (a dev build with its .dll beside it).</summary>
+    /// <summary>
+    /// The running .exe if it's a release build (one self-contained file), whatever it's called: browsers save
+    /// repeat downloads as "DrangedAddons (1).exe" and that copy must still update itself. Null for dev builds,
+    /// which run from a .dll beside the .exe.
+    /// </summary>
     internal static string? ExePath
     {
         get
         {
             var path = Environment.ProcessPath;
-            if (path is null || !Path.GetFileName(path).Equals(ExeName, StringComparison.OrdinalIgnoreCase)) return null;
-            return File.Exists(Path.ChangeExtension(path, ".dll")) ? null : path;
+            if (path is null || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return null;
+            // A single-file release has no assembly file on disk, so Location is empty.
+            var singleFile = string.IsNullOrEmpty(typeof(AppUpdater).Assembly.Location);
+            return singleFile ? path : null;
         }
     }
 
@@ -62,9 +68,9 @@ public static class AppUpdater
         }
         catch (UnauthorizedAccessException)
         {
-            throw new InvalidOperationException(
-                $"Windows won't let DrangedAddons write to {Path.GetDirectoryName(exe)}. Move DrangedAddons.exe to a folder " +
-                "you own (like Desktop or Documents) and try again.");
+            // Can't write beside this copy (e.g. it's in Program Files): let the new version install itself instead.
+            await HandOverToInstallerAsync(github, release, startInTray, progress);
+            return;
         }
         if (new FileInfo(newPath).Length < 1_000_000)
         {
@@ -72,7 +78,17 @@ public static class AppUpdater
             throw new InvalidDataException("The downloaded update looks incomplete. Try again later.");
         }
 
-        var oldPath = SetAside(exe);
+        string oldPath;
+        try
+        {
+            oldPath = SetAside(exe);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            File.Delete(newPath);
+            await HandOverToInstallerAsync(github, release, startInTray, progress);
+            return;
+        }
         try
         {
             File.Move(newPath, exe);
@@ -85,6 +101,23 @@ public static class AppUpdater
         // --replace: the new copy waits for this one to finish closing instead of just showing its window.
         // --tray: an automatic update restarts straight back into the tray.
         Process.Start(new ProcessStartInfo(exe, startInTray ? "--replace --tray" : "--replace") { UseShellExecute = true });
+    }
+
+    /// <summary>
+    /// For a copy that can't replace itself where it is: download the new version to a temporary folder and start
+    /// it. Its normal start-up takes over: it upgrades the installed copy (or offers to install), and --replace
+    /// makes this old copy close.
+    /// </summary>
+    static async Task HandOverToInstallerAsync(GitHubClient github, AppRelease release, bool startInTray,
+        IProgress<DownloadProgress>? progress)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "DrangedAddons-update");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, ExeName);
+        await github.DownloadAsync(release.ExeUrl, path, progress);
+        if (new FileInfo(path).Length < 1_000_000)
+            throw new InvalidDataException("The downloaded update looks incomplete. Try again later.");
+        Process.Start(new ProcessStartInfo(path, startInTray ? "--replace --tray" : "--replace") { UseShellExecute = true });
     }
 
     /// <summary>

@@ -957,9 +957,19 @@ public partial class MainWindow : Window
 
     async void SelfUpdate_Click(object sender, RoutedEventArgs e) => await ApplySelfUpdateAsync();
 
+    bool _selfUpdating;
+
     async Task ApplySelfUpdateAsync(bool backToTray = false)
     {
-        if (_appUpdate is null || _working) return;
+        if (_appUpdate is null || _selfUpdating) return; // a second click while updating is ignored
+        _selfUpdating = true;
+        // Let a check or install that's already running finish first (clicking during the start-up check used to
+        // do nothing), then update.
+        if (_working)
+        {
+            SelfUpdateButton.Content = "Waiting…";
+            while (_working) await Task.Delay(200);
+        }
         SetWorking(true, $"Downloading DrangedAddons {_appUpdate.Version}…");
         // Stays enabled (a disabled button would dim the progress fill); a second click is ignored while working.
         SelfUpdateButton.Background = (System.Windows.Media.Brush)FindResource("Panel2Brush");
@@ -986,6 +996,7 @@ public partial class MainWindow : Window
             SelfUpdateButton.ClearValue(BackgroundProperty);
             SelfUpdateButton.ClearValue(ForegroundProperty);
             SelfUpdateButton.Content = "Restart to update";
+            _selfUpdating = false;
             SetWorking(false);
             UpdateSummary();
         }

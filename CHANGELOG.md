@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.3
+- Fixed "This copy can't update itself: download it from the releases page" for copies not named exactly
+  `DrangedAddons.exe` (browsers save repeat downloads as `DrangedAddons (1).exe`). Any release copy now updates
+  itself, whatever it's called.
+- A copy that can't replace itself where it is (e.g. in a protected folder) no longer sends you to GitHub: it
+  downloads the new version and hands over to the installer, which upgrades or installs the proper copy.
+- Clicking Restart to update while a check was still running did nothing; it now waits for the check and then
+  updates.
+
 ## 0.17.2
 - No changes: a release to test the app updating and restarting itself automatically.
 

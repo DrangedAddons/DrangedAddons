@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.17.2
+- No changes: a release to test the app updating and restarting itself automatically.
+
 ## 0.17.1
 - **Auto-update DrangedAddons** now updates the app whether its window is open or in the tray: the update bar
   shows the download filling, then it restarts and reopens the same way. It waits while an install is running or

@@ -45,7 +45,7 @@
                 <TextBlock x:Name="HeaderText" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"/>
             </StackPanel>
             <TextBlock x:Name="SubText" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>
-            <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,12"
+            <TextBlock x:Name="NoteText" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,12"
                        Text="Installing a version replaces the one in this game folder. Your addon settings are kept, but a version older than the one that last saved them may not understand them. Reinstall the latest if anything misbehaves."/>
         </StackPanel>
 
@@ -76,7 +76,8 @@
                                 <TextBlock Text="{Binding DateText}" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <Button Grid.Column="1" Content="{Binding ActionText}" Style="{StaticResource Btn}" MinWidth="100"
-                                    VerticalAlignment="Center" Click="Install_Click"/>
+                                    VerticalAlignment="Center" Click="Install_Click"
+                                    Visibility="{Binding CanInstall, Converter={StaticResource BoolToVis}}"/>
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>

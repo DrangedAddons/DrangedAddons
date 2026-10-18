@@ -6,6 +6,10 @@
   short-term "too many requests" limit is recognised and shown as a limit message instead of a raw error.
 - When signed in, the token is also used for addon files (versions, icons, changelogs) on GitHub's own servers,
   which raises GitHub's limits there too. Errors now say which request failed.
+- **Versions… for Git working copies**, view-only: browse every version and its changes, with no Install buttons.
+- GitHub token steps corrected: GitHub requires an expiration date, and the resource owner should be your own
+  account (choosing DrangedAddons makes the token wait for an admin's approval). An expired or revoked saved token
+  is now called out in the token window and the usage meter.
 
 ## 0.17.3
 - Fixed "This copy can't update itself: download it from the releases page" for copies not named exactly

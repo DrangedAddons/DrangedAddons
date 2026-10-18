@@ -4,13 +4,14 @@ using System.Windows.Media;
 
 namespace DrangedAddons;
 
-public sealed class VersionItem(AddonVersion version, bool isInstalled)
+public sealed class VersionItem(AddonVersion version, bool isInstalled, bool canInstall)
 {
     static readonly Brush ReleaseBrush = Frozen(0x4C, 0xAF, 0x7D);
     static readonly Brush BetaBrush = Frozen(0x6A, 0x9F, 0xE0);
 
     public AddonVersion Version { get; } = version;
     public bool IsInstalled { get; } = isInstalled;
+    public bool CanInstall { get; } = canInstall;
     public string KindText => Version.IsRelease ? "Release" : "Beta";
     public Brush KindBrush => Version.IsRelease ? ReleaseBrush : BetaBrush;
     public string ActionText => IsInstalled ? "Reinstall" : "Install";
@@ -33,11 +34,12 @@ public partial class VersionsWindow : Window
     readonly RemoteAddon _addon;
     readonly bool _includeBeta;
     readonly Func<string?> _installedVersion;
-    readonly Func<AddonVersion, Window, Task<bool>> _install;
+    readonly Func<AddonVersion, Window, Task<bool>>? _install;
     List<AddonVersion> _versions = new();
 
+    /// <param name="install">How to install a version; null opens the window view-only (a Git working copy).</param>
     public VersionsWindow(GitHubClient github, RemoteAddon addon, WowFlavor flavor, bool includeBeta, ImageSource? icon,
-        Func<string?> installedVersion, Func<AddonVersion, Window, Task<bool>> install)
+        Func<string?> installedVersion, Func<AddonVersion, Window, Task<bool>>? install)
     {
         InitializeComponent();
         DarkTitleBar.Apply(this);
@@ -56,6 +58,9 @@ public partial class VersionsWindow : Window
         HeaderText.Text = $"{addon.Name} versions";
         SubText.Text = $"{flavor.DisplayName}  ·  "
                        + (includeBeta ? "tagged releases and beta versions" : "tagged releases only (tick “Show beta versions” to see untagged ones)");
+        if (install is null)
+            NoteText.Text = "This is a Git working copy, so versions can be browsed here but not installed over it. " +
+                            "Use Git to move between versions.";
         Loaded += async (_, _) => await LoadAsync();
     }
 
@@ -80,7 +85,7 @@ public partial class VersionsWindow : Window
     {
         var installed = _installedVersion();
         var items = _versions
-            .Select(v => new VersionItem(v, installed is not null && Versions.Compare(v.Version, installed) == 0))
+            .Select(v => new VersionItem(v, installed is not null && Versions.Compare(v.Version, installed) == 0, _install is not null))
             .ToList();
         VersionList.ItemsSource = items;
         VersionList.SelectedItem = items.FirstOrDefault(i => i.IsInstalled) ?? items.FirstOrDefault();
@@ -96,7 +101,7 @@ public partial class VersionsWindow : Window
 
     async void Install_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is not VersionItem item) return;
+        if (_install is null || (sender as FrameworkElement)?.DataContext is not VersionItem item) return;
         VersionList.SelectedItem = item;
         IsEnabled = false;
         LoadingText.Text = $"Installing {item.Version.Label}…";

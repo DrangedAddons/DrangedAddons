@@ -68,6 +68,8 @@ public sealed class GitHubClient
     static async Task<string> TokenSourceAsync()
     {
         var token = await CurrentTokenAsync();
+        if (token is null && _savedToken is not null && _savedToken == _rejectedToken)
+            return "Not signed in: your saved token has expired or was revoked (add a new one)";
         if (token is null) return "Not signed in";
         if (token == _savedToken) return "Your GitHub token (saved in DrangedAddons)";
         foreach (var name in new[] { "GH_TOKEN", "GITHUB_TOKEN" })

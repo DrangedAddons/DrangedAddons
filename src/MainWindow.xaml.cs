@@ -698,7 +698,8 @@ public partial class MainWindow : Window
 
         var window = new VersionsWindow(_github, row.Remote, flavor, _settings.ShowBeta, row.Icon,
             () => InstalledVersion(row, flavor),
-            async (version, owner) =>
+            // A Git working copy is view-only: never install over it.
+            row.State == AddonState.DevCopy ? null : async (version, owner) =>
             {
                 if (_working) return false;
                 SetWorking(true);

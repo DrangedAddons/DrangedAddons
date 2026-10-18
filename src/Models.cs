@@ -229,7 +229,8 @@ public sealed class AddonRow : INotifyPropertyChanged
     // Stays "enabled" while busy so the progress fill isn't dimmed; clicks are ignored while the app is working.
     public bool ActionEnabled => IsPrimaryAction || IsBusy;
     public bool CanUninstall => !IsBusy && _state is AddonState.UpdateAvailable or AddonState.UpToDate;
-    public bool CanPickVersion => !IsBusy && _state != AddonState.DevCopy;
+    /// <summary>Versions… is always available; for a Git working copy it opens view-only.</summary>
+    public bool CanPickVersion => !IsBusy;
     public bool CanBrowse => _state != AddonState.NotInstalled;
     /// <summary>The action button shows only while there's something to do (or it's doing it); otherwise a label.</summary>
     public bool ShowRowAction => IsPrimaryAction || IsBusy;

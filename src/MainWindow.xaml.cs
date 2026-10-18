@@ -706,8 +706,19 @@ public partial class MainWindow : Window
         WhatsNewButton.Visibility = isUpdate ? Visibility.Visible : Visibility.Collapsed;
         SelfUpdateButton.Visibility = isUpdate && AppUpdater.CanSelfUpdate ? Visibility.Visible : Visibility.Collapsed;
         TokenButton.Visibility = kind == BannerKind.Token ? Visibility.Visible : Visibility.Collapsed;
-        UpdateBanner.Background = standsOut ? _updateBannerBackground : (System.Windows.Media.Brush)FindResource("PanelBrush");
-        UpdateBanner.BorderBrush = (System.Windows.Media.Brush)FindResource(standsOut ? "AccentBrush" : "LineBrush");
+        // Gold for an update waiting, red for a problem (GitHub's limit), plain for status messages.
+        UpdateBanner.Background = kind switch
+        {
+            BannerKind.Update => _updateBannerBackground,
+            BannerKind.Token => (System.Windows.Media.Brush)FindResource("AlertBackgroundBrush"),
+            _ => (System.Windows.Media.Brush)FindResource("PanelBrush"),
+        };
+        UpdateBanner.BorderBrush = (System.Windows.Media.Brush)FindResource(kind switch
+        {
+            BannerKind.Update => "AccentBrush",
+            BannerKind.Token => "DangerBrush",
+            _ => "LineBrush",
+        });
         UpdateBannerText.FontWeight = standsOut ? FontWeights.SemiBold : FontWeights.Normal;
         UpdateBanner.Visibility = Visibility.Visible;
         if (hideAfter is { } delay)

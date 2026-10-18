@@ -7,7 +7,7 @@
 - **File → GitHub token…**: shows how the app is connected and how many checks are left this hour, explains how
   to make a free token (5,000 checks an hour), checks it with GitHub and saves it encrypted by Windows. It can be
   removed again.
-- When GitHub's limit is hit, the bar under the header says so, when it resets, and offers **Add GitHub token**.
+- When GitHub's limit is hit, a red bar under the header says so, when it resets, and offers **Add GitHub token**.
 
 ## 0.13.0
 - **My Addons / Browse tabs.** My Addons lists only what's installed in the selected game version; Browse lists

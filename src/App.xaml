@@ -50,6 +50,7 @@
         </Style>
 
         <SolidColorBrush x:Key="DangerBrush" Color="#E05A4F"/>
+        <SolidColorBrush x:Key="AlertBackgroundBrush" Color="#2E1715"/>
 
         <!-- Destructive actions (Delete). -->
         <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource Btn}">

@@ -65,7 +65,7 @@
                     <Button x:Name="WhatsNewButton" Content="What's new" Style="{StaticResource GhostBtn}" Click="WhatsNew_Click"/>
                     <Button x:Name="SelfUpdateButton" Content="Restart to update" Style="{StaticResource AccentBtn}"
                             Click="SelfUpdate_Click" Margin="8,0,0,0"/>
-                    <Button x:Name="TokenButton" Content="Add GitHub token" Style="{StaticResource AccentBtn}"
+                    <Button x:Name="TokenButton" Content="Add GitHub token" Style="{StaticResource DangerBtn}"
                             Click="GitHubToken_Click" Margin="8,0,0,0"/>
                 </StackPanel>
                 <TextBlock x:Name="UpdateBannerText" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap"

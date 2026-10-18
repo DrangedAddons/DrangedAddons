@@ -21,8 +21,10 @@ A small Windows app that installs and updates World of Warcraft addons published
 - **Uninstall** moves the addon folders to the Recycle Bin.
 - A folder containing `.git` is treated as a **Git working copy** and is never overwritten or deleted.
 
-The app reads GitHub anonymously (60 requests/hour) and caches responses with ETags, so repeated
-checks normally cost nothing against that limit.
+Without signing in, GitHub allows 60 requests an hour per internet connection, so the app checks every 15
+minutes. With a free GitHub token (File → GitHub token…, stored encrypted by Windows) or the GitHub CLI signed in
+on the PC, it's 5,000 an hour and the app checks every minute; responses are cached with ETags, so unchanged
+results don't count against that limit.
 
 App data (settings, install records, HTTP cache) lives in `%AppData%\DrangedAddons`.
 

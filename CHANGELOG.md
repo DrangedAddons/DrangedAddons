@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0
+- **Checks every minute** when signed in to GitHub (a saved token, or the GitHub CLI login), every 15 minutes
+  without (GitHub only allows 60 anonymous checks an hour). Background checks are silent and only redraw the list
+  when something changed.
+- **File → GitHub token…**: shows how the app is connected and how many checks are left this hour, explains how
+  to make a free token (5,000 checks an hour), checks it with GitHub and saves it encrypted by Windows. It can be
+  removed again.
+- When GitHub's limit is hit, the bar under the header says so, when it resets, and offers **Add GitHub token**.
+
 ## 0.13.0
 - **My Addons / Browse tabs.** My Addons lists only what's installed in the selected game version; Browse lists
   every available addon (installed ones included). Each tab shows its count, and the app remembers the last one

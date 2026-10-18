@@ -6,7 +6,13 @@ namespace DrangedAddons;
 public sealed class RateLimitException(DateTimeOffset? reset) : Exception(
     reset is { } r
         ? $"GitHub's hourly request limit was reached. Try again after {r.ToLocalTime():t}."
-        : "GitHub's hourly request limit was reached. Try again later.");
+        : "GitHub's hourly request limit was reached. Try again later.")
+{
+    public DateTimeOffset? Reset { get; } = reset;
+}
+
+/// <summary>How the app is talking to GitHub, and how much of this hour's allowance is left.</summary>
+public sealed record GitHubAccess(string Source, bool SignedIn, int Limit, int Remaining, DateTimeOffset Reset);
 
 public sealed record CachedResponse(string ETag, string Body);
 
@@ -14,8 +20,9 @@ public sealed record CachedResponse(string ETag, string Body);
 /// Reads the public DrangedAddons org. API responses are cached with ETags, and GitHub doesn't count
 /// "304 Not Modified" replies against the hourly limit. File contents at a commit come from
 /// raw.githubusercontent.com and source zips from codeload.github.com, neither of which uses that limit.
-/// Anonymous use gets 60 API requests an hour per internet connection; when the GitHub CLI is signed in on this PC
-/// (or GH_TOKEN / GITHUB_TOKEN is set), its login is used instead for 5,000 an hour.
+/// Anonymous use gets 60 API requests an hour per internet connection (and then 304s do count); signed in it's
+/// 5,000 an hour, using a token saved in the app (File → GitHub token…), GH_TOKEN / GITHUB_TOKEN, or the GitHub
+/// CLI's login on this PC.
 /// </summary>
 public sealed class GitHubClient
 {
@@ -25,9 +32,72 @@ public sealed class GitHubClient
 
     static readonly HttpClient Http = CreateHttp();
 
-    // Looked up once in the background; only ever sent to api.github.com.
+    // A token saved in the app wins; otherwise GH_TOKEN / GITHUB_TOKEN or the GitHub CLI's login (looked up once in
+    // the background). Tokens are only ever sent to api.github.com.
     static readonly Task<string?> TokenTask = Task.Run(FindToken);
-    static volatile bool _tokenRejected;
+    static volatile string? _savedToken;
+    static volatile string? _rejectedToken;
+
+    /// <summary>Uses (or, with null, stops using) a token the user saved in the app.</summary>
+    public static void UseSavedToken(string? token) => _savedToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim();
+
+    // Test builds only (DRANGEDADDONS_DEV=1): pretend not to be signed in / that GitHub's limit was hit.
+    static readonly bool IsDev = Environment.GetEnvironmentVariable("DRANGEDADDONS_DEV") == "1";
+    static readonly bool TestAnonymous = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_ANON") == "1";
+    static readonly bool TestRateLimit = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_RATELIMIT") == "1";
+
+    static async Task<string?> CurrentTokenAsync()
+    {
+        if (TestAnonymous && _savedToken is null) return null;
+        var token = _savedToken ?? await TokenTask;
+        return token is not null && token == _rejectedToken ? null : token;
+    }
+
+    /// <summary>Where the token in use comes from, for display.</summary>
+    static async Task<string> TokenSourceAsync()
+    {
+        var token = await CurrentTokenAsync();
+        if (token is null) return "Not signed in";
+        if (token == _savedToken) return "Your GitHub token (saved in DrangedAddons)";
+        foreach (var name in new[] { "GH_TOKEN", "GITHUB_TOKEN" })
+        {
+            if (Environment.GetEnvironmentVariable(name)?.Trim() == token) return $"The {name} environment variable";
+        }
+        return "Your GitHub CLI login on this PC";
+    }
+
+    public static async Task<bool> IsSignedInAsync() => await CurrentTokenAsync() is not null;
+
+    /// <summary>
+    /// This hour's allowance for the given token (default: the one in use). Asking doesn't use any of it.
+    /// Returns null if GitHub can't be reached; throws UnauthorizedAccessException for a token GitHub rejects.
+    /// </summary>
+    public static async Task<GitHubAccess?> GetAccessAsync(string? tryToken = null)
+    {
+        var token = tryToken ?? await CurrentTokenAsync();
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/rate_limit");
+            request.Headers.Accept.ParseAdd("application/vnd.github+json");
+            if (token is not null) request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            using var response = await Http.SendAsync(request);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                throw new UnauthorizedAccessException("GitHub didn't accept that token. Check it was copied in full and hasn't expired.");
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var core = doc.RootElement.GetProperty("resources").GetProperty("core");
+            return new GitHubAccess(
+                tryToken is not null ? "That token" : await TokenSourceAsync(),
+                token is not null,
+                core.GetProperty("limit").GetInt32(),
+                core.GetProperty("remaining").GetInt32(),
+                DateTimeOffset.FromUnixTimeSeconds(core.GetProperty("reset").GetInt64()));
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+    }
 
     static string? FindToken()
     {
@@ -392,15 +462,17 @@ public sealed class GitHubClient
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         if (cached is not null)
             request.Headers.TryAddWithoutValidation("If-None-Match", cached.ETag);
-        var token = _tokenRejected ? null : await TokenTask;
+        var token = await CurrentTokenAsync();
         if (token is not null)
             request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+        if (TestRateLimit && token is null)
+            throw new RateLimitException(DateTimeOffset.Now.AddMinutes(37));
 
         using var response = await Http.SendAsync(request, ct);
         if (response.StatusCode == HttpStatusCode.Unauthorized && token is not null)
         {
             // Expired or revoked login: carry on anonymously.
-            _tokenRejected = true;
+            _rejectedToken = token;
             return await GetJsonAsync(url, ct);
         }
         if (response.StatusCode == HttpStatusCode.NotModified && cached is not null)

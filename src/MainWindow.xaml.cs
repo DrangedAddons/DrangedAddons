@@ -38,9 +38,10 @@ public partial class MainWindow : Window
         CloseToTrayMenu.IsChecked = _settings.CloseToTray;
         NotificationsMenu.IsChecked = _settings.UpdateNotifications;
 
+        GitHubClient.UseSavedToken(TokenStore.Load());
         _tray = new TrayIcon(ShowFromTray, CheckFromTray, App.ExitApp);
         _backgroundCheck.Tick += async (_, _) => await BackgroundCheckAsync();
-        _backgroundCheck.Start();
+        _ = UpdateCheckIntervalAsync();
         Closing += OnClosing;
         Closed += (_, _) => _tray?.Dispose();
 
@@ -88,8 +89,52 @@ public partial class MainWindow : Window
     // ---- Tray -------------------------------------------------------------------------------------------------
 
     TrayIcon? _tray;
-    readonly System.Windows.Threading.DispatcherTimer _backgroundCheck = new() { Interval = TimeSpan.FromHours(1) };
+    readonly System.Windows.Threading.DispatcherTimer _backgroundCheck = new() { Interval = TimeSpan.FromMinutes(15) };
     readonly HashSet<string> _notified = new();
+
+    /// <summary>
+    /// Background checks run every minute when signed in to GitHub (unchanged results don't count towards the
+    /// 5,000 an hour), but only every 15 minutes without a token: each check is ~8 requests and the anonymous
+    /// allowance is 60 an hour.
+    /// </summary>
+    async Task UpdateCheckIntervalAsync()
+    {
+        _backgroundCheck.Interval = await GitHubClient.IsSignedInAsync() ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(15);
+        _backgroundCheck.Stop();
+        _backgroundCheck.Start();
+    }
+
+    void GitHubToken_Click(object sender, RoutedEventArgs e) => ShowTokenWindow();
+
+    async void ShowTokenWindow()
+    {
+        var window = new GitHubTokenWindow { Owner = this };
+        window.ShowDialog();
+        if (!window.Changed) return;
+        await UpdateCheckIntervalAsync();
+        HideRateLimitBanner();
+        await RefreshAsync();
+    }
+
+    /// <summary>When GitHub's limit is hit, say so in the bar and offer a token (unless already signed in).</summary>
+    async Task ShowRateLimitBannerAsync(RateLimitException ex)
+    {
+        var resetText = ex.Reset is { } reset ? $" It resets at {reset.ToLocalTime():t}." : "";
+        if (await GitHubClient.IsSignedInAsync())
+            ShowBanner($"GitHub's hourly limit was reached.{resetText}", BannerKind.Info);
+        else
+            ShowBanner($"GitHub's limit of 60 checks an hour was reached (you're not signed in).{resetText} " +
+                       "A free GitHub token raises it to 5,000.", BannerKind.Token);
+        _rateLimitBanner = _bannerToken;
+    }
+
+    int _rateLimitBanner = -1;
+
+    void HideRateLimitBanner()
+    {
+        if (_rateLimitBanner == _bannerToken) UpdateBanner.Visibility = Visibility.Collapsed;
+        _rateLimitBanner = -1;
+    }
 
     /// <summary>Closing the window hides it to the tray (unless that's turned off, or the app is really exiting).</summary>
     void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -123,11 +168,11 @@ public partial class MainWindow : Window
         NotifyNewUpdates();
     }
 
-    /// <summary>Hourly: check addons and the app; tell the user about anything new if the window is hidden.</summary>
+    /// <summary>Periodic: check addons and the app; tell the user about anything new if the window is hidden.</summary>
     async Task BackgroundCheckAsync()
     {
         if (_working) return;
-        await RefreshAsync();
+        await RefreshAsync(quiet: true);
         await CheckForAppUpdateAsync();
         NotifyNewUpdates();
     }
@@ -196,21 +241,32 @@ public partial class MainWindow : Window
                                   ?? flavors.FirstOrDefault();
     }
 
-    async Task RefreshAsync()
+    /// <summary>
+    /// Fetches the addon list from GitHub. A <paramref name="quiet"/> (background) check shows nothing while it
+    /// runs and only redraws the list if something actually changed, so a check every minute goes unnoticed.
+    /// </summary>
+    async Task RefreshAsync(bool quiet = false)
     {
         if (_working) return;
-        SetWorking(true, "Checking GitHub for updates…");
+        if (!quiet) SetWorking(true, "Checking GitHub for updates…");
+        var before = Signature(_remote);
+        var hadError = _loadError is not null;
         try
         {
             _remote = await _github.GetAddonsAsync();
             _loadError = null;
             _lastChecked = DateTime.Now;
-            foreach (var addon in _remote)
-                _ = RefreshIconAsync(addon);
+            if (!quiet || Signature(_remote) != before)
+            {
+                foreach (var addon in _remote)
+                    _ = RefreshIconAsync(addon);
+            }
+            HideRateLimitBanner(); // the limit message no longer applies
         }
         catch (RateLimitException ex)
         {
             _loadError = ex.Message;
+            await ShowRateLimitBannerAsync(ex);
         }
         catch (Exception ex)
         {
@@ -218,10 +274,17 @@ public partial class MainWindow : Window
         }
         finally
         {
-            SetWorking(false);
+            if (!quiet) SetWorking(false);
         }
-        RebuildRows();
+        if (!quiet || Signature(_remote) != before || hadError != (_loadError is not null))
+            RebuildRows();
+        else
+            UpdateSummary(); // just the "checked at" time
     }
+
+    /// <summary>Everything about the addon list that would change what's shown.</summary>
+    static string Signature(List<RemoteAddon> remote) => string.Join("|", remote.Select(a =>
+        $"{a.Name}:{a.LatestRelease?.Version}:{a.LatestBeta?.Commit}:{a.Author}:{a.Description}:{string.Join(',', a.Games)}"));
 
     void RebuildRows()
     {
@@ -628,15 +691,24 @@ public partial class MainWindow : Window
     /// Shows the bar under the header: gold with "Restart to update" for an available update, or a plain status
     /// ("checking…", "you're on the latest version") that can hide itself after a while.
     /// </summary>
-    void ShowBanner(string text, bool isUpdate, TimeSpan? hideAfter = null)
+    enum BannerKind { Info, Update, Token }
+
+    void ShowBanner(string text, bool isUpdate, TimeSpan? hideAfter = null) =>
+        ShowBanner(text, isUpdate ? BannerKind.Update : BannerKind.Info, hideAfter);
+
+    void ShowBanner(string text, BannerKind kind, TimeSpan? hideAfter = null)
     {
         var token = ++_bannerToken;
+        var isUpdate = kind == BannerKind.Update;
+        var standsOut = kind != BannerKind.Info;
         UpdateBannerText.Text = text;
-        UpdateBannerButtons.Visibility = isUpdate ? Visibility.Visible : Visibility.Collapsed;
+        UpdateBannerButtons.Visibility = standsOut ? Visibility.Visible : Visibility.Collapsed;
+        WhatsNewButton.Visibility = isUpdate ? Visibility.Visible : Visibility.Collapsed;
         SelfUpdateButton.Visibility = isUpdate && AppUpdater.CanSelfUpdate ? Visibility.Visible : Visibility.Collapsed;
-        UpdateBanner.Background = isUpdate ? _updateBannerBackground : (System.Windows.Media.Brush)FindResource("PanelBrush");
-        UpdateBanner.BorderBrush = (System.Windows.Media.Brush)FindResource(isUpdate ? "AccentBrush" : "LineBrush");
-        UpdateBannerText.FontWeight = isUpdate ? FontWeights.SemiBold : FontWeights.Normal;
+        TokenButton.Visibility = kind == BannerKind.Token ? Visibility.Visible : Visibility.Collapsed;
+        UpdateBanner.Background = standsOut ? _updateBannerBackground : (System.Windows.Media.Brush)FindResource("PanelBrush");
+        UpdateBanner.BorderBrush = (System.Windows.Media.Brush)FindResource(standsOut ? "AccentBrush" : "LineBrush");
+        UpdateBannerText.FontWeight = standsOut ? FontWeights.SemiBold : FontWeights.Normal;
         UpdateBanner.Visibility = Visibility.Visible;
         if (hideAfter is { } delay)
             _ = HideBannerLaterAsync(token, delay);

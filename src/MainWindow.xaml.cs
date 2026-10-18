@@ -948,9 +948,11 @@ public partial class MainWindow : Window
             : $"DrangedAddons {_appUpdate.Version} is available. This copy can't update itself: download it from the releases page.",
             isUpdate: true);
 
-        // Auto-update the app only while it's tucked away in the tray, so it never restarts in front of someone.
-        if (_settings.AutoUpdateApp && AppUpdater.CanSelfUpdate && !IsVisible)
-            await ApplySelfUpdateAsync(backToTray: true);
+        // Auto-update the app whether it's open or in the tray (it reopens the same way), but not in the middle of
+        // something: an install running or another window (Versions…, GitHub token, a dialog) open. The next check
+        // tries again.
+        if (_settings.AutoUpdateApp && AppUpdater.CanSelfUpdate && !_working && OwnedWindows.Count == 0)
+            await ApplySelfUpdateAsync(backToTray: !IsVisible);
     }
 
     async void SelfUpdate_Click(object sender, RoutedEventArgs e) => await ApplySelfUpdateAsync();

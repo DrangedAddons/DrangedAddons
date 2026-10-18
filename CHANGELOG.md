@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.17.1
+- **Auto-update DrangedAddons** now updates the app whether its window is open or in the tray: the update bar
+  shows the download filling, then it restarts and reopens the same way. It waits while an install is running or
+  another window (Versions…, GitHub token, a dialog) is open, and tries again on the next check.
+
 ## 0.17.0
 - **Auto-update checkbox** right under Update all (the same setting as File → Auto-update addons).
 - **Download progress in the button.** Install / Update (in the list and on the details page) and Restart to update

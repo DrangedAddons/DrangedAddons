@@ -22,7 +22,7 @@
                       ToolTip="Install addon updates automatically in every game version (not Git working copies or versions you picked in Versions…)."/>
             <MenuItem x:Name="AutoUpdateAppMenu" Header="Auto-update DrangedAddons" IsCheckable="True"
                       Click="AutoUpdateApp_Click"
-                      ToolTip="Update the app itself automatically, but only while it's hidden in the tray."/>
+                      ToolTip="Update the app itself automatically and restart it (back into the tray if that's where it was)."/>
             <Separator Style="{StaticResource MenuSeparator}"/>
             <MenuItem x:Name="UninstallAppMenu" Header="Uninstall DrangedAddons…" Click="UninstallApp_Click"/>
             <MenuItem Header="Exit" Click="Exit_Click"/>

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.0
+- **Auto-update checkbox** right under Update all (the same setting as File → Auto-update addons).
+- **Download progress in the button.** Install / Update (in the list and on the details page) and Restart to update
+  fill with gold as the download goes, with "Downloading 45%" (or "… 1.2 MB" when the size isn't known). The fill is
+  quick (empty to full in about 0.6 s) but never ahead of the real download, so instant downloads still visibly
+  fill and slow ones are followed exactly. The buttons keep a fixed width while their label changes.
+
 ## 0.16.0
 - **File → Auto-update addons** (off by default): after each check, installs available updates for installed
   addons in every game version. Git working copies are skipped, and so is any addon where you picked an older

@@ -226,7 +226,8 @@ public sealed class AddonRow : INotifyPropertyChanged
     };
 
     public bool IsPrimaryAction => _state is AddonState.NotInstalled or AddonState.UpdateAvailable || CanPull;
-    public bool ActionEnabled => !IsBusy && IsPrimaryAction;
+    // Stays "enabled" while busy so the progress fill isn't dimmed; clicks are ignored while the app is working.
+    public bool ActionEnabled => IsPrimaryAction || IsBusy;
     public bool CanUninstall => !IsBusy && _state is AddonState.UpdateAvailable or AddonState.UpToDate;
     public bool CanPickVersion => !IsBusy && _state != AddonState.DevCopy;
     public bool CanBrowse => _state != AddonState.NotInstalled;
@@ -263,6 +264,19 @@ public sealed class AddonRow : INotifyPropertyChanged
 
     public void SetBusy(string? text)
     {
+        _busyText = text;
+        if (text is null) _progress = null;
+        RaiseAll();
+    }
+
+    double? _progress;
+
+    /// <summary>0–1 while downloading (fills the action button), else null.</summary>
+    public double? Progress => _progress;
+
+    public void SetProgress(double? fraction, string text)
+    {
+        _progress = fraction;
         _busyText = text;
         RaiseAll();
     }

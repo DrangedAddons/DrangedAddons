@@ -64,7 +64,7 @@ public static class AddonInstaller
     /// the one matching the repo name first. On any failure the previous folders are put back.
     /// </summary>
     public static async Task<List<string>> InstallAsync(GitHubClient github, RemoteAddon addon, AddonVersion version,
-        string addOnsPath, CancellationToken ct = default)
+        string addOnsPath, IProgress<DownloadProgress>? progress = null, CancellationToken ct = default)
     {
         Directory.CreateDirectory(addOnsPath);
         // Stage next to AddOns (same drive) so the swap is a quick rename, and outside it so WoW never sees half an addon.
@@ -77,12 +77,12 @@ public static class AddonInstaller
             var extracted = Path.Combine(staging, "new");
             if (version.ZipUrl is { } zipUrl)
             {
-                await github.DownloadAsync(zipUrl, zipPath, ct);
+                await github.DownloadAsync(zipUrl, zipPath, progress, ct);
                 await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, extracted), ct);
             }
             else if (version.Commit is { } sha)
             {
-                await github.DownloadAsync(GitHubClient.SourceZipUrl(addon.Name, sha), zipPath, ct);
+                await github.DownloadAsync(GitHubClient.SourceZipUrl(addon.Name, sha), zipPath, progress, ct);
                 var source = Path.Combine(staging, "source");
                 await Task.Run(() =>
                 {

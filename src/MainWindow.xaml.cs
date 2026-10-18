@@ -46,6 +46,7 @@ public partial class MainWindow : Window
         Closed += (_, _) => _tray?.Dispose();
 
         AutoUpdateAddonsMenu.IsChecked = _settings.AutoUpdateAddons;
+        AutoUpdateCheck.IsChecked = _settings.AutoUpdateAddons;
         AutoUpdateAppMenu.IsChecked = _settings.AutoUpdateApp;
         Loaded += async (_, _) => await InitializeAsync();
     }
@@ -72,11 +73,22 @@ public partial class MainWindow : Window
 
     // ---- Auto-update ----------------------------------------------------------------------------------------------
 
-    void AutoUpdateAddons_Click(object sender, RoutedEventArgs e)
+    void AutoUpdateAddons_Click(object sender, RoutedEventArgs e) => SetAutoUpdateAddons(AutoUpdateAddonsMenu.IsChecked);
+
+    void AutoUpdateCheck_Changed(object sender, RoutedEventArgs e)
     {
-        _settings.AutoUpdateAddons = AutoUpdateAddonsMenu.IsChecked;
+        if (IsLoaded) SetAutoUpdateAddons(AutoUpdateCheck.IsChecked == true);
+    }
+
+    /// <summary>The File menu item and the checkbox under Update all are the same setting.</summary>
+    void SetAutoUpdateAddons(bool on)
+    {
+        if (_settings.AutoUpdateAddons == on) return;
+        _settings.AutoUpdateAddons = on;
         Storage.Save(SettingsFile, _settings);
-        if (_settings.AutoUpdateAddons) _ = AutoUpdateAddonsAsync();
+        AutoUpdateAddonsMenu.IsChecked = on;
+        AutoUpdateCheck.IsChecked = on;
+        if (on) _ = AutoUpdateAddonsAsync();
     }
 
     void AutoUpdateApp_Click(object sender, RoutedEventArgs e)
@@ -618,6 +630,12 @@ public partial class MainWindow : Window
         if (status is not null) StatusText.Text = status;
     }
 
+    /// <summary>"Downloading 45%" (or "Downloading 1.2 MB" when the size isn't known), then "Installing…".</summary>
+    static string DownloadLabel(double shown, DownloadProgress? real) =>
+        shown >= 1 ? "Installing…"
+        : real is { Total: null or 0, Bytes: > 0 } r ? $"Downloading {r.Text}"
+        : $"Downloading {(int)(shown * 100)}%";
+
     /// <summary>
     /// Installs <paramref name="version"/> (default: the row's latest). Returns false if it failed.
     /// <paramref name="pinned"/>: the user chose this version on purpose (Versions…), so auto-update leaves it alone.
@@ -632,7 +650,22 @@ public partial class MainWindow : Window
         row.SetBusy($"{verb}…");
         try
         {
-            var folders = await AddonInstaller.InstallAsync(_github, row.Remote, version, flavor.AddOnsPath);
+            // The action button fills as the download goes ("Downloading 45%"): quickly, but never ahead of the
+            // real download, and an instant one still visibly fills before the row moves on.
+            var pacer = new ProgressPacer((shown, real) => row.SetProgress(shown, DownloadLabel(shown, real)));
+            List<string> folders;
+            try
+            {
+                folders = await AddonInstaller.InstallAsync(_github, row.Remote, version, flavor.AddOnsPath,
+                    new Progress<DownloadProgress>(pacer.Report));
+            }
+            catch
+            {
+                pacer.Stop();
+                throw;
+            }
+            pacer.Complete();
+            await pacer.WhenFullAsync();
             _manifest.For(flavor.AddOnsPath)[row.Name] = new InstalledRecord
             {
                 Version = version.Version,
@@ -926,18 +959,30 @@ public partial class MainWindow : Window
     {
         if (_appUpdate is null || _working) return;
         SetWorking(true, $"Downloading DrangedAddons {_appUpdate.Version}…");
-        SelfUpdateButton.IsEnabled = false;
-        SelfUpdateButton.Content = "Downloading…";
+        // Stays enabled (a disabled button would dim the progress fill); a second click is ignored while working.
+        SelfUpdateButton.Background = (System.Windows.Media.Brush)FindResource("Panel2Brush");
+        SelfUpdateButton.Foreground = (System.Windows.Media.Brush)FindResource("TextBrush");
+        var pacer = new ProgressPacer((shown, real) =>
+        {
+            ProgressFill.SetValue(SelfUpdateButton, shown);
+            SelfUpdateButton.Content = shown >= 1 ? "Restarting…" : DownloadLabel(shown, real);
+        });
         try
         {
-            await AppUpdater.ApplyAsync(_github, _appUpdate, startInTray: backToTray);
+            await AppUpdater.ApplyAsync(_github, _appUpdate, startInTray: backToTray,
+                progress: new Progress<DownloadProgress>(pacer.Report));
+            pacer.Complete();
+            await pacer.WhenFullAsync();
             App.ExitApp();
         }
         catch (Exception ex)
         {
+            pacer.Stop();
             if (backToTray) StatusText.Text = $"Couldn't update DrangedAddons automatically: {ex.Message}";
             else DarkDialog.Show(this, "Couldn't update DrangedAddons", ex.Message);
-            SelfUpdateButton.IsEnabled = true;
+            ProgressFill.SetValue(SelfUpdateButton, null);
+            SelfUpdateButton.ClearValue(BackgroundProperty);
+            SelfUpdateButton.ClearValue(ForegroundProperty);
             SelfUpdateButton.Content = "Restart to update";
             SetWorking(false);
             UpdateSummary();

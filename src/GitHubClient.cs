@@ -16,6 +16,16 @@ public sealed record GitHubAccess(string Source, bool SignedIn, int Limit, int R
 
 public sealed record CachedResponse(string ETag, string Body);
 
+/// <summary>Bytes downloaded so far, and the total if known.</summary>
+public readonly record struct DownloadProgress(long Bytes, long? Total)
+{
+    /// <summary>0–1. With no known size it creeps towards 1 as data arrives (halfway at 2 MB) so it still moves.</summary>
+    public double Fraction => Total is > 0 ? Math.Min(1, (double)Bytes / Total.Value) : 1 - Math.Exp(-Bytes / 2_900_000.0);
+
+    /// <summary>"45%", or "1.2 MB" when the size isn't known.</summary>
+    public string Text => Total is > 0 ? $"{Fraction:P0}".Replace(" ", "") : $"{Bytes / 1_048_576.0:0.0} MB";
+}
+
 /// <summary>
 /// Reads the public DrangedAddons org. API responses are cached with ETags, and GitHub doesn't count
 /// "304 Not Modified" replies against the hourly limit. File contents at a commit come from
@@ -45,6 +55,7 @@ public sealed class GitHubClient
     static readonly bool IsDev = Environment.GetEnvironmentVariable("DRANGEDADDONS_DEV") == "1";
     static readonly bool TestAnonymous = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_ANON") == "1";
     static readonly bool TestRateLimit = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_RATELIMIT") == "1";
+    static readonly bool TestSlowDownload = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_SLOWDOWNLOAD") == "1";
 
     static async Task<string?> CurrentTokenAsync()
     {
@@ -500,12 +511,34 @@ public sealed class GitHubClient
     /// <summary>Source zip of the repo at a commit.</summary>
     public static string SourceZipUrl(string repo, string sha) => $"https://codeload.github.com/{Org}/{repo}/zip/{sha}";
 
-    public async Task DownloadAsync(string url, string destination, CancellationToken ct = default)
+    /// <summary>
+    /// Downloads to a file, reporting bytes so far and the total size (null when the server doesn't say, as for
+    /// source zips of beta builds) about every 100 ms.
+    /// </summary>
+    public async Task DownloadAsync(string url, string destination, IProgress<DownloadProgress>? progress = null,
+        CancellationToken ct = default)
     {
         using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
+        var total = response.Content.Headers.ContentLength;
         await using var source = await response.Content.ReadAsStreamAsync(ct);
         await using var file = File.Create(destination);
-        await source.CopyToAsync(file, ct);
+
+        var buffer = new byte[TestSlowDownload ? 16384 : 81920];
+        long done = 0;
+        var lastReport = DateTime.MinValue;
+        int read;
+        while ((read = await source.ReadAsync(buffer, ct)) > 0)
+        {
+            if (TestSlowDownload) await Task.Delay(60, ct);
+            await file.WriteAsync(buffer.AsMemory(0, read), ct);
+            done += read;
+            if (progress is not null && (DateTime.UtcNow - lastReport).TotalMilliseconds >= 100)
+            {
+                lastReport = DateTime.UtcNow;
+                progress.Report(new DownloadProgress(done, total));
+            }
+        }
+        progress?.Report(new DownloadProgress(done, total ?? done));
     }
 }

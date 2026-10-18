@@ -45,16 +45,89 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         Closed += (_, _) => _tray?.Dispose();
 
-        Loaded += async (_, _) =>
+        AutoUpdateAddonsMenu.IsChecked = _settings.AutoUpdateAddons;
+        AutoUpdateAppMenu.IsChecked = _settings.AutoUpdateApp;
+        Loaded += async (_, _) => await InitializeAsync();
+    }
+
+    bool _initialized;
+
+    /// <summary>First load: game versions, GitHub check, app update check. Runs on show, or straight away when
+    /// started hidden in the tray (after an automatic app update).</summary>
+    async Task InitializeAsync()
+    {
+        if (_initialized) return;
+        _initialized = true;
+        LoadFlavors();
+        _ = CheckForAppUpdateAsync();
+        await RefreshAsync();
+        // First run: start on My Addons if anything is installed here, otherwise on Browse.
+        if (_settings.Tab is null && !_rows.Any(r => r.State != AddonState.NotInstalled))
+            BrowseTab.IsChecked = true;
+        NotifyNewUpdates();
+    }
+
+    /// <summary>Starts without showing the window (it lives in the tray until opened).</summary>
+    public void StartInTray() => _ = InitializeAsync();
+
+    // ---- Auto-update ----------------------------------------------------------------------------------------------
+
+    void AutoUpdateAddons_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.AutoUpdateAddons = AutoUpdateAddonsMenu.IsChecked;
+        Storage.Save(SettingsFile, _settings);
+        if (_settings.AutoUpdateAddons) _ = AutoUpdateAddonsAsync();
+    }
+
+    void AutoUpdateApp_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.AutoUpdateApp = AutoUpdateAppMenu.IsChecked;
+        Storage.Save(SettingsFile, _settings);
+    }
+
+    /// <summary>
+    /// Installs available updates for installed addons in every game version. Skips Git working copies and
+    /// versions the user picked on purpose (Versions…).
+    /// </summary>
+    async Task AutoUpdateAddonsAsync()
+    {
+        if (!_settings.AutoUpdateAddons || _working || _remote.Count == 0) return;
+        if (FlavorList.ItemsSource is not IEnumerable<FlavorItem> flavors) return;
+
+        var due = new List<(AddonRow Row, WowFlavor Flavor)>();
+        foreach (var flavor in flavors.Select(f => f.Flavor))
         {
-            LoadFlavors();
-            _ = CheckForAppUpdateAsync();
-            await RefreshAsync();
-            // First run: start on My Addons if anything is installed here, otherwise on Browse.
-            if (_settings.Tab is null && !_rows.Any(r => r.State != AddonState.NotInstalled))
-                BrowseTab.IsChecked = true;
-            NotifyNewUpdates();
-        };
+            foreach (var remote in _remote)
+            {
+                if (remote.LatestFor(_settings.ShowBeta) is not { } latest) continue;
+                if (_manifest.For(flavor.AddOnsPath).GetValueOrDefault(remote.Name)?.Pinned == true) continue;
+                var row = new AddonRow(remote, latest);
+                Evaluate(row, flavor); // DevCopy / NotInstalled / UpToDate are left alone
+                if (row.State == AddonState.UpdateAvailable) due.Add((row, flavor));
+            }
+        }
+        if (due.Count == 0) return;
+
+        SetWorking(true);
+        var done = new List<string>();
+        foreach (var (row, flavor) in due)
+        {
+            if (await InstallAsync(row, flavor, verb: "Auto-updating", quiet: true))
+            {
+                done.Add($"{row.Name} {row.Latest.Label} ({flavor.DisplayName})");
+                _notified.Add($"{row.Name} {row.Latest.Label}"); // don't also announce it as "available"
+            }
+        }
+        SetWorking(false);
+        RebuildRows();
+        if (done.Count == 0) return;
+
+        var summary = string.Join("\n", done);
+        if (IsVisible && WindowState != WindowState.Minimized)
+            ShowBanner($"Updated automatically: {string.Join(", ", done)}", BannerKind.Info, TimeSpan.FromSeconds(12));
+        else if (_settings.UpdateNotifications)
+            _tray?.Notify(done.Count == 1 ? "Updated automatically" : $"{done.Count} addons updated automatically",
+                summary + "\nIf WoW is running, /reload to load the new version.");
     }
 
     // ---- Tabs and search ----------------------------------------------------------------------------------------
@@ -310,6 +383,7 @@ public partial class MainWindow : Window
         else
             UpdateSummary(); // just the "checked at" time
         await UpdateUsageAsync();
+        if (_loadError is null) await AutoUpdateAddonsAsync();
     }
 
     /// <summary>Everything about the addon list that would change what's shown.</summary>
@@ -544,9 +618,13 @@ public partial class MainWindow : Window
         if (status is not null) StatusText.Text = status;
     }
 
-    /// <summary>Installs <paramref name="version"/> (default: the row's latest). Returns false if it failed.</summary>
+    /// <summary>
+    /// Installs <paramref name="version"/> (default: the row's latest). Returns false if it failed.
+    /// <paramref name="pinned"/>: the user chose this version on purpose (Versions…), so auto-update leaves it alone.
+    /// <paramref name="quiet"/>: no error dialog (auto-update reports in the status line instead).
+    /// </summary>
     async Task<bool> InstallAsync(AddonRow row, WowFlavor flavor, AddonVersion? version = null, Window? owner = null,
-        string? verb = null)
+        string? verb = null, bool pinned = false, bool quiet = false)
     {
         version ??= row.Latest;
         verb ??= row.State == AddonState.NotInstalled ? "Installing" : "Updating";
@@ -562,13 +640,15 @@ public partial class MainWindow : Window
                 Commit = version.Commit,
                 Folders = folders,
                 InstalledAt = DateTime.Now,
+                Pinned = pinned,
             };
             Storage.Save(ManifestFile, _manifest);
             return true;
         }
         catch (Exception ex)
         {
-            DarkDialog.Show(owner ?? this, $"Couldn't install {row.Name} {version.Label}", ex.Message);
+            if (quiet) StatusText.Text = $"Couldn't update {row.Name} automatically: {ex.Message}";
+            else DarkDialog.Show(owner ?? this, $"Couldn't install {row.Name} {version.Label}", ex.Message);
             return false;
         }
         finally
@@ -589,7 +669,9 @@ public partial class MainWindow : Window
             {
                 if (_working) return false;
                 SetWorking(true);
-                var ok = await InstallAsync(row, flavor, version, owner);
+                // Choosing anything other than the latest is deliberate: auto-update shouldn't undo it.
+                var ok = await InstallAsync(row, flavor, version, owner, pinned: version.Version != row.Latest.Version
+                                                                                  || version.IsRelease != row.Latest.IsRelease);
                 SetWorking(false);
                 UpdateSummary();
                 return ok;
@@ -832,11 +914,15 @@ public partial class MainWindow : Window
             ? $"DrangedAddons {_appUpdate.Version} is available (you have {AppUpdater.CurrentVersion})."
             : $"DrangedAddons {_appUpdate.Version} is available. This copy can't update itself: download it from the releases page.",
             isUpdate: true);
+
+        // Auto-update the app only while it's tucked away in the tray, so it never restarts in front of someone.
+        if (_settings.AutoUpdateApp && AppUpdater.CanSelfUpdate && !IsVisible)
+            await ApplySelfUpdateAsync(backToTray: true);
     }
 
     async void SelfUpdate_Click(object sender, RoutedEventArgs e) => await ApplySelfUpdateAsync();
 
-    async Task ApplySelfUpdateAsync()
+    async Task ApplySelfUpdateAsync(bool backToTray = false)
     {
         if (_appUpdate is null || _working) return;
         SetWorking(true, $"Downloading DrangedAddons {_appUpdate.Version}…");
@@ -844,12 +930,13 @@ public partial class MainWindow : Window
         SelfUpdateButton.Content = "Downloading…";
         try
         {
-            await AppUpdater.ApplyAsync(_github, _appUpdate);
+            await AppUpdater.ApplyAsync(_github, _appUpdate, startInTray: backToTray);
             App.ExitApp();
         }
         catch (Exception ex)
         {
-            DarkDialog.Show(this, "Couldn't update DrangedAddons", ex.Message);
+            if (backToTray) StatusText.Text = $"Couldn't update DrangedAddons automatically: {ex.Message}";
+            else DarkDialog.Show(this, "Couldn't update DrangedAddons", ex.Message);
             SelfUpdateButton.IsEnabled = true;
             SelfUpdateButton.Content = "Restart to update";
             SetWorking(false);

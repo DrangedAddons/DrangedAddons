@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.0
+- **File → Auto-update addons** (off by default): after each check, installs available updates for installed
+  addons in every game version. Git working copies are skipped, and so is any addon where you picked an older
+  version on purpose in Versions… (updating it yourself turns auto-update back on for it). Reports in the bar, or
+  as a notification while the window is hidden.
+- **File → Auto-update DrangedAddons** (off by default): updates the app itself, but only while it's hidden in the
+  tray, and restarts straight back into the tray.
+
 ## 0.15.0
 - **Right-click → Reinstall** puts a fresh copy of the installed version back (the same release, or the same beta
   commit), keeping settings. If the installed version can't be identified, it installs the latest.

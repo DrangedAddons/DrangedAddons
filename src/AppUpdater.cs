@@ -50,7 +50,7 @@ public static class AppUpdater
     }
 
     /// <summary>Downloads and swaps in the new .exe, then starts it. The caller should shut down after this returns.</summary>
-    public static async Task ApplyAsync(GitHubClient github, AppRelease release)
+    public static async Task ApplyAsync(GitHubClient github, AppRelease release, bool startInTray = false)
     {
         var exe = ExePath ?? throw new InvalidOperationException("This copy of DrangedAddons can't update itself.");
         var newPath = exe + ".new";
@@ -82,7 +82,8 @@ public static class AppUpdater
             throw;
         }
         // --replace: the new copy waits for this one to finish closing instead of just showing its window.
-        Process.Start(new ProcessStartInfo(exe, "--replace") { UseShellExecute = true });
+        // --tray: an automatic update restarts straight back into the tray.
+        Process.Start(new ProcessStartInfo(exe, startInTray ? "--replace --tray" : "--replace") { UseShellExecute = true });
     }
 
     /// <summary>

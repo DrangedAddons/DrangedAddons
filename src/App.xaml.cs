@@ -46,7 +46,10 @@ public partial class App : Application
         var main = new MainWindow();
         MainWindow = main;
         ShutdownMode = ShutdownMode.OnMainWindowClose;
-        main.Show();
+        if (e.Args.Contains("--tray"))
+            main.StartInTray(); // after an automatic update: stay out of the way until opened
+        else
+            main.Show();
     }
 
     /// <summary>

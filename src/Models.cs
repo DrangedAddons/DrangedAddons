@@ -13,6 +13,8 @@ public sealed class AppSettings
     /// <summary>"my" or "browse"; null until chosen (then: My Addons if anything's installed, else Browse).</summary>
     public string? Tab { get; set; }
     public bool UpdateNotifications { get; set; } = true;
+    public bool AutoUpdateAddons { get; set; }
+    public bool AutoUpdateApp { get; set; }
     public bool TrayTipShown { get; set; }
 }
 
@@ -22,6 +24,8 @@ public sealed class InstalledRecord
     public bool IsBeta { get; set; }
     public string? Commit { get; set; }
     public List<string> Folders { get; set; } = new();
+    /// <summary>Chosen on purpose from Versions… (not the latest): auto-update leaves it alone.</summary>
+    public bool Pinned { get; set; }
     public DateTime InstalledAt { get; set; }
 }
 

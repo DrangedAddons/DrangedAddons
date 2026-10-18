@@ -565,7 +565,11 @@ public partial class MainWindow : Window
 
         if (AddonInstaller.IsDevCopy(mainFolder))
         {
-            row.Update(AddonState.DevCopy, AddonInstaller.ReadTocVersion(mainFolder));
+            // BETA guess until Git answers (CheckGitAsync): a local version with no release yet is untagged code.
+            var local = AddonInstaller.ReadTocVersion(mainFolder);
+            var untagged = local is not null
+                           && (row.Remote.LatestRelease is not { } latestRelease || Versions.Compare(local, latestRelease.Version) > 0);
+            row.Update(AddonState.DevCopy, local, installedIsBeta: untagged);
             return;
         }
 

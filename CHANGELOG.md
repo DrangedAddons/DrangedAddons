@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.6
+- Git working copies get the **BETA** bubble too, when the local code isn't exactly a tagged release: commits after
+  the last release tag, or uncommitted changes. Exactly on a release tag (e.g. just after tagging) shows no bubble.
+
 ## 0.17.5
 - An installed beta whose version has since been published as a tagged release is now treated as that release:
   the BETA bubble goes away (e.g. CraftRoute 0.83.3 installed from main just before v0.83.3 was tagged).

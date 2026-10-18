@@ -6,8 +6,11 @@ namespace DrangedAddons;
 public sealed class GitException(string message) : Exception(message);
 
 /// <summary>Where a Git working copy stands against its upstream branch on GitHub.</summary>
-public sealed record GitStatus(string Branch, int Ahead, int Behind, int Changed)
+public sealed record GitStatus(string Branch, int Ahead, int Behind, int Changed, bool HeadIsTagged)
 {
+    /// <summary>The local code is exactly a tagged release: on a version tag with no uncommitted changes.</summary>
+    public bool IsRelease => HeadIsTagged && Changed == 0;
+
     public string Summary
     {
         get
@@ -55,7 +58,11 @@ public static class GitRepo
         var numbers = counts.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         var changed = (await RunAsync(dir, "status", "--porcelain"))
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
-        return new GitStatus(branch, int.Parse(numbers[0]), int.Parse(numbers[1]), changed);
+        // Is HEAD a release? Release tags look like v1.2.3.
+        var tagged = (await RunAsync(dir, "tag", "--points-at", "HEAD"))
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(t => t.Length > 1 && (t[0] == 'v' || t[0] == 'V') && char.IsDigit(t[1]));
+        return new GitStatus(branch, int.Parse(numbers[0]), int.Parse(numbers[1]), changed, tagged);
     }
 
     public static Task<string> PullAsync(string dir) => RunAsync(dir, "pull", "--ff-only");

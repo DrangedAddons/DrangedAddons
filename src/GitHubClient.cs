@@ -5,8 +5,8 @@ namespace DrangedAddons;
 
 public sealed class RateLimitException(DateTimeOffset? reset) : Exception(
     reset is { } r
-        ? $"GitHub's hourly request limit was reached. Try again after {r.ToLocalTime():t}."
-        : "GitHub's hourly request limit was reached. Try again later.")
+        ? $"GitHub's request limit was reached. Try again after {r.ToLocalTime():t}."
+        : "GitHub's request limit was reached. Try again in a few minutes.")
 {
     public DateTimeOffset? Reset { get; } = reset;
 }
@@ -278,7 +278,7 @@ public sealed class GitHubClient
             }
 
             progress?.Report($"Reading version numbers from {commits.Count} commits…");
-            using var throttle = new SemaphoreSlim(8);
+            using var throttle = new SemaphoreSlim(4); // gentle: GitHub limits bursts of anonymous file requests
             var tocVersions = await Task.WhenAll(commits.Select(async c =>
             {
                 await throttle.WaitAsync(ct);
@@ -324,7 +324,7 @@ public sealed class GitHubClient
         {
             text = await GetRawAsync(addon.Name, addon.DefaultBranch, "CHANGELOG.md", ct);
         }
-        catch (HttpRequestException)
+        catch (Exception ex) when (ex is HttpRequestException or RateLimitException)
         {
             // No changelog available: fall back to release notes.
         }
@@ -400,10 +400,82 @@ public sealed class GitHubClient
 
     async Task<string?> GetRawAsync(string repo, string gitRef, string path, CancellationToken ct)
     {
-        using var response = await Http.GetAsync($"https://raw.githubusercontent.com/{Org}/{repo}/{gitRef}/{path}", ct);
+        using var response = await SendRawAsync(HttpMethod.Get, repo, gitRef, path, ct);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(ct);
+    }
+
+    /// <summary>
+    /// A file from raw.githubusercontent.com (signed in when possible: GitHub limits anonymous file downloads too).
+    /// Throws RateLimitException when GitHub is limiting requests, a readable error for other failures; 404 is
+    /// returned for the caller to treat as "no such file".
+    /// </summary>
+    async Task<HttpResponseMessage> SendRawAsync(HttpMethod method, string repo, string gitRef, string path, CancellationToken ct)
+    {
+        var url = $"https://raw.githubusercontent.com/{Org}/{repo}/{gitRef}/{path}";
+        HttpRequestMessage Request(string? token)
+        {
+            var request = new HttpRequestMessage(method, url);
+            if (token is not null) request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            return request;
+        }
+
+        var token = await CurrentTokenAsync();
+        var response = await Http.SendAsync(Request(token), ct);
+        if (token is not null && response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            response.Dispose();
+            response = await Http.SendAsync(Request(null), ct); // the token can't be used here: try without
+        }
+        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
+        {
+            var reset = ResetTime(response);
+            response.Dispose();
+            throw new RateLimitException(reset);
+        }
+        if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
+        {
+            var status = $"{(int)response.StatusCode} {response.ReasonPhrase}";
+            response.Dispose();
+            throw new HttpRequestException($"GitHub couldn't return {repo}/{path} ({status}).");
+        }
+        return response;
+    }
+
+    static bool IsRateLimited(HttpResponseMessage response, string body) =>
+        response.StatusCode == HttpStatusCode.TooManyRequests
+        || (response.Headers.TryGetValues("x-ratelimit-remaining", out var remaining) && remaining.FirstOrDefault() == "0")
+        || response.Headers.RetryAfter is not null
+        || body.Contains("rate limit", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>When GitHub says to try again: its reset time, or now + Retry-After.</summary>
+    static DateTimeOffset? ResetTime(HttpResponseMessage response)
+    {
+        if (response.Headers.TryGetValues("x-ratelimit-reset", out var r) && long.TryParse(r.FirstOrDefault(), out var seconds))
+            return DateTimeOffset.FromUnixTimeSeconds(seconds);
+        if (response.Headers.RetryAfter is { } retry)
+            return retry.Date ?? DateTimeOffset.Now + (retry.Delta ?? TimeSpan.FromMinutes(1));
+        return null;
+    }
+
+    /// <summary>"CastCount releases" style description of an API URL for error messages.</summary>
+    static string Describe(string url)
+    {
+        var path = new Uri(url).AbsolutePath.Trim('/').Split('/');
+        return path.Length >= 4 && path[0] == "repos" ? $"{path[2]} {path[3]}" : string.Join('/', path);
+    }
+
+    static string GitHubMessage(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() ?? "" : "";
+        }
+        catch (JsonException)
+        {
+            return "";
+        }
     }
 
     /// <summary>Whether a file exists at a branch or commit (false if GitHub can't be reached).</summary>
@@ -411,11 +483,10 @@ public sealed class GitHubClient
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Head, $"https://raw.githubusercontent.com/{Org}/{repo}/{gitRef}/{path}");
-            using var response = await Http.SendAsync(request);
+            using var response = await SendRawAsync(HttpMethod.Head, repo, gitRef, path, default);
             return response.IsSuccessStatusCode;
         }
-        catch (HttpRequestException)
+        catch (Exception ex) when (ex is HttpRequestException or RateLimitException)
         {
             return false;
         }
@@ -424,9 +495,8 @@ public sealed class GitHubClient
     /// <summary>A file's bytes at a branch or commit, or null if it doesn't exist.</summary>
     public async Task<byte[]?> GetRawBytesAsync(string repo, string gitRef, string path, CancellationToken ct = default)
     {
-        using var response = await Http.GetAsync($"https://raw.githubusercontent.com/{Org}/{repo}/{gitRef}/{path}", ct);
+        using var response = await SendRawAsync(HttpMethod.Get, repo, gitRef, path, ct);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
@@ -490,17 +560,22 @@ public sealed class GitHubClient
             return cached.Body;
         if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
-        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests
-            && response.Headers.TryGetValues("x-ratelimit-remaining", out var remaining)
-            && remaining.FirstOrDefault() == "0")
+        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
         {
-            DateTimeOffset? reset = response.Headers.TryGetValues("x-ratelimit-reset", out var r)
-                && long.TryParse(r.FirstOrDefault(), out var seconds)
-                    ? DateTimeOffset.FromUnixTimeSeconds(seconds)
-                    : null;
-            throw new RateLimitException(reset);
+            var text = await response.Content.ReadAsStringAsync(ct);
+            // The hourly limit (remaining 0) or GitHub's short-term "too many at once" limit (Retry-After).
+            if (IsRateLimited(response, text)) throw new RateLimitException(ResetTime(response));
+            if (token is not null)
+            {
+                // The token isn't allowed to see this (e.g. a token tied to the org that's awaiting approval):
+                // public data doesn't need it, so carry on anonymously.
+                _rejectedToken = token;
+                return await GetJsonAsync(url, ct);
+            }
+            throw new HttpRequestException($"GitHub refused {Describe(url)} ({(int)response.StatusCode}): {GitHubMessage(text)}");
         }
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"GitHub couldn't return {Describe(url)} ({(int)response.StatusCode} {response.ReasonPhrase}).");
 
         var body = await response.Content.ReadAsStringAsync(ct);
         if (response.Headers.ETag?.ToString() is { } etag)

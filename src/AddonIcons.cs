@@ -42,7 +42,7 @@ public static class AddonIcons
                 File.Delete(CachePath(addon.Name, candidate));
             return null;
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException or RateLimitException)
         {
             return LoadCached(addon.Name);
         }

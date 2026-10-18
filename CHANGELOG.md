@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.4
+- Fixed "Couldn't load versions: … 403 (Forbidden)". A GitHub token that isn't allowed to see something (e.g. one
+  tied to the org and awaiting approval) is now skipped in favour of a normal anonymous request, and GitHub's
+  short-term "too many requests" limit is recognised and shown as a limit message instead of a raw error.
+- When signed in, the token is also used for addon files (versions, icons, changelogs) on GitHub's own servers,
+  which raises GitHub's limits there too. Errors now say which request failed.
+
 ## 0.17.3
 - Fixed "This copy can't update itself: download it from the releases page" for copies not named exactly
   `DrangedAddons.exe` (browsers save repeat downloads as `DrangedAddons (1).exe`). Any release copy now updates

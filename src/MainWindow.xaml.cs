@@ -106,6 +106,35 @@ public partial class MainWindow : Window
 
     void GitHubToken_Click(object sender, RoutedEventArgs e) => ShowTokenWindow();
 
+    void Usage_Click(object sender, System.Windows.Input.MouseButtonEventArgs e) => ShowTokenWindow();
+
+    /// <summary>
+    /// The footer meter: how much of this hour's GitHub allowance is used (gold over 75%, red over 90%).
+    /// Reading it doesn't use any of the allowance.
+    /// </summary>
+    async Task UpdateUsageAsync()
+    {
+        GitHubAccess? access;
+        try
+        {
+            access = await GitHubClient.GetAccessAsync();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            access = null;
+        }
+        if (access is null || access.Limit <= 0) return;
+
+        var used = Math.Clamp(access.Limit - access.Remaining, 0, access.Limit);
+        var share = (double)used / access.Limit;
+        UsageFill.Width = 90 * share;
+        UsageFill.Background = (System.Windows.Media.Brush)FindResource(share > 0.9 ? "DangerBrush" : share > 0.75 ? "AccentBrush" : "MutedBrush");
+        UsageText.Text = $"{used:N0} / {access.Limit:N0}";
+        UsagePanel.ToolTip = $"{access.Source}\n{used:N0} of {access.Limit:N0} GitHub checks used this hour; resets at {access.Reset.ToLocalTime():t}.\n"
+                             + (access.SignedIn ? "Click to manage your GitHub token." : "Click to add a free GitHub token (5,000 an hour).");
+        UsagePanel.Visibility = Visibility.Visible;
+    }
+
     async void ShowTokenWindow()
     {
         var window = new GitHubTokenWindow { Owner = this };
@@ -280,6 +309,7 @@ public partial class MainWindow : Window
             RebuildRows();
         else
             UpdateSummary(); // just the "checked at" time
+        await UpdateUsageAsync();
     }
 
     /// <summary>Everything about the addon list that would change what's shown.</summary>
@@ -515,10 +545,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Installs <paramref name="version"/> (default: the row's latest). Returns false if it failed.</summary>
-    async Task<bool> InstallAsync(AddonRow row, WowFlavor flavor, AddonVersion? version = null, Window? owner = null)
+    async Task<bool> InstallAsync(AddonRow row, WowFlavor flavor, AddonVersion? version = null, Window? owner = null,
+        string? verb = null)
     {
         version ??= row.Latest;
-        var verb = row.State == AddonState.NotInstalled ? "Installing" : "Updating";
+        verb ??= row.State == AddonState.NotInstalled ? "Installing" : "Updating";
         StatusText.Text = $"{verb} {row.Name} {version.Label}…";
         row.SetBusy($"{verb}…");
         try
@@ -652,6 +683,43 @@ public partial class MainWindow : Window
     void RowDetails_Click(object sender, RoutedEventArgs e)
     {
         if (RowOf(sender) is { } row) ShowDetails(row);
+    }
+
+    /// <summary>
+    /// Puts a fresh copy of the installed version back (same release, or the same beta commit), keeping settings.
+    /// If the installed version can't be found among the published ones, the latest is installed instead.
+    /// </summary>
+    async void RowReinstall_Click(object sender, RoutedEventArgs e)
+    {
+        if (_working || RowOf(sender) is not { } row || CurrentFlavor is not { } flavor || !row.CanUninstall) return;
+        SetWorking(true, $"Reinstalling {row.Name}…");
+        try
+        {
+            var record = _manifest.For(flavor.AddOnsPath).GetValueOrDefault(row.Name);
+            var installed = record?.Version ?? row.InstalledVersion;
+            AddonVersion target = row.Latest;
+            var installedIsRelease = record?.IsBeta != true;
+            var sameAsLatest = installed is not null && Versions.Compare(installed, row.Latest.Version) == 0
+                               && row.Latest.IsRelease == installedIsRelease;
+            if (installed is not null && !sameAsLatest)
+            {
+                var history = await _github.GetVersionHistoryAsync(row.Remote, includeBeta: record?.IsBeta == true || _settings.ShowBeta);
+                target = history.FirstOrDefault(v => record?.Commit is { } sha ? v.Commit == sha
+                                                     : Versions.Compare(v.Version, installed) == 0 && v.IsRelease)
+                         ?? history.FirstOrDefault(v => Versions.Compare(v.Version, installed) == 0)
+                         ?? row.Latest;
+            }
+            await InstallAsync(row, flavor, target, verb: "Reinstalling");
+        }
+        catch (Exception ex)
+        {
+            DarkDialog.Show(this, $"Couldn't reinstall {row.Name}", ex.Message);
+        }
+        finally
+        {
+            SetWorking(false);
+            UpdateSummary();
+        }
     }
 
     void RowBrowse_Click(object sender, RoutedEventArgs e)

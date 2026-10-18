@@ -122,6 +122,7 @@
                                 <Border.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Header="Open details" FontWeight="SemiBold" Click="RowDetails_Click"/>
+                                        <MenuItem Header="Reinstall" Click="RowReinstall_Click" IsEnabled="{Binding CanUninstall}"/>
                                         <MenuItem Header="Browse folder" Click="RowBrowse_Click" IsEnabled="{Binding CanBrowse}"/>
                                         <MenuItem Header="View changelog" Click="RowChangelog_Click"/>
                                         <Separator Style="{StaticResource MenuSeparator}"/>
@@ -254,6 +255,17 @@
         <DockPanel Grid.Row="3" Margin="0,8,0,0">
             <TextBlock x:Name="VersionText" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}"
                        ToolTip="Help → Check for app updates"/>
+            <!-- How much of this hour's GitHub allowance has been used; click for the GitHub token window. -->
+            <StackPanel x:Name="UsagePanel" DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,18,0"
+                        Background="Transparent" Cursor="Hand" Visibility="Collapsed"
+                        MouseLeftButtonUp="Usage_Click">
+                <TextBlock Text="GitHub" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Grid Width="90" Height="6" VerticalAlignment="Center">
+                    <Border CornerRadius="3" Background="{StaticResource Panel2Brush}"/>
+                    <Border x:Name="UsageFill" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+                </Grid>
+                <TextBlock x:Name="UsageText" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </StackPanel>
             <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
         </DockPanel>
     </Grid>

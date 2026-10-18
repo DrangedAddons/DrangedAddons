@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+- **Right-click → Reinstall** puts a fresh copy of the installed version back (the same release, or the same beta
+  commit), keeping settings. If the installed version can't be identified, it installs the latest.
+- **GitHub usage meter** in the bottom bar: how many of this hour's GitHub checks are used (e.g. "12 / 5,000"),
+  gold above 75% and red above 90%. Hover for details; click to open the GitHub token window.
+
 ## 0.14.0
 - **Checks every minute** when signed in to GitHub (a saved token, or the GitHub CLI login), every 15 minutes
   without (GitHub only allows 60 anonymous checks an hour). Background checks are silent and only redraw the list

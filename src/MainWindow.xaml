@@ -10,6 +10,7 @@
         <MenuItem Header="_File">
             <MenuItem x:Name="OpenFolderMenu" Header="Open AddOns folder" Click="OpenFolder_Click"/>
             <MenuItem x:Name="ChangeFolderMenu" Header="Change WoW folder…" Click="ChangeFolder_Click"/>
+            <MenuItem x:Name="ScanGamesMenu" Header="Scan game folder" Click="ScanGames_Click"/>
             <MenuItem Header="GitHub token…" Click="GitHubToken_Click"/>
             <Separator Style="{StaticResource MenuSeparator}"/>
             <MenuItem x:Name="CloseToTrayMenu" Header="Keep running in the tray when closed" IsCheckable="True"
@@ -94,6 +95,9 @@
                 Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                    <Button x:Name="ScanGamesButton" Content="Scan game folder" Style="{StaticResource GhostBtn}"
+                            Click="ScanGames_Click" Margin="0,0,8,0"
+                            ToolTip="Look in your World of Warcraft folder again for game versions (e.g. one you've just installed)."/>
                     <Button x:Name="OpenFolderButton" Content="Open AddOns folder" Style="{StaticResource GhostBtn}"
                             Click="OpenFolder_Click"/>
                     <Button x:Name="ChangeFolderButton" Content="Change WoW folder…" Style="{StaticResource GhostBtn}"
@@ -109,7 +113,7 @@
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
-                    <TextBlock x:Name="RootText" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"
+                    <TextBlock x:Name="RootText" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                VerticalAlignment="Center" Margin="14,0,12,0"/>
                 </DockPanel>
             </DockPanel>

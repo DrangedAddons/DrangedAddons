@@ -638,6 +638,7 @@ public partial class MainWindow : Window
         RefreshButton.IsEnabled = !working;
         ChangeFolderButton.IsEnabled = !working;
         ChangeFolderMenu.IsEnabled = !working;
+        ScanGamesButton.IsEnabled = ScanGamesMenu.IsEnabled = !working;
         FlavorList.IsEnabled = !working;
         if (working) UpdateAllButton.IsEnabled = false;
         if (status is not null) StatusText.Text = status;
@@ -1048,6 +1049,32 @@ public partial class MainWindow : Window
         Storage.Save(SettingsFile, _settings);
         LoadFlavors();
     }
+
+    /// <summary>
+    /// Re-reads the game versions in the current WoW folder (e.g. after installing another one in Battle.net),
+    /// keeping the selected game, and says what changed in the bar.
+    /// </summary>
+    void ScanGames_Click(object sender, RoutedEventArgs e)
+    {
+        if (_working) return;
+        var before = Folders(FlavorList.ItemsSource);
+        LoadFlavors();
+        var after = Folders(FlavorList.ItemsSource);
+
+        string Names(IEnumerable<string> folders) =>
+            string.Join(", ", folders.Select(f => (FlavorList.ItemsSource as IEnumerable<FlavorItem>)?
+                .FirstOrDefault(i => i.Flavor.Folder == f)?.Flavor.DisplayName ?? f.Trim('_')));
+        var added = after.Except(before).ToList();
+        var removed = before.Except(after).ToList();
+        var message = _root is null ? "No World of Warcraft folder found. Use “Change WoW folder…” to pick it."
+            : added.Count > 0 ? $"Found {added.Count} new game version{(added.Count == 1 ? "" : "s")}: {Names(added)}."
+            : removed.Count > 0 ? $"{removed.Count} game version{(removed.Count == 1 ? " is" : "s are")} no longer in the WoW folder: {string.Join(", ", removed.Select(r => r.Trim('_')))}."
+            : $"No new game versions found ({after.Count} in {_root}).";
+        ShowBanner(message, BannerKind.Info, TimeSpan.FromSeconds(6));
+    }
+
+    static HashSet<string> Folders(System.Collections.IEnumerable? items) =>
+        items?.OfType<FlavorItem>().Select(i => i.Flavor.Folder).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new();
 
     void OpenFolder_Click(object sender, RoutedEventArgs e)
     {

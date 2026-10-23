@@ -95,17 +95,18 @@
                 Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                    <!-- The folder paths are in these buttons' tooltips (set in UpdateFolderTooltips). -->
                     <Button x:Name="ScanGamesButton" Content="Scan game folder" Style="{StaticResource GhostBtn}"
-                            Click="ScanGames_Click" Margin="0,0,8,0"
-                            ToolTip="Look in your World of Warcraft folder again for game versions (e.g. one you've just installed)."/>
+                            Click="ScanGames_Click" Margin="0,0,8,0" ToolTipService.ShowOnDisabled="True"/>
                     <Button x:Name="OpenFolderButton" Content="Open AddOns folder" Style="{StaticResource GhostBtn}"
-                            Click="OpenFolder_Click"/>
+                            Click="OpenFolder_Click" ToolTipService.ShowOnDisabled="True"/>
                     <Button x:Name="ChangeFolderButton" Content="Change WoW folder…" Style="{StaticResource GhostBtn}"
-                            Click="ChangeFolder_Click" Margin="8,0,0,0"/>
+                            Click="ChangeFolder_Click" Margin="8,0,0,0" ToolTipService.ShowOnDisabled="True"/>
                 </StackPanel>
                 <DockPanel VerticalAlignment="Center">
                     <TextBlock DockPanel.Dock="Left" Text="Game version" VerticalAlignment="Center" Margin="0,0,10,0"/>
                     <ComboBox x:Name="FlavorList" DockPanel.Dock="Left" Style="{StaticResource DarkCombo}" Width="250"
+                              HorizontalAlignment="Left"
                               SelectionChanged="Flavor_SelectionChanged">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
@@ -113,8 +114,6 @@
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
-                    <TextBlock x:Name="RootText" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                               VerticalAlignment="Center" Margin="14,0,12,0"/>
                 </DockPanel>
             </DockPanel>
         </Border>

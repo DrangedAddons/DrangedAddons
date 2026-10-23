@@ -3,7 +3,8 @@
 ## 0.18.0
 - **Scan game folder** (next to Open AddOns folder, and in the File menu) looks in your WoW folder again for game
   versions, e.g. one you've just installed, and keeps the selected game. The bar says what it found.
-- Hovering the WoW folder path shows it in full.
+- The WoW folder path is no longer shown in the game-version bar (there wasn't room); hover **Open AddOns folder**,
+  **Change WoW folder…** or **Scan game folder** to see the folder each one uses.
 
 ## 0.17.6
 - Git working copies get the **BETA** bubble too, when the local code isn't exactly a tagged release: commits after

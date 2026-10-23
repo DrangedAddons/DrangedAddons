@@ -340,13 +340,11 @@ public partial class MainWindow : Window
         _root = (_settings.WowRoot is { } saved ? WowLocator.NormalizeRoot(saved) : null) ?? WowLocator.FindRoot();
         if (_root is null)
         {
-            RootText.Text = "World of Warcraft folder not found. Use “Change WoW folder…” to pick it.";
             FlavorList.ItemsSource = null;
             RebuildRows();
             return;
         }
 
-        RootText.Text = _root;
         var flavors = WowLocator.GetFlavors(_root).Select(f => new FlavorItem(f)).ToList();
         FlavorList.ItemsSource = flavors;
         UpdateFlavorCounts();
@@ -603,6 +601,7 @@ public partial class MainWindow : Window
         if (_tray is not null)
             _tray.Tooltip = updates > 0 ? $"DrangedAddons — {updates} update{(updates == 1 ? "" : "s")} available" : "DrangedAddons";
         OpenFolderButton.IsEnabled = OpenFolderMenu.IsEnabled = CurrentFlavor is not null;
+        UpdateFolderTooltips();
         UpdateFlavorCounts();
 
         // Tabs and search: re-filter (installs/uninstalls move rows between tabs) and show the counts.
@@ -1071,6 +1070,18 @@ public partial class MainWindow : Window
             : removed.Count > 0 ? $"{removed.Count} game version{(removed.Count == 1 ? " is" : "s are")} no longer in the WoW folder: {string.Join(", ", removed.Select(r => r.Trim('_')))}."
             : $"No new game versions found ({after.Count} in {_root}).";
         ShowBanner(message, BannerKind.Info, TimeSpan.FromSeconds(6));
+    }
+
+    /// <summary>The WoW folder isn't shown in the bar (no room); hovering these buttons shows the paths instead.</summary>
+    void UpdateFolderTooltips()
+    {
+        ChangeFolderButton.ToolTip = _root is null
+            ? "No World of Warcraft folder found yet: pick it here."
+            : $"Current WoW folder:\n{_root}";
+        ScanGamesButton.ToolTip = _root is null
+            ? "Pick your World of Warcraft folder first (Change WoW folder…)."
+            : $"Look in {_root} again for game versions\n(e.g. one you've just installed).";
+        OpenFolderButton.ToolTip = CurrentFlavor is { } flavor ? flavor.AddOnsPath : "Pick a game version first.";
     }
 
     static HashSet<string> Folders(System.Collections.IEnumerable? items) =>

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0
+- **New top bar:** the selected game version's logo, a larger search box, the game-version picker, and a **⋯** menu
+  with Scan game folder, Open AddOns folder and Change WoW folder… (still in the File menu too; hover an item to
+  see its folder). The old game-version panel and the big DrangedAddons header are gone, leaving more room for the list.
+- Logos: Midnight for Retail, Mists of Pandaria Classic for Classic, Classic Hardcore for Classic Era, Burning Crusade
+  Classic Anniversary for Anniversary, and WoW Forever. PTR, XPTR and Beta folders use their game's logo with a tag.
+- Show beta versions, Auto-update, Check for updates and Update all moved to the right of the My Addons / Browse tabs.
+
 ## 0.19.0
 - **Multi-select:** each addon row has a tickbox on the left, and the column header above the list has a
   select-all box for the addons currently shown. Ticked rows get a gold background.

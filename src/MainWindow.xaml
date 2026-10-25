@@ -53,8 +53,9 @@
             </Grid.ColumnDefinitions>
             <!-- Logo for the selected game version (set in UpdateGameLogo): official art from logos\, or a drawn
                  wordmark for versions without one. PTR/Beta get a tag over the logo. -->
-            <Grid Margin="0,0,18,0" VerticalAlignment="Center" MinWidth="132" Height="64">
-            <Image x:Name="GameLogoImage" Stretch="Uniform" MaxWidth="150" HorizontalAlignment="Center"
+            <!-- Fixed size: the logo files share one canvas (tools/make_logos.py), so switching never shifts the bar. -->
+            <Grid Margin="0,0,14,0" VerticalAlignment="Center" Width="132" Height="72">
+            <Image x:Name="GameLogoImage" Width="126" Height="72" Stretch="Uniform" HorizontalAlignment="Center"
                    RenderOptions.BitmapScalingMode="HighQuality"/>
             <Border x:Name="GameLogoTag" HorizontalAlignment="Right" VerticalAlignment="Bottom" Padding="5,0" CornerRadius="3"
                     Background="{StaticResource AccentBrush}" Visibility="Collapsed" Panel.ZIndex="1">

@@ -607,8 +607,9 @@ public partial class MainWindow : Window
         UpdateAllButton.Content = updates > 0 ? $"Update all ({updates})" : "Update all";
         if (_tray is not null)
             _tray.Tooltip = updates > 0 ? $"DrangedAddons — {updates} update{(updates == 1 ? "" : "s")} available" : "DrangedAddons";
-        OpenFolderButton.IsEnabled = OpenFolderMenu.IsEnabled = CurrentFlavor is not null;
+        OpenFolderItem.IsEnabled = OpenFolderMenu.IsEnabled = CurrentFlavor is not null;
         UpdateFolderTooltips();
+        UpdateGameLogo();
         UpdateFlavorCounts();
 
         // Tabs and search: re-filter (installs/uninstalls move rows between tabs) and show the counts.
@@ -643,9 +644,9 @@ public partial class MainWindow : Window
     {
         _working = working;
         RefreshButton.IsEnabled = !working;
-        ChangeFolderButton.IsEnabled = !working;
+        ChangeFolderItem.IsEnabled = !working;
         ChangeFolderMenu.IsEnabled = !working;
-        ScanGamesButton.IsEnabled = ScanGamesMenu.IsEnabled = !working;
+        ScanGamesItem.IsEnabled = ScanGamesMenu.IsEnabled = !working;
         FlavorList.IsEnabled = !working;
         if (working) UpdateAllButton.IsEnabled = false;
         if (status is not null) StatusText.Text = status;
@@ -1221,13 +1222,53 @@ public partial class MainWindow : Window
     /// <summary>The WoW folder isn't shown in the bar (no room); hovering these buttons shows the paths instead.</summary>
     void UpdateFolderTooltips()
     {
-        ChangeFolderButton.ToolTip = _root is null
+        ChangeFolderItem.ToolTip = _root is null
             ? "No World of Warcraft folder found yet: pick it here."
             : $"Current WoW folder:\n{_root}";
-        ScanGamesButton.ToolTip = _root is null
+        ScanGamesItem.ToolTip = _root is null
             ? "Pick your World of Warcraft folder first (Change WoW folder…)."
             : $"Look in {_root} again for game versions\n(e.g. one you've just installed).";
-        OpenFolderButton.ToolTip = CurrentFlavor is { } flavor ? flavor.AddOnsPath : "Pick a game version first.";
+        OpenFolderItem.ToolTip = CurrentFlavor is { } flavor ? flavor.AddOnsPath : "Pick a game version first.";
+    }
+
+    /// <summary>Opens the ⋮ menu under its button, right edges lined up.</summary>
+    void GameMenu_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = GameMenuButton.ContextMenu;
+        menu.PlacementTarget = GameMenuButton;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Custom;
+        menu.CustomPopupPlacementCallback = (popup, target, _) =>
+            [new(new System.Windows.Point(target.Width - popup.Width, target.Height + 4), System.Windows.Controls.Primitives.PopupPrimaryAxis.Horizontal)];
+        menu.IsOpen = true;
+    }
+
+    /// <summary>Colours and edition label of the top-left wordmark for the selected game version.</summary>
+    void UpdateGameLogo()
+    {
+        var folder = CurrentFlavor?.Folder ?? "";
+        var (edition, hex) = folder switch
+        {
+            "_retail_" or "" => ("", "#F2B33D"),
+            "_ptr_" => ("PTR", "#F2B33D"),
+            "_xptr_" => ("XPTR", "#F2B33D"),
+            "_beta_" => ("BETA", "#F2B33D"),
+            "_classic_" => ("CLASSIC", "#E3B867"),
+            "_classic_ptr_" => ("CLASSIC PTR", "#E3B867"),
+            "_classic_beta_" => ("CLASSIC BETA", "#E3B867"),
+            "_classic_era_" => ("CLASSIC ERA", "#D4A15A"),
+            "_classic_era_ptr_" => ("CLASSIC ERA PTR", "#D4A15A"),
+            "_anniversary_" => ("ANNIVERSARY", "#A9C9EE"),
+            "_forever_" => ("FOREVER", "#C29BFF"),
+            _ => (CurrentFlavor!.DisplayName.ToUpperInvariant(), "#F2B33D"),
+        };
+        var color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
+        var brush = new System.Windows.Media.SolidColorBrush(color);
+        GameLogoTitle.Foreground = brush;
+        GameLogoEdition.Foreground = brush;
+        GameLogoEdition.Text = edition;
+        GameLogoEditionBox.BorderBrush = brush;
+        GameLogoEditionBox.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x30, color.R, color.G, color.B));
+        GameLogoEditionBox.Visibility = edition.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     static HashSet<string> Folders(System.Collections.IEnumerable? items) =>

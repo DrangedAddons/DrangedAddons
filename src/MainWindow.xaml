@@ -43,39 +43,79 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <DockPanel>
-            <Grid DockPanel.Dock="Right" VerticalAlignment="Center">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal">
-                    <CheckBox x:Name="BetaCheck" Content="Show beta versions" VerticalAlignment="Center" Margin="0,0,16,0"
-                              Foreground="{StaticResource TextBrush}" Cursor="Hand"
-                              ToolTip="Also offer untagged versions from each addon's main branch, not just tagged releases."
-                              Checked="Beta_Changed" Unchecked="Beta_Changed"/>
-                    <Button x:Name="RefreshButton" Content="Check for updates" Style="{StaticResource Btn}"
-                            Click="Refresh_Click"/>
-                    <Button x:Name="UpdateAllButton" Content="Update all" Style="{StaticResource AccentBtn}"
-                            Click="UpdateAll_Click" Margin="8,0,0,0" IsEnabled="False"/>
-                </StackPanel>
-                <!-- Quick switch for File → Auto-update addons (kept in sync). -->
-                <CheckBox x:Name="AutoUpdateCheck" Grid.Row="1" Content="Auto-update" HorizontalAlignment="Right"
-                          Margin="0,6,0,0" Foreground="{StaticResource MutedBrush}" Cursor="Hand"
-                          ToolTip="Install addon updates automatically in every game version (not Git working copies or versions you picked in Versions…)."
-                          Checked="AutoUpdateCheck_Changed" Unchecked="AutoUpdateCheck_Changed"/>
-            </Grid>
-            <StackPanel Orientation="Horizontal">
-                <Image Source="logo.png" Width="48" Height="48" Margin="0,0,12,0" VerticalAlignment="Center"
-                       RenderOptions.BitmapScalingMode="HighQuality"/>
-                <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="DrangedAddons" FontSize="22" FontWeight="SemiBold"/>
-                    <TextBlock Text="Addons from github.com/DrangedAddons" Foreground="{StaticResource MutedBrush}"/>
-                </StackPanel>
+        <!-- Top bar: game logo, search, game version, ⋮ menu (folder actions). -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <!-- Wordmark for the selected game version (set in UpdateGameLogo). -->
+            <StackPanel x:Name="GameLogo" VerticalAlignment="Center" Margin="0,0,18,0" MinWidth="132">
+                <TextBlock Text="WORLD of" FontFamily="Georgia" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center"
+                           Foreground="{Binding Foreground, ElementName=GameLogoTitle}"/>
+                <TextBlock x:Name="GameLogoTitle" Text="WARCRAFT" FontFamily="Georgia" FontSize="20" FontWeight="Bold"
+                           HorizontalAlignment="Center" Margin="0,-3,0,0" Foreground="#F2B33D">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.8" Color="Black"/>
+                    </TextBlock.Effect>
+                </TextBlock>
+                <Border x:Name="GameLogoEditionBox" HorizontalAlignment="Center" Margin="0,2,0,0" Padding="7,1" CornerRadius="3"
+                        Background="#3A2C10" BorderBrush="#F2B33D" BorderThickness="1">
+                    <TextBlock x:Name="GameLogoEdition" Text="CLASSIC" FontFamily="Georgia" FontSize="9" FontWeight="Bold"
+                               Foreground="#F2B33D"/>
+                </Border>
             </StackPanel>
-        </DockPanel>
+            <TextBox x:Name="SearchBox" Grid.Column="1" VerticalAlignment="Center" Height="38" FontSize="14"
+                     Style="{StaticResource SearchBox}" Tag="Search addons…  (Ctrl+F)"
+                     TextChanged="Search_TextChanged"/>
+            <ComboBox x:Name="FlavorList" Grid.Column="2" Style="{StaticResource DarkCombo}" Width="210" Height="38"
+                      Margin="12,0,0,0" VerticalAlignment="Center" FontSize="14" ToolTip="Game version"
+                      SelectionChanged="Flavor_SelectionChanged">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Label}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Button x:Name="GameMenuButton" Grid.Column="3" Style="{StaticResource GhostBtn}" Width="38" Height="38"
+                    Margin="6,0,0,0" Padding="0" VerticalAlignment="Center" Click="GameMenu_Click" ToolTip="Game folder options">
+                <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"/>
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <!-- The folder paths are in these items' tooltips (set in UpdateFolderTooltips). -->
+                        <MenuItem x:Name="ScanGamesItem" Click="ScanGames_Click" ToolTipService.ShowOnDisabled="True">
+                            <MenuItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Width="26" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Scan game folder"/>
+                                </StackPanel>
+                            </MenuItem.Header>
+                        </MenuItem>
+                        <MenuItem x:Name="OpenFolderItem" Click="OpenFolder_Click" ToolTipService.ShowOnDisabled="True">
+                            <MenuItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE838;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Width="26" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Open AddOns folder"/>
+                                </StackPanel>
+                            </MenuItem.Header>
+                        </MenuItem>
+                        <Separator Style="{StaticResource MenuSeparator}"/>
+                        <MenuItem x:Name="ChangeFolderItem" Click="ChangeFolder_Click" ToolTipService.ShowOnDisabled="True">
+                            <MenuItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE8B7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Width="26" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Change WoW folder…"/>
+                                </StackPanel>
+                            </MenuItem.Header>
+                        </MenuItem>
+                    </ContextMenu>
+                </Button.ContextMenu>
+            </Button>
+        </Grid>
 
-        <StackPanel Grid.Row="1" Margin="0,16,0,12">
+        <StackPanel Grid.Row="1" Margin="0,14,0,0">
         <!-- Shown when a newer DrangedAddons release exists. -->
         <Border x:Name="UpdateBanner" Visibility="Collapsed" Margin="0,0,0,12" Padding="12,8" CornerRadius="8"
                 Background="#2A2410" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1">
@@ -91,41 +131,27 @@
                            Margin="0,0,12,0"/>
             </DockPanel>
         </Border>
-        <Border Padding="12" CornerRadius="8"
-                Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
-                    <!-- The folder paths are in these buttons' tooltips (set in UpdateFolderTooltips). -->
-                    <Button x:Name="ScanGamesButton" Content="Scan game folder" Style="{StaticResource GhostBtn}"
-                            Click="ScanGames_Click" Margin="0,0,8,0" ToolTipService.ShowOnDisabled="True"/>
-                    <Button x:Name="OpenFolderButton" Content="Open AddOns folder" Style="{StaticResource GhostBtn}"
-                            Click="OpenFolder_Click" ToolTipService.ShowOnDisabled="True"/>
-                    <Button x:Name="ChangeFolderButton" Content="Change WoW folder…" Style="{StaticResource GhostBtn}"
-                            Click="ChangeFolder_Click" Margin="8,0,0,0" ToolTipService.ShowOnDisabled="True"/>
-                </StackPanel>
-                <DockPanel VerticalAlignment="Center">
-                    <TextBlock DockPanel.Dock="Left" Text="Game version" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                    <ComboBox x:Name="FlavorList" DockPanel.Dock="Left" Style="{StaticResource DarkCombo}" Width="250"
-                              HorizontalAlignment="Left"
-                              SelectionChanged="Flavor_SelectionChanged">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Label}"/>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                </DockPanel>
-            </DockPanel>
-        </Border>
         </StackPanel>
 
         <Grid Grid.Row="2">
             <DockPanel x:Name="ListPanel">
             <!-- Tabs (installed / everything) and search. -->
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                <TextBox x:Name="SearchBox" DockPanel.Dock="Right" Width="260" VerticalAlignment="Center"
-                         Style="{StaticResource SearchBox}" Tag="Search addons…  (Ctrl+F)"
-                         TextChanged="Search_TextChanged"/>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <CheckBox x:Name="BetaCheck" Content="Show beta versions" VerticalAlignment="Center" Margin="0,0,14,0"
+                              Foreground="{StaticResource MutedBrush}" Cursor="Hand"
+                              ToolTip="Also offer untagged versions from each addon's main branch, not just tagged releases."
+                              Checked="Beta_Changed" Unchecked="Beta_Changed"/>
+                    <!-- Quick switch for File → Auto-update addons (kept in sync). -->
+                    <CheckBox x:Name="AutoUpdateCheck" Content="Auto-update" VerticalAlignment="Center" Margin="0,0,14,0"
+                              Foreground="{StaticResource MutedBrush}" Cursor="Hand"
+                              ToolTip="Install addon updates automatically in every game version (not Git working copies or versions you picked in Versions…)."
+                              Checked="AutoUpdateCheck_Changed" Unchecked="AutoUpdateCheck_Changed"/>
+                    <Button x:Name="RefreshButton" Content="Check for updates" Style="{StaticResource GhostBtn}"
+                            Click="Refresh_Click"/>
+                    <Button x:Name="UpdateAllButton" Content="Update all" Style="{StaticResource AccentBtn}"
+                            Click="UpdateAll_Click" Margin="8,0,0,0" IsEnabled="False"/>
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
                     <RadioButton x:Name="MyAddonsTab" GroupName="AddonTabs" Style="{StaticResource TabButton}"
                                  Content="My Addons" IsChecked="True" Checked="Tab_Checked"/>

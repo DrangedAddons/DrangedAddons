@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.0
+- **Multi-select:** each addon row has a tickbox on the left, and the column header above the list has a
+  select-all box for the addons currently shown. Ticked rows get a gold background.
+- With anything ticked, a bar slides up from the bottom with **Update**, **Install**, **Reinstall** and **Delete**
+  for the selection (each shows how many it applies to), plus ✕ to clear. Esc also clears the selection.
+- Bulk delete asks once, lists the folders, and asks once whether to keep saved settings.
+
 ## 0.18.0
 - **Scan game folder** (next to Open AddOns folder, and in the File menu) looks in your WoW folder again for game
   versions, e.g. one you've just installed, and keeps the selected game. The bar says what it found.

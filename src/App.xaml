@@ -227,6 +227,11 @@
                     <Setter Property="Background" Value="{StaticResource Panel2Brush}"/>
                     <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                 </Trigger>
+                <!-- Ticked for a bulk action. After IsMouseOver so it wins while hovered. -->
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter Property="Background" Value="#2A2410"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 

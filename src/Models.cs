@@ -273,6 +273,23 @@ public sealed class AddonRow : INotifyPropertyChanged
         RaiseAll();
     }
 
+    bool _isSelected;
+
+    /// <summary>Ticked in the list for a bulk action. Raises SelectionChanged so the bulk bar can update.</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public event EventHandler? SelectionChanged;
+
     double? _progress;
 
     /// <summary>0–1 while downloading (fills the action button), else null.</summary>

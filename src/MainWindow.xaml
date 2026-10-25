@@ -133,6 +133,15 @@
                                  Content="Browse" Checked="Tab_Checked"/>
                 </StackPanel>
             </DockPanel>
+            <!-- Column header: select-all for the rows shown (this tab + search). -->
+            <DockPanel x:Name="ListHeader" DockPanel.Dock="Top" Margin="11,0,11,4">
+                <CheckBox x:Name="SelectAllCheck" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,10,0"
+                          Cursor="Hand" Click="SelectAll_Click" ToolTip="Select all addons shown"/>
+                <TextBlock DockPanel.Dock="Right" Text="Action" Foreground="{StaticResource MutedBrush}" FontSize="12"
+                           Width="140" TextAlignment="Center" VerticalAlignment="Center"/>
+                <TextBlock Text="Name" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="44,0,0,0"
+                           VerticalAlignment="Center"/>
+            </DockPanel>
             <Grid>
             <!-- Addon list: one compact row per addon; click a row for its details. -->
             <ScrollViewer x:Name="ListScroll" VerticalScrollBarVisibility="Auto">
@@ -151,6 +160,10 @@
                                                   Click="RowDelete_Click" IsEnabled="{Binding CanUninstall}"/>
                                     </ContextMenu>
                                 </Border.ContextMenu>
+                                <DockPanel>
+                                    <!-- Tick for bulk actions (clicking it doesn't open the details page). -->
+                                    <CheckBox DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,10,0" Cursor="Hand"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"/>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -188,6 +201,7 @@
                                             IsEnabled="{Binding ActionEnabled}" Click="Action_Click"
                                             Visibility="{Binding ShowRowAction, Converter={StaticResource BoolToVis}}"/>
                                 </Grid>
+                                </DockPanel>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -271,6 +285,31 @@
                     </Border>
                 </ScrollViewer>
             </DockPanel>
+
+            <!-- Bulk actions for the ticked addons; slides up from the bottom when anything is selected. -->
+            <Border x:Name="BulkBar" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                    Margin="0,0,0,12" Padding="10,8" CornerRadius="8"
+                    Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="20" ShadowDepth="3" Opacity="0.6" Color="Black"/>
+                </Border.Effect>
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="BulkBarShift"/>
+                </Border.RenderTransform>
+                <StackPanel Orientation="Horizontal">
+                    <Border CornerRadius="9" Background="{StaticResource AccentBrush}" Padding="8,1" VerticalAlignment="Center">
+                        <TextBlock x:Name="BulkCountText" Foreground="{StaticResource AccentTextBrush}" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock Text="selected" VerticalAlignment="Center" Margin="8,0,16,0"/>
+                    <Button x:Name="BulkUpdateButton" Style="{StaticResource GhostBtn}" Click="BulkUpdate_Click" Margin="0,0,6,0"/>
+                    <Button x:Name="BulkInstallButton" Style="{StaticResource GhostBtn}" Click="BulkInstall_Click" Margin="0,0,6,0"/>
+                    <Button x:Name="BulkReinstallButton" Style="{StaticResource GhostBtn}" Click="BulkReinstall_Click" Margin="0,0,6,0"/>
+                    <Button x:Name="BulkDeleteButton" Style="{StaticResource GhostBtn}" Click="BulkDelete_Click"
+                            Foreground="{StaticResource DangerBrush}"/>
+                    <Button Content="✕" Style="{StaticResource GhostBtn}" Click="BulkClear_Click" Margin="14,0,0,0"
+                            ToolTip="Clear the selection (Esc)"/>
+                </StackPanel>
+            </Border>
         </Grid>
 
         <DockPanel Grid.Row="3" Margin="0,8,0,0">

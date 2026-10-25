@@ -413,7 +413,8 @@ public partial class MainWindow : Window
                 if (!remote.IsFor(flavor.Folder) && !IsInstalledIn(remote.Name, flavor)) continue;
                 if (!_icons.TryGetValue(remote.Name, out var icon))
                     _icons[remote.Name] = icon = AddonIcons.LoadCached(remote.Name);
-                var row = new AddonRow(remote, latest) { Icon = icon };
+                var row = new AddonRow(remote, latest) { Icon = icon, IsSelected = _selected.Contains(remote.Name) };
+                row.SelectionChanged += Row_SelectionChanged;
                 Evaluate(row, flavor);
                 _rows.Add(row);
             }
@@ -445,6 +446,7 @@ public partial class MainWindow : Window
         DetailsPanel.DataContext = row;
         DetailsPanel.Visibility = Visibility.Visible;
         ListPanel.Visibility = Visibility.Collapsed;
+        UpdateBulkBar(); // hidden while on a details page
     }
 
     void ShowList()
@@ -464,6 +466,11 @@ public partial class MainWindow : Window
         if (e.Key == System.Windows.Input.Key.Escape && _detailsFor is not null)
         {
             ShowList();
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Escape && _selected.Count > 0)
+        {
+            ClearSelection();
             e.Handled = true;
         }
         else if (e.Key == System.Windows.Input.Key.Escape && SearchBox.Text.Length > 0)
@@ -609,6 +616,7 @@ public partial class MainWindow : Window
         var shown = _rows.Count(ShowsInList);
         MyAddonsTab.Content = $"My Addons ({_rows.Count(r => r.State != AddonState.NotInstalled)})";
         BrowseTab.Content = $"Browse ({_rows.Count})";
+        UpdateBulkBar();
 
         var query = SearchBox.Text.Trim();
         EmptyText.Text = _root is null ? "Pick your World of Warcraft folder to get started."
@@ -772,37 +780,158 @@ public partial class MainWindow : Window
     /// Deletes an addon from this game: asks to confirm, then whether to delete its saved settings too
     /// (default no). Everything goes to the Recycle Bin.
     /// </summary>
-    void DeleteAddon(AddonRow row, WowFlavor flavor)
+    void DeleteAddon(AddonRow row, WowFlavor flavor) => DeleteAddons([row], flavor);
+
+    /// <summary>
+    /// Deletes one or more addons from this game: one confirmation, then one "delete their saved settings too?"
+    /// question (default no). Everything goes to the Recycle Bin. Git working copies are skipped.
+    /// </summary>
+    void DeleteAddons(IReadOnlyList<AddonRow> rows, WowFlavor flavor)
     {
-        if (!row.CanUninstall) return;
+        rows = rows.Where(r => r.CanUninstall).ToList();
+        if (rows.Count == 0) return;
         var installed = _manifest.For(flavor.AddOnsPath);
-        var folders = installed.TryGetValue(row.Name, out var record) ? record.Folders : new List<string> { row.Name };
-        if (!DarkDialog.Show(this, $"Delete {row.Name} from {flavor.DisplayName}?",
+        var foldersOf = rows.ToDictionary(r => r,
+            r => installed.TryGetValue(r.Name, out var record) ? record.Folders : new List<string> { r.Name });
+        var folders = foldersOf.Values.SelectMany(f => f).ToList();
+        var what = rows.Count == 1 ? rows[0].Name : $"{rows.Count} addons";
+        if (!DarkDialog.Show(this, $"Delete {what} from {flavor.DisplayName}?",
                 "These folders will be moved to the Recycle Bin:\n"
                 + string.Join("\n", folders.Select(f => "  • " + f)),
                 primary: "Delete", secondary: "Cancel", danger: true))
             return;
 
         var settingsFiles = AddonInstaller.FindSavedVariables(flavor.AddOnsPath, folders);
-        var deleteSettings = settingsFiles.Count > 0 && DarkDialog.Show(this, $"Also delete {row.Name}'s saved settings?",
+        var whose = rows.Count == 1 ? $"{rows[0].Name}'s" : "their";
+        var deleteSettings = settingsFiles.Count > 0 && DarkDialog.Show(this, $"Also delete {whose} saved settings?",
             $"{settingsFiles.Count} settings file{(settingsFiles.Count == 1 ? "" : "s")} (account-wide and per character) "
-            + "would be moved to the Recycle Bin. Keep them if you might reinstall it later.\n\n"
+            + "would be moved to the Recycle Bin. Keep them if you might reinstall later.\n\n"
             + "If World of Warcraft is running, close it first, or it will write them back when you log out.",
             primary: "Delete settings", secondary: "Keep settings", danger: true, defaultSecondary: true);
 
+        foreach (var row in rows)
+        {
+            try
+            {
+                AddonInstaller.Uninstall(flavor.AddOnsPath, foldersOf[row]);
+                installed.Remove(row.Name);
+                Storage.Save(ManifestFile, _manifest);
+                if (deleteSettings)
+                    AddonInstaller.RecycleFiles(AddonInstaller.FindSavedVariables(flavor.AddOnsPath, foldersOf[row]));
+            }
+            catch (Exception ex)
+            {
+                DarkDialog.Show(this, $"Couldn't delete {row.Name}", ex.Message);
+            }
+            Evaluate(row, flavor);
+        }
+        UpdateSummary();
+    }
+
+    // ---- Multi-select and bulk actions ----------------------------------------------------------------------------
+
+    // Names of ticked addons; kept across list rebuilds (background checks), cleared when the game version changes.
+    readonly HashSet<string> _selected = new();
+
+    void Row_SelectionChanged(object? sender, EventArgs e)
+    {
+        if (sender is not AddonRow row) return;
+        if (row.IsSelected) _selected.Add(row.Name);
+        else _selected.Remove(row.Name);
+        UpdateBulkBar();
+    }
+
+    IEnumerable<AddonRow> SelectedRows => _rows.Where(r => r.IsSelected);
+
+    /// <summary>The select-all box ticks or clears the rows currently shown (this tab and search).</summary>
+    void SelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        var select = SelectAllCheck.IsChecked == true;
+        foreach (var row in _rows.Where(ShowsInList).ToList())
+            row.IsSelected = select;
+        UpdateBulkBar();
+    }
+
+    void ClearSelection()
+    {
+        foreach (var row in _rows.Where(r => r.IsSelected).ToList())
+            row.IsSelected = false;
+        _selected.Clear();
+        UpdateBulkBar();
+    }
+
+    void BulkClear_Click(object sender, RoutedEventArgs e) => ClearSelection();
+
+    /// <summary>Counts per action, the select-all box state, and showing / hiding the bar.</summary>
+    void UpdateBulkBar()
+    {
+        var selected = SelectedRows.ToList();
+        var shown = _rows.Where(ShowsInList).ToList();
+        var shownSelected = shown.Count(r => r.IsSelected);
+        SelectAllCheck.IsChecked = shownSelected == 0 ? false : shownSelected == shown.Count ? true : null;
+        SelectAllCheck.IsEnabled = shown.Count > 0;
+
+        void Set(Button button, string label, int count)
+        {
+            button.Content = $"{label} ({count})";
+            button.IsEnabled = count > 0 && !_working;
+        }
+        BulkCountText.Text = selected.Count.ToString();
+        Set(BulkUpdateButton, "Update", selected.Count(r => r.State == AddonState.UpdateAvailable));
+        Set(BulkInstallButton, "Install", selected.Count(r => r.State == AddonState.NotInstalled));
+        Set(BulkReinstallButton, "Reinstall", selected.Count(r => r.CanUninstall));
+        Set(BulkDeleteButton, "Delete", selected.Count(r => r.CanUninstall));
+
+        var show = selected.Count > 0 && _detailsFor is null;
+        if (show && BulkBar.Visibility != Visibility.Visible)
+        {
+            BulkBar.Visibility = Visibility.Visible;
+            var ease = new System.Windows.Media.Animation.QuadraticEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
+            BulkBarShift.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(40, 0, TimeSpan.FromMilliseconds(180)) { EasingFunction = ease });
+            BulkBar.BeginAnimation(OpacityProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
+        }
+        else if (!show)
+        {
+            BulkBar.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>Runs <paramref name="action"/> on each ticked addon it applies to, one at a time, then clears the selection.</summary>
+    async Task BulkAsync(Func<AddonRow, bool> applies, Func<AddonRow, WowFlavor, Task> action, string verb)
+    {
+        if (_working || CurrentFlavor is not { } flavor) return;
+        var rows = SelectedRows.Where(applies).ToList();
+        if (rows.Count == 0) return;
+        SetWorking(true, $"{verb} {rows.Count} addon{(rows.Count == 1 ? "" : "s")}…");
         try
         {
-            AddonInstaller.Uninstall(flavor.AddOnsPath, folders);
-            installed.Remove(row.Name);
-            Storage.Save(ManifestFile, _manifest);
-            if (deleteSettings) AddonInstaller.RecycleFiles(settingsFiles);
+            foreach (var row in rows)
+                await action(row, flavor);
         }
-        catch (Exception ex)
+        finally
         {
-            DarkDialog.Show(this, $"Couldn't delete {row.Name}", ex.Message);
+            SetWorking(false);
+            ClearSelection();
+            UpdateSummary();
         }
-        Evaluate(row, flavor);
-        UpdateSummary();
+    }
+
+    async void BulkUpdate_Click(object sender, RoutedEventArgs e) =>
+        await BulkAsync(r => r.State == AddonState.UpdateAvailable, (r, f) => InstallAsync(r, f), "Updating");
+
+    async void BulkInstall_Click(object sender, RoutedEventArgs e) =>
+        await BulkAsync(r => r.State == AddonState.NotInstalled, (r, f) => InstallAsync(r, f), "Installing");
+
+    async void BulkReinstall_Click(object sender, RoutedEventArgs e) =>
+        await BulkAsync(r => r.CanUninstall, (r, f) => ReinstallAsync(r, f), "Reinstalling");
+
+    void BulkDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (_working || CurrentFlavor is not { } flavor) return;
+        DeleteAddons(SelectedRows.Where(r => r.CanUninstall).ToList(), flavor);
+        ClearSelection();
     }
 
     // ---- Row right-click menu -----------------------------------------------------------------------------------
@@ -824,6 +953,23 @@ public partial class MainWindow : Window
         SetWorking(true, $"Reinstalling {row.Name}…");
         try
         {
+            await ReinstallAsync(row, flavor);
+        }
+        finally
+        {
+            SetWorking(false);
+            UpdateSummary();
+        }
+    }
+
+    /// <summary>
+    /// Puts a fresh copy of the installed version back (same release, or the same beta commit), keeping settings.
+    /// If the installed version can't be found among the published ones, the latest is installed instead.
+    /// </summary>
+    async Task<bool> ReinstallAsync(AddonRow row, WowFlavor flavor, bool quiet = false)
+    {
+        try
+        {
             var record = _manifest.For(flavor.AddOnsPath).GetValueOrDefault(row.Name);
             var installed = record?.Version ?? row.InstalledVersion;
             AddonVersion target = row.Latest;
@@ -838,16 +984,13 @@ public partial class MainWindow : Window
                          ?? history.FirstOrDefault(v => Versions.Compare(v.Version, installed) == 0)
                          ?? row.Latest;
             }
-            await InstallAsync(row, flavor, target, verb: "Reinstalling");
+            return await InstallAsync(row, flavor, target, verb: "Reinstalling", quiet: quiet);
         }
         catch (Exception ex)
         {
-            DarkDialog.Show(this, $"Couldn't reinstall {row.Name}", ex.Message);
-        }
-        finally
-        {
-            SetWorking(false);
-            UpdateSummary();
+            if (quiet) StatusText.Text = $"Couldn't reinstall {row.Name}: {ex.Message}";
+            else DarkDialog.Show(this, $"Couldn't reinstall {row.Name}", ex.Message);
+            return false;
         }
     }
 
@@ -1025,6 +1168,7 @@ public partial class MainWindow : Window
     void Flavor_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (CurrentFlavor is not { } flavor) return;
+        if (e.RemovedItems.Count > 0) _selected.Clear(); // a selection belongs to one game version
         _settings.WowRoot = _root;
         _settings.Flavor = flavor.Folder;
         Storage.Save(SettingsFile, _settings);

@@ -75,6 +75,8 @@ public partial class MainWindow
         public bool HistoryWithBeta;
         /// <summary>How many versions the Versions tab shows (grows by a page with "Show more").</summary>
         public int VersionsShown = VersionPage;
+        /// <summary>The history being read to the end in the background, if any.</summary>
+        public VersionHistory? Finishing;
     }
 
     readonly Dictionary<string, DetailsData> _details = new();
@@ -609,12 +611,41 @@ public partial class MainWindow
             await ReadVersionsAsync(history, DataFor(row).VersionsShown);
             if (load != _detailsLoad) return;
             ShowVersionItems(row, history, reset: true);
+            _ = FinishHistoryAsync(row, history);
         }
         catch (Exception ex) when (ex is HttpRequestException or RateLimitException or InvalidOperationException)
         {
             _loadedTabs.Remove("versions");
             if (load == _detailsLoad) SetTabMessage("versions", LoadError(ex));
         }
+    }
+
+    /// <summary>
+    /// Reads the rest of the history in the background after the first page is up, so the tab can show the full
+    /// count and "Show more" doesn't wait. Everything read is cached on disk, so later opens know it all at once.
+    /// </summary>
+    async Task FinishHistoryAsync(AddonRow row, VersionHistory history)
+    {
+        var data = DataFor(row);
+        if (history.Complete || data.Finishing == history) return;
+        data.Finishing = history;
+        try
+        {
+            while (!history.Complete)
+                await _github.ReadMoreVersionsAsync(history, VersionPage);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or RateLimitException or InvalidOperationException)
+        {
+            return; // stays partly read; "Show more" carries on from there
+        }
+        finally
+        {
+            if (data.Finishing == history) data.Finishing = null;
+        }
+        // Still looking at this addon (and this history): update the count and the "Show more" line.
+        if (_detailsRow?.Name == row.Name && data.History is { IsCompletedSuccessfully: true } current
+            && current.Result == history && !_readingVersions)
+            ShowVersionItems(row, history, reset: false);
     }
 
     /// <summary>Reads more of the history until it has <paramref name="wanted"/> versions (or there are no more).</summary>

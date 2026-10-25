@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.2
+- The **Versions** tab shows the total, e.g. "Versions (320)". After the first page appears, the rest of the
+  history is read in the background (about 15 seconds for CraftRoute the first time) and the count fills in; from
+  then on it's remembered, so later opens show it straight away and **Show 20 more** doesn't wait.
+
 ## 0.23.1
 - The **Versions** tab opens much faster on addons with a long history (CraftRoute with betas: 3 seconds the first
   time instead of 21). It shows 20 versions, with **Show 20 more** at the bottom; only the versions shown are looked

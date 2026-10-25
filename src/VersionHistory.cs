@@ -21,6 +21,9 @@ public sealed class VersionHistory(
     /// <summary>The .toc version at each commit read so far (same order as <see cref="Commits"/>; null: no .toc).</summary>
     internal List<string?> TocVersions { get; } = [];
 
+    /// <summary>Lets one <see cref="GitHubClient.ReadMoreVersionsAsync"/> run at a time.</summary>
+    internal SemaphoreSlim Gate { get; } = new(1, 1);
+
     /// <summary>Every commit's version has been read (or betas aren't included).</summary>
     public bool Complete => TocVersions.Count >= Commits.Count;
 

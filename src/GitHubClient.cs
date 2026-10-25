@@ -261,8 +261,21 @@ public sealed class GitHubClient
         var changelog = GetChangelogAsync(addon, ct);
         await Task.WhenAll(releases, commits, changelog);
         var history = new VersionHistory(addon, releases.Result, commits.Result, changelog.Result);
+        ReadCachedVersions(history);
         history.Rebuild();
         return history;
+    }
+
+    /// <summary>Takes every commit whose .toc version is already cached on disk, newest first (no requests).</summary>
+    void ReadCachedVersions(VersionHistory history)
+    {
+        if (history.Addon.TocPath is not { } tocPath) return;
+        lock (_tocVersions)
+        {
+            while (history.TocVersions.Count < history.Commits.Count
+                   && _tocVersions.TryGetValue($"{history.Addon.Name}@{history.Commits[history.TocVersions.Count].Sha}:{tocPath}", out var known))
+                history.TocVersions.Add(known.Length > 0 ? known : null);
+        }
     }
 
     /// <summary>
@@ -271,20 +284,29 @@ public sealed class GitHubClient
     /// </summary>
     public async Task ReadMoreVersionsAsync(VersionHistory history, int count, CancellationToken ct = default)
     {
-        var from = history.TocVersions.Count;
-        var batch = history.Commits.Skip(from).Take(count).ToList();
-        if (batch.Count == 0 || history.Addon.TocPath is not { } tocPath) return;
-        // Gentle without a token: GitHub limits bursts of anonymous file requests.
-        using var throttle = new SemaphoreSlim(await CurrentTokenAsync() is null ? 4 : 8);
-        var versions = await Task.WhenAll(batch.Select(async c =>
+        // One reader at a time (the details page reads ahead in the background while "Show more" can ask too).
+        await history.Gate.WaitAsync(ct);
+        try
         {
-            await throttle.WaitAsync(ct);
-            try { return await GetTocVersionAsync(history.Addon.Name, c.Sha, tocPath, ct); }
-            finally { throttle.Release(); }
-        }));
-        SaveCaches();
-        history.TocVersions.AddRange(versions);
-        history.Rebuild();
+            var from = history.TocVersions.Count;
+            var batch = history.Commits.Skip(from).Take(count).ToList();
+            if (batch.Count == 0 || history.Addon.TocPath is not { } tocPath) return;
+            // Gentle without a token: GitHub limits bursts of anonymous file requests.
+            using var throttle = new SemaphoreSlim(await CurrentTokenAsync() is null ? 4 : 8);
+            var versions = await Task.WhenAll(batch.Select(async c =>
+            {
+                await throttle.WaitAsync(ct);
+                try { return await GetTocVersionAsync(history.Addon.Name, c.Sha, tocPath, ct); }
+                finally { throttle.Release(); }
+            }));
+            SaveCaches();
+            history.TocVersions.AddRange(versions);
+            history.Rebuild();
+        }
+        finally
+        {
+            history.Gate.Release();
+        }
     }
 
     async Task<List<AddonVersion>> GetReleasesAsync(RemoteAddon addon, bool includePrereleases, CancellationToken ct)

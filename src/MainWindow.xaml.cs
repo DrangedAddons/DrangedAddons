@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         DarkTitleBar.Apply(this);
         _updateBannerBackground = UpdateBanner.Background;
         VersionText.Text = $"v{AppUpdater.CurrentVersion}";
+        LoadColumns();
         AddonList.ItemsSource = _rows;
         _view = System.Windows.Data.CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = item => item is AddonRow row && ShowsInList(row);
@@ -179,6 +180,151 @@ public partial class MainWindow : Window
         else FilterButton.Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush");
         FilterButton.ToolTip = _filter is null ? "Filter" : $"Filter: {_filterLabel}";
         UpdateSummary();
+    }
+
+    // ---- Columns ------------------------------------------------------------------------------------------------
+
+    /// <summary>Every optional column, in default order. Name and Action are always shown.</summary>
+    readonly ListColumn[] _allColumns =
+    [
+        new("version", "Version", 130),
+        new("author", "Author", 170),
+        new("installed", "Installed", 110),
+        new("latest", "Latest", 110),
+        new("released", "Released", 115),
+    ];
+
+    static readonly string[] DefaultColumns = ["version", "author"];
+
+    /// <summary>Optional columns shown, in order (the header and every row bind to this).</summary>
+    public ObservableCollection<ListColumn> Columns { get; } = new();
+
+    /// <summary>Optional columns not shown: offered in column edit mode.</summary>
+    public ObservableCollection<ListColumn> HiddenColumns { get; } = new();
+
+    public static readonly DependencyProperty ColumnEditModeProperty =
+        DependencyProperty.Register(nameof(ColumnEditMode), typeof(bool), typeof(MainWindow));
+
+    /// <summary>Column headers show move / hide buttons, and a bar offers hidden columns.</summary>
+    public bool ColumnEditMode
+    {
+        get => (bool)GetValue(ColumnEditModeProperty);
+        set
+        {
+            SetValue(ColumnEditModeProperty, value);
+            if (value) ColumnsButton.Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush");
+            else ColumnsButton.ClearValue(ForegroundProperty);
+        }
+    }
+
+    void LoadColumns()
+    {
+        Columns.Clear();
+        HiddenColumns.Clear();
+        foreach (var key in _settings.Columns ?? [.. DefaultColumns])
+            if (_allColumns.FirstOrDefault(c => c.Key == key) is { } column && !Columns.Contains(column))
+                Columns.Add(column);
+        foreach (var column in _allColumns.Where(c => !Columns.Contains(c)))
+            HiddenColumns.Add(column);
+    }
+
+    void SaveColumns()
+    {
+        _settings.Columns = Columns.Select(c => c.Key).ToList();
+        Storage.Save(SettingsFile, _settings);
+    }
+
+    static ListColumn ColumnOf(object sender) => (ListColumn)((FrameworkElement)sender).DataContext;
+
+    void Columns_Click(object sender, RoutedEventArgs e) => ColumnEditMode = !ColumnEditMode;
+    void ColumnDone_Click(object sender, RoutedEventArgs e) => ColumnEditMode = false;
+
+    // Dragging a header: the columns reorder live as it moves, and the order is saved on release.
+    ListColumn? _dragColumn;
+    double _dragStartX, _dragGrabOffset;
+    bool _dragging;
+
+    void HeaderCell_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        _dragColumn = ColumnOf(sender);
+        _dragStartX = e.GetPosition(HeaderColumns).X;
+        _dragGrabOffset = e.GetPosition((IInputElement)sender).X;
+        _dragging = false;
+        HeaderColumns.CaptureMouse();
+        e.Handled = true;
+    }
+
+    void HeaderColumns_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_dragColumn is null) return;
+        var x = e.GetPosition(HeaderColumns).X;
+        if (!_dragging)
+        {
+            if (Math.Abs(x - _dragStartX) < SystemParameters.MinimumHorizontalDragDistance) return;
+            _dragging = true;
+            _dragColumn.IsDragging = true;
+        }
+
+        // Where the dragged header's left edge is now decides its slot: it goes before the first other column
+        // whose middle it hasn't passed. Measured against the others alone, so it doesn't flip back and forth
+        // between columns of different widths.
+        var left = x - _dragGrabOffset;
+        var others = Columns.Where(c => c != _dragColumn).ToList();
+        var slot = 0;
+        double at = 0;
+        foreach (var other in others)
+        {
+            if (left < at + other.Width / 2) break;
+            at += other.Width;
+            slot++;
+        }
+        var from = Columns.IndexOf(_dragColumn);
+        if (slot != from) Columns.Move(from, slot);
+    }
+
+    void HeaderColumns_MouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_dragging) SaveColumns();
+        HeaderColumns.ReleaseMouseCapture();
+    }
+
+    void HeaderColumns_LostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_dragColumn is not null) _dragColumn.IsDragging = false;
+        _dragColumn = null;
+        _dragging = false;
+    }
+
+    void ColumnHide_Click(object sender, RoutedEventArgs e)
+    {
+        var column = ColumnOf(sender);
+        Columns.Remove(column);
+        // Keep the hidden list in default order.
+        var at = HiddenColumns.Count(c => Array.IndexOf(_allColumns, c) < Array.IndexOf(_allColumns, column));
+        HiddenColumns.Insert(at, column);
+        SaveColumns();
+    }
+
+    void ColumnShow_Click(object sender, RoutedEventArgs e)
+    {
+        var column = ColumnOf(sender);
+        HiddenColumns.Remove(column);
+        Columns.Add(column);
+        SaveColumns();
+    }
+
+    void ColumnReset_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.Columns = null;
+        Storage.Save(SettingsFile, _settings);
+        LoadColumns();
+    }
+
+    /// <summary>Keeps the column header's Action label over the row buttons when the list's scrollbar appears.</summary>
+    void ListScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        var bar = ListScroll.ComputedVerticalScrollBarVisibility == Visibility.Visible ? SystemParameters.VerticalScrollBarWidth : 0;
+        ListHeader.Margin = new Thickness(0, 0, bar, 4);
     }
 
     void Tab_Checked(object sender, RoutedEventArgs e)
@@ -489,6 +635,11 @@ public partial class MainWindow : Window
         if (e.Key == System.Windows.Input.Key.Escape && _detailsFor is not null)
         {
             ShowList();
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Escape && ColumnEditMode)
+        {
+            ColumnEditMode = false;
             e.Handled = true;
         }
         else if (e.Key == System.Windows.Input.Key.Escape && _selected.Count > 0)

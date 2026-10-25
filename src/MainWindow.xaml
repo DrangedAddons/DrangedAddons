@@ -148,14 +148,16 @@
         <Grid Grid.Row="2">
             <DockPanel x:Name="ListPanel">
             <!-- Tabs (installed / everything) and search. -->
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <!-- The selected tab's gold underline sits on a full-width rule. -->
+            <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                <Border Height="1" VerticalAlignment="Bottom" Background="{StaticResource LineBrush}"/>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
                     <RadioButton x:Name="MyAddonsTab" GroupName="AddonTabs" Style="{StaticResource TabButton}"
                                  Content="My Addons" IsChecked="True" Checked="Tab_Checked"/>
                     <RadioButton x:Name="BrowseTab" GroupName="AddonTabs" Style="{StaticResource TabButton}"
                                  Content="Browse" Checked="Tab_Checked"/>
                 </StackPanel>
-            </DockPanel>
+            </Grid>
             <!-- Toolbar: Update all; list tools (filter, refresh) on the right. -->
             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -173,6 +175,12 @@
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
+                    <Button x:Name="ColumnsButton" Style="{StaticResource IconBtn}" Margin="4,0,0,0" Click="Columns_Click"
+                            ToolTip="Edit columns">
+                        <!-- Three-column glyph, drawn in the button's text colour. -->
+                        <Path Data="M 0.5 0.5 H 15.5 V 13.5 H 0.5 Z M 5.5 0.5 V 13.5 M 10.5 0.5 V 13.5" StrokeThickness="1.2"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                    </Button>
                     <Button x:Name="RefreshButton" Style="{StaticResource IconBtn}" Content="&#xE72C;" Margin="4,0,0,0"
                             Click="Refresh_Click" ToolTip="Check for updates"/>
                 </StackPanel>
@@ -180,17 +188,95 @@
                         Click="UpdateAll_Click" IsEnabled="False"/>
             </DockPanel>
             <!-- Column header: select-all for the rows shown (this tab + search + filter). -->
-            <DockPanel x:Name="ListHeader" DockPanel.Dock="Top" Margin="11,0,11,4">
-                <CheckBox x:Name="SelectAllCheck" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,10,0"
-                          Cursor="Hand" Click="SelectAll_Click" ToolTip="Select all addons shown"/>
-                <TextBlock DockPanel.Dock="Right" Text="Action" Foreground="{StaticResource MutedBrush}" FontSize="12"
-                           Width="140" TextAlignment="Center" VerticalAlignment="Center"/>
-                <TextBlock Text="Name" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="44,0,0,0"
-                           VerticalAlignment="Center"/>
-            </DockPanel>
+            <!-- Same padding + border as a row, so the select-all box lines up with the row tickboxes. -->
+            <Border x:Name="ListHeader" DockPanel.Dock="Top" Margin="0,0,0,4" Padding="10,7" CornerRadius="6"
+                    Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                <DockPanel>
+                    <CheckBox x:Name="SelectAllCheck" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,10,0"
+                              Click="SelectAll_Click" ToolTip="Select all addons shown"/>
+                    <!-- Widths match the row template's optional columns and Action column (1px rule + text). -->
+                    <TextBlock DockPanel.Dock="Right" Text="Action" Foreground="{StaticResource MutedBrush}" FontSize="12"
+                               FontWeight="SemiBold" Width="140" Margin="9,0,0,0" TextAlignment="Center" VerticalAlignment="Center"/>
+                    <Border DockPanel.Dock="Right" Width="1" Margin="0,-7" Background="{StaticResource LineBrush}"/>
+                    <!-- Drag a header left / right to reorder (see HeaderCell_MouseDown). -->
+                    <ItemsControl x:Name="HeaderColumns" DockPanel.Dock="Right" Focusable="False" VerticalAlignment="Stretch"
+                                  ItemsSource="{Binding Columns, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  MouseMove="HeaderColumns_MouseMove" MouseLeftButtonUp="HeaderColumns_MouseUp"
+                                  LostMouseCapture="HeaderColumns_LostMouseCapture">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Width="{Binding Width}" Cursor="SizeWE" ToolTip="Drag to move this column"
+                                           MouseLeftButtonDown="HeaderCell_MouseDown">
+                                    <DockPanel.Style>
+                                        <Style TargetType="DockPanel">
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Style.Triggers>
+                                                <!-- The column being dragged. -->
+                                                <DataTrigger Binding="{Binding IsDragging}" Value="True">
+                                                    <Setter Property="Background" Value="#3A3216"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </DockPanel.Style>
+                                    <Border DockPanel.Dock="Left" Width="1" Margin="0,-7" Background="{StaticResource LineBrush}"/>
+                                    <!-- Column edit mode: hide. -->
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource ColumnEditBtn}" Content="&#xE711;" Margin="0,0,4,0"
+                                            ToolTip="Hide column" Click="ColumnHide_Click" Cursor="Hand"
+                                            Visibility="{Binding ColumnEditMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
+                                    <TextBlock Text="{Binding Header}" Foreground="{StaticResource MutedBrush}" FontSize="12"
+                                               FontWeight="SemiBold" Padding="11,0,0,0" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="Name" Foreground="{StaticResource MutedBrush}" FontSize="12" FontWeight="SemiBold"
+                               Margin="44,0,0,0" VerticalAlignment="Center"/>
+                </DockPanel>
+            </Border>
+            <!-- Column edit mode: hidden columns to add back, reset, done. -->
+            <Border x:Name="ColumnEditBar" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="10,6" CornerRadius="6"
+                    Background="#2A2410" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1"
+                    Visibility="{Binding ColumnEditMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Content="Reset" Style="{StaticResource GhostBtn}" Padding="12,4" Click="ColumnReset_Click"
+                                ToolTip="Back to the default columns (Version, Author)"/>
+                        <Button Content="Done" Style="{StaticResource AccentBtn}" Padding="16,4" Margin="8,0,0,0" Click="ColumnDone_Click"/>
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Left" Text="Editing columns" FontWeight="SemiBold" VerticalAlignment="Center"
+                               Margin="0,0,14,0"/>
+                    <TextBlock x:Name="NoHiddenColumnsText" DockPanel.Dock="Left" Text="Drag a column header to move it, ✕ to hide it."
+                               Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                    <ItemsControl Focusable="False" VerticalAlignment="Center"
+                                  ItemsSource="{Binding HiddenColumns, RelativeSource={RelativeSource AncestorType=Window}}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Style="{StaticResource GhostBtn}" Padding="10,3" Margin="0,0,6,0" Click="ColumnShow_Click"
+                                        ToolTip="Show this column">
+                                    <TextBlock>
+                                        <Run Text="+" Foreground="{StaticResource AccentBrush}" FontWeight="Bold"/>
+                                        <Run Text="{Binding Header, Mode=OneWay}"/>
+                                    </TextBlock>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DockPanel>
+            </Border>
             <Grid>
             <!-- Addon list: one compact row per addon; click a row for its details. -->
-            <ScrollViewer x:Name="ListScroll" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer x:Name="ListScroll" VerticalScrollBarVisibility="Auto" ScrollChanged="ListScroll_ScrollChanged">
                 <ItemsControl x:Name="AddonList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -214,8 +300,9 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
+                                        <!-- Optional columns (each a fixed width) and Action, lined up with the header. -->
                                         <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="150"/>
                                     </Grid.ColumnDefinitions>
                                     <Grid Width="32" Height="32" Margin="0,0,12,0" VerticalAlignment="Center">
                                         <Border CornerRadius="6" Background="{StaticResource Panel2Brush}"
@@ -238,9 +325,32 @@
                                         <TextBlock Text="{Binding RowSubText}" Foreground="{StaticResource MutedBrush}" FontSize="12"
                                                    TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
+                                    <ItemsControl Grid.Column="2" Focusable="False" VerticalAlignment="Center"
+                                                  ItemsSource="{Binding Columns, RelativeSource={RelativeSource AncestorType=Window}}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Width="{Binding Width}" FontSize="12" Padding="12,0,8,0"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                                                    <TextBlock.Text>
+                                                        <MultiBinding Converter="{StaticResource CellText}">
+                                                            <Binding Path="Key"/>
+                                                            <Binding Path="DataContext" RelativeSource="{RelativeSource AncestorType=ItemsControl}"/>
+                                                            <Binding Path="DataContext.RowVersionText" RelativeSource="{RelativeSource AncestorType=ItemsControl}"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Text>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                     <!-- One thing on the right: a button when there's something to do, else a label. -->
-                                    <TextBlock Grid.Column="2" Text="{Binding RowLabel}" Foreground="{Binding RowLabelBrush}"
-                                               FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,4,0"
+                                    <TextBlock Grid.Column="3" Text="{Binding RowLabel}" Foreground="{Binding RowLabelBrush}"
+                                               FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                               Margin="10,0,0,0"
                                                Visibility="{Binding ShowRowLabel, Converter={StaticResource BoolToVis}}"/>
                                     <Button Grid.Column="3" Content="{Binding ActionText}" Style="{StaticResource ActionBtn}"
                                             Padding="0,3" Width="140" Margin="10,0,0,0" VerticalAlignment="Center"

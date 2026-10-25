@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.0
+- **Columns:** the list has Version and Author columns (still also shown under each addon's name), under a proper
+  header bar. The My Addons / Browse tabs sit on a full-width line.
+- **Choose your columns:** the new columns icon (next to filter and refresh) turns on column edit mode: ✕ on a header
+  hides that column, and the bar under the header adds hidden ones back (Version, Author, Installed, Latest,
+  Released). Reset goes back to Version and Author; Done or Esc leaves edit mode.
+- **Drag a column header** left or right to move the column, any time. Your columns and their order are remembered.
+
 ## 0.21.1
 - **Update all** turns grey when there's nothing to update, instead of a dimmed gold.
 - Tickboxes are a quiet dark outline instead of bright white, and turn gold when ticked (select-all shows a gold

@@ -16,6 +16,8 @@ public sealed class AppSettings
     public bool AutoUpdateAddons { get; set; }
     public bool AutoUpdateApp { get; set; }
     public bool TrayTipShown { get; set; }
+    /// <summary>Optional list columns shown, in order (ListColumn keys); null = the default set.</summary>
+    public List<string>? Columns { get; set; }
 }
 
 public sealed class InstalledRecord
@@ -186,6 +188,17 @@ public sealed class AddonRow : INotifyPropertyChanged
     };
 
     public string RowSubText => Remote.Author is { } a ? $"{RowVersionText}  ·  by {a}" : RowVersionText;
+
+    /// <summary>Text for an optional list column (see ListColumn keys in MainWindow).</summary>
+    public string CellText(string key) => key switch
+    {
+        "version" => RowVersionText,
+        "author" => Remote.Author ?? "",
+        "installed" => _installedVersion is null ? "—" : $"v{_installedVersion}",
+        "latest" => $"v{Latest.Label}",
+        "released" => Latest.Date.ToLocalTime().ToString("d MMM yyyy"),
+        _ => "",
+    };
 
     public AddonState State => _state;
     public string? InstalledVersion => _installedVersion;

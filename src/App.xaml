@@ -14,6 +14,7 @@
         <SolidColorBrush x:Key="AccentTextBrush" Color="#1A1A1A"/>
 
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:CellTextConverter x:Key="CellText"/>
 
         <Style x:Key="Btn" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
@@ -164,6 +165,14 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- Tiny icon buttons on column headers in column edit mode (move left / right, hide). -->
+        <Style x:Key="ColumnEditBtn" TargetType="Button" BasedOn="{StaticResource IconBtn}">
+            <Setter Property="Width" Value="18"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         </Style>
 
         <!-- Install / Update are gold; "Up to date" and "Managed by Git" stay neutral. -->

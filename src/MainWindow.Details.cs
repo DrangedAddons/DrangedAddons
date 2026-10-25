@@ -206,7 +206,7 @@ public partial class MainWindow
         SizeText.Text = row.State == AddonState.NotInstalled ? "Not installed" : "…";
         if (row.State != AddonState.NotInstalled && CurrentFlavor is { } flavor)
             _ = ShowSizeAsync(row, flavor, _detailsLoad);
-        FillAbout(row);
+        FillInstallDetails(row);
     }
 
     async Task ShowSizeAsync(AddonRow row, WowFlavor flavor, int load)
@@ -272,22 +272,21 @@ public partial class MainWindow
         }
     }
 
-    void FillAbout(AddonRow row)
+    /// <summary>The header's install details: when, which folders, other game versions, pinned, repo link.</summary>
+    void FillInstallDetails(AddonRow row)
     {
-        AboutPanel.Children.Clear();
         var flavor = CurrentFlavor;
         var record = flavor is null ? null : _manifest.For(flavor.AddOnsPath).GetValueOrDefault(row.Name);
 
-        AboutRow("Installed", row.InstalledVersion is { } v
-            ? $"v{v}" + (row.State == AddonState.DevCopy ? " (Git working copy)" : "")
-            : "Not installed");
-        AboutRow("Latest", $"v{row.Latest.Label}");
-        if (record is not null && record.InstalledAt != default)
-            AboutRow("Installed on", record.InstalledAt.ToString("d MMM yyyy, HH:mm"));
-        if (row.State != AddonState.NotInstalled && flavor is not null)
-            AboutRow("Folders", string.Join(", ", InstalledFolders(row, flavor)));
-        if (record?.Pinned == true)
-            AboutRow("Auto-update", "Off for this addon (a version was picked in Versions)");
+        static Visibility Show(bool show) => show ? Visibility.Visible : Visibility.Collapsed;
+
+        InstalledOnStat.Visibility = Show(row.State != AddonState.NotInstalled && record is { InstalledAt: var at } && at != default);
+        if (record is not null) InstalledOnText.Text = $"Installed {record.InstalledAt:d MMM yyyy}";
+
+        // Only worth showing when they aren't just the addon's own name.
+        var folders = row.State != AddonState.NotInstalled && flavor is not null ? InstalledFolders(row, flavor) : [];
+        FoldersStat.Visibility = Show(folders.Count > 1 || folders.Count == 1 && folders[0] != row.Name);
+        FoldersText.Text = string.Join(", ", folders);
 
         var elsewhere = (FlavorList.ItemsSource as IEnumerable<FlavorItem>)?
             .Select(f => f.Flavor)
@@ -295,27 +294,17 @@ public partial class MainWindow
                         && (_manifest.For(f.AddOnsPath).ContainsKey(row.Name) || Directory.Exists(Path.Combine(f.AddOnsPath, row.Name))))
             .Select(f => f.DisplayName)
             .ToList() ?? [];
-        if (elsewhere.Count > 0) AboutRow("Also installed in", string.Join(", ", elsewhere));
+        ElsewhereStat.Visibility = Show(elsewhere.Count > 0);
+        ElsewhereText.Text = $"Also in {string.Join(", ", elsewhere)}";
 
-        var repo = $"https://github.com/{GitHubClient.Org}/{row.Name}";
-        var link = new Hyperlink(new Run($"github.com/{GitHubClient.Org}/{row.Name}"))
-        {
-            Foreground = (Brush)FindResource("AccentBrush"),
-            TextDecorations = null,
-            ToolTip = repo,
-        };
-        link.Click += (_, _) => Process.Start(new ProcessStartInfo(repo) { UseShellExecute = true });
-        var value = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        value.Inlines.Add(link);
-        AboutRow("Repository", value);
+        PinnedStat.Visibility = Show(record?.Pinned == true);
+        RepoLink.ToolTip = $"https://github.com/{GitHubClient.Org}/{row.Name}";
     }
 
-    void AboutRow(string label, object value)
+    void RepoLink_Click(object sender, RoutedEventArgs e)
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 9) };
-        panel.Children.Add(new TextBlock { Text = label, FontSize = 11.5, Foreground = (Brush)FindResource("MutedBrush") });
-        panel.Children.Add(value as UIElement ?? new TextBlock { Text = value.ToString(), TextWrapping = TextWrapping.Wrap });
-        AboutPanel.Children.Add(panel);
+        if (_detailsRow is { } row)
+            Process.Start(new ProcessStartInfo($"https://github.com/{GitHubClient.Org}/{row.Name}") { UseShellExecute = true });
     }
 
     void DetailsMenu_Click(object sender, RoutedEventArgs e) => OpenMenuUnder(DetailsMenuButton);

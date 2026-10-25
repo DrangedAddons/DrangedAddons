@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.3
+- Details page: the About box beside the README is gone. Its details are in the header's stats line instead: when it
+  was installed, its folders (when they aren't just the addon's name), other game versions it's installed in,
+  "Auto-update off" for a version picked in Versions, and a GitHub link. The README now uses the full width.
+
 ## 0.23.2
 - The **Versions** tab shows the total, e.g. "Versions (320)". After the first page appears, the rest of the
   history is read in the background (about 15 seconds for CraftRoute the first time) and the count fills in; from

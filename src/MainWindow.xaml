@@ -487,12 +487,37 @@
                                     <TextBlock x:Name="UpdatedText" Style="{StaticResource StatText}"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" ToolTip="Space used in this game's AddOns folder">
-                                    <TextBlock Style="{StaticResource StatIcon}" Text="&#xE8B7;"/>
+                                    <TextBlock Style="{StaticResource StatIcon}" Text="&#xEDA2;"/>
                                     <TextBlock x:Name="SizeText" Style="{StaticResource StatText}"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" ToolTip="Game versions this addon is made for">
                                     <TextBlock Style="{StaticResource StatIcon}" Text="&#xE7FC;"/>
                                     <TextBlock x:Name="GamesText" Style="{StaticResource StatText}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="InstalledOnStat" Orientation="Horizontal"
+                                            ToolTip="When it was installed or last updated in this game version">
+                                    <TextBlock Style="{StaticResource StatIcon}" Text="&#xE787;"/>
+                                    <TextBlock x:Name="InstalledOnText" Style="{StaticResource StatText}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="FoldersStat" Orientation="Horizontal" ToolTip="Its folders in AddOns">
+                                    <TextBlock Style="{StaticResource StatIcon}" Text="&#xE8F1;"/>
+                                    <TextBlock x:Name="FoldersText" Style="{StaticResource StatText}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="ElsewhereStat" Orientation="Horizontal" ToolTip="Other game versions it's installed in">
+                                    <TextBlock Style="{StaticResource StatIcon}" Text="&#xE8B7;"/>
+                                    <TextBlock x:Name="ElsewhereText" Style="{StaticResource StatText}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="PinnedStat" Orientation="Horizontal"
+                                            ToolTip="A version was picked in Versions, so auto-update leaves this addon alone">
+                                    <TextBlock Style="{StaticResource StatIcon}" Text="&#xE718;"/>
+                                    <TextBlock Style="{StaticResource StatText}" Text="Auto-update off"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource StatIcon}" Text="&#xE71B;"/>
+                                    <TextBlock Style="{StaticResource StatText}">
+                                        <Hyperlink x:Name="RepoLink" Click="RepoLink_Click" Foreground="{StaticResource AccentBrush}"
+                                                   TextDecorations="{x:Null}">GitHub</Hyperlink>
+                                    </TextBlock>
                                 </StackPanel>
                             </WrapPanel>
                         </Border>
@@ -516,20 +541,7 @@
 
                 <Grid MinHeight="160">
                     <Border x:Name="OverviewPage">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="260"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel x:Name="OverviewContent" Margin="0,0,20,0"/>
-                            <Border Grid.Column="1" VerticalAlignment="Top" Padding="14,12" CornerRadius="8"
-                                    Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
-                                <StackPanel>
-                                    <TextBlock Text="About" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
-                                    <StackPanel x:Name="AboutPanel"/>
-                                </StackPanel>
-                            </Border>
-                        </Grid>
+                        <StackPanel x:Name="OverviewContent" MaxWidth="920" HorizontalAlignment="Left"/>
                     </Border>
                     <Border x:Name="ChangelogPage" Visibility="Collapsed">
                         <StackPanel x:Name="ChangelogContent" MaxWidth="920" HorizontalAlignment="Left"/>

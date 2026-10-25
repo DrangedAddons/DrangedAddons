@@ -246,7 +246,7 @@
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                         <Button Content="Reset" Style="{StaticResource GhostBtn}" Padding="12,4" Click="ColumnReset_Click"
-                                ToolTip="Back to the default columns (Version, Author)"/>
+                                ToolTip="Back to the default columns (Installed, Latest, Author)"/>
                         <Button Content="Done" Style="{StaticResource AccentBtn}" Padding="16,4" Margin="8,0,0,0" Click="ColumnDone_Click"/>
                     </StackPanel>
                     <TextBlock DockPanel.Dock="Left" Text="Editing columns" FontWeight="SemiBold" VerticalAlignment="Center"

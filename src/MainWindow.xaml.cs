@@ -187,14 +187,13 @@ public partial class MainWindow : Window
     /// <summary>Every optional column, in default order. Name and Action are always shown.</summary>
     readonly ListColumn[] _allColumns =
     [
-        new("version", "Version", 130),
-        new("author", "Author", 170),
         new("installed", "Installed", 110),
         new("latest", "Latest", 110),
-        new("released", "Released", 115),
+        new("author", "Author", 170),
+        new("released", "Release date", 115),
     ];
 
-    static readonly string[] DefaultColumns = ["version", "author"];
+    static readonly string[] DefaultColumns = ["installed", "latest", "author"];
 
     /// <summary>Optional columns shown, in order (the header and every row bind to this).</summary>
     public ObservableCollection<ListColumn> Columns { get; } = new();
@@ -1412,11 +1411,21 @@ public partial class MainWindow : Window
     static void OpenMenuUnder(Button button)
     {
         var menu = button.ContextMenu;
+        // While the menu is open the button ignores clicks, so clicking it just closes the menu (a toggle) instead of
+        // closing it and opening it again.
+        button.IsHitTestVisible = false;
+        menu.Closed -= MenuClosed;
+        menu.Closed += MenuClosed;
         menu.PlacementTarget = button;
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Custom;
         menu.CustomPopupPlacementCallback = (popup, target, _) =>
             [new(new System.Windows.Point(target.Width - popup.Width, target.Height + 4), System.Windows.Controls.Primitives.PopupPrimaryAxis.Horizontal)];
         menu.IsOpen = true;
+    }
+
+    static void MenuClosed(object sender, RoutedEventArgs e)
+    {
+        if (((ContextMenu)sender).PlacementTarget is UIElement button) button.IsHitTestVisible = true;
     }
 
     /// <summary>

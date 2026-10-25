@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.1
+- Columns: the Version column is gone (Installed and Latest cover it); the default columns are now Installed, Latest
+  and Author. "Released" is now **Release date**.
+- Clicking **⋯** (or the filter icon) while its menu is open now closes the menu, instead of closing and reopening it.
+
 ## 0.22.0
 - **Columns:** the list has Version and Author columns (still also shown under each addon's name), under a proper
   header bar. The My Addons / Browse tabs sit on a full-width line.

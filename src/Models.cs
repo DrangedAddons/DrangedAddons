@@ -192,7 +192,6 @@ public sealed class AddonRow : INotifyPropertyChanged
     /// <summary>Text for an optional list column (see ListColumn keys in MainWindow).</summary>
     public string CellText(string key) => key switch
     {
-        "version" => RowVersionText,
         "author" => Remote.Author ?? "",
         "installed" => _installedVersion is null ? "—" : $"v{_installedVersion}",
         "latest" => $"v{Latest.Label}",

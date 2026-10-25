@@ -1244,7 +1244,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Top-left logo for the selected game version: the official logo from logos\ (PTR/Beta reuse their game's logo
-    /// with a tag), else a drawn wordmark in that version's colour.
+    /// with a tag; Classic Era uses Hardcore's, its main use now), else a drawn wordmark in that version's colour.
     /// </summary>
     void UpdateGameLogo()
     {
@@ -1258,6 +1258,8 @@ public partial class MainWindow : Window
             "_classic_" => ("classic", ""),
             "_classic_ptr_" => ("classic", "PTR"),
             "_classic_beta_" => ("classic", "BETA"),
+            "_classic_era_" => ("era", ""),
+            "_classic_era_ptr_" => ("era", "PTR"),
             "_anniversary_" => ("anniversary", ""),
             "_forever_" => ("forever", ""),
             _ => (null, ""),

@@ -1242,10 +1242,34 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
-    /// <summary>Colours and edition label of the top-left wordmark for the selected game version.</summary>
+    /// <summary>
+    /// Top-left logo for the selected game version: the official logo from logos\ (PTR/Beta reuse their game's logo
+    /// with a tag), else a drawn wordmark in that version's colour.
+    /// </summary>
     void UpdateGameLogo()
     {
         var folder = CurrentFlavor?.Folder ?? "";
+        var (image, tag) = folder switch
+        {
+            "_retail_" or "" => ("retail", ""),
+            "_ptr_" => ("retail", "PTR"),
+            "_xptr_" => ("retail", "XPTR"),
+            "_beta_" => ("retail", "BETA"),
+            "_classic_" => ("classic", ""),
+            "_classic_ptr_" => ("classic", "PTR"),
+            "_classic_beta_" => ("classic", "BETA"),
+            "_anniversary_" => ("anniversary", ""),
+            "_forever_" => ("forever", ""),
+            _ => (null, ""),
+        };
+        GameLogoImage.Source = image is null ? null
+            : new System.Windows.Media.Imaging.BitmapImage(new Uri($"pack://application:,,,/logos/{image}.png"));
+        GameLogoImage.Visibility = image is null ? Visibility.Collapsed : Visibility.Visible;
+        GameLogoText.Visibility = image is null ? Visibility.Visible : Visibility.Collapsed;
+        GameLogoTagText.Text = tag;
+        GameLogoTag.Visibility = tag.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (image is not null) return;
+
         var (edition, hex) = folder switch
         {
             "_retail_" or "" => ("", "#F2B33D"),

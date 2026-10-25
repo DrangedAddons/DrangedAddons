@@ -51,8 +51,16 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <!-- Wordmark for the selected game version (set in UpdateGameLogo). -->
-            <StackPanel x:Name="GameLogo" VerticalAlignment="Center" Margin="0,0,18,0" MinWidth="132">
+            <!-- Logo for the selected game version (set in UpdateGameLogo): official art from logos\, or a drawn
+                 wordmark for versions without one. PTR/Beta get a tag over the logo. -->
+            <Grid Margin="0,0,18,0" VerticalAlignment="Center" MinWidth="132" Height="64">
+            <Image x:Name="GameLogoImage" Stretch="Uniform" MaxWidth="150" HorizontalAlignment="Center"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <Border x:Name="GameLogoTag" HorizontalAlignment="Right" VerticalAlignment="Bottom" Padding="5,0" CornerRadius="3"
+                    Background="{StaticResource AccentBrush}" Visibility="Collapsed" Panel.ZIndex="1">
+                <TextBlock x:Name="GameLogoTagText" FontSize="10" FontWeight="Bold" Foreground="Black"/>
+            </Border>
+            <StackPanel x:Name="GameLogoText" VerticalAlignment="Center">
                 <TextBlock Text="WORLD of" FontFamily="Georgia" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center"
                            Foreground="{Binding Foreground, ElementName=GameLogoTitle}"/>
                 <TextBlock x:Name="GameLogoTitle" Text="WARCRAFT" FontFamily="Georgia" FontSize="20" FontWeight="Bold"
@@ -67,6 +75,7 @@
                                Foreground="#F2B33D"/>
                 </Border>
             </StackPanel>
+            </Grid>
             <TextBox x:Name="SearchBox" Grid.Column="1" VerticalAlignment="Center" Height="38" FontSize="14"
                      Style="{StaticResource SearchBox}" Tag="Search addons…  (Ctrl+F)"
                      TextChanged="Search_TextChanged"/>

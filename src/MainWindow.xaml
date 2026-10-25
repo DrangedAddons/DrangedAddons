@@ -198,8 +198,10 @@
                     <TextBlock DockPanel.Dock="Right" Text="Action" Foreground="{StaticResource MutedBrush}" FontSize="12"
                                FontWeight="SemiBold" Width="140" Margin="9,0,0,0" TextAlignment="Center" VerticalAlignment="Center"/>
                     <Border DockPanel.Dock="Right" Width="1" Margin="0,-7" Background="{StaticResource LineBrush}"/>
-                    <!-- Drag a header left / right to reorder (see HeaderCell_MouseDown). -->
-                    <ItemsControl x:Name="HeaderColumns" DockPanel.Dock="Right" Focusable="False" VerticalAlignment="Stretch"
+                    <!-- In column edit mode, drag a header left / right to reorder (see HeaderCell_MouseDown). A ghost of
+                         the header follows the cursor; the columns themselves move live to preview the new order. -->
+                    <Grid DockPanel.Dock="Right">
+                    <ItemsControl x:Name="HeaderColumns" Focusable="False" VerticalAlignment="Stretch"
                                   ItemsSource="{Binding Columns, RelativeSource={RelativeSource AncestorType=Window}}"
                                   MouseMove="HeaderColumns_MouseMove" MouseLeftButtonUp="HeaderColumns_MouseUp"
                                   LostMouseCapture="HeaderColumns_LostMouseCapture">
@@ -210,15 +212,19 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <DockPanel Width="{Binding Width}" Cursor="SizeWE" ToolTip="Drag to move this column"
-                                           MouseLeftButtonDown="HeaderCell_MouseDown">
+                                <DockPanel Width="{Binding Width}" MouseLeftButtonDown="HeaderCell_MouseDown">
                                     <DockPanel.Style>
                                         <Style TargetType="DockPanel">
                                             <Setter Property="Background" Value="Transparent"/>
                                             <Style.Triggers>
-                                                <!-- The column being dragged. -->
+                                                <DataTrigger Binding="{Binding ColumnEditMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                    <Setter Property="Cursor" Value="SizeWE"/>
+                                                    <Setter Property="ToolTip" Value="Drag to move this column"/>
+                                                </DataTrigger>
+                                                <!-- The dragged column's slot: shows where it will land. -->
                                                 <DataTrigger Binding="{Binding IsDragging}" Value="True">
-                                                    <Setter Property="Background" Value="#3A3216"/>
+                                                    <Setter Property="Background" Value="#2A2410"/>
+                                                    <Setter Property="ToolTip" Value="{x:Null}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -230,11 +236,22 @@
                                             Visibility="{Binding ColumnEditMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
                                     <TextBlock Text="{Binding Header}" Foreground="{StaticResource MutedBrush}" FontSize="12"
                                                FontWeight="SemiBold" Padding="11,0,0,0" VerticalAlignment="Center"
-                                               TextTrimming="CharacterEllipsis"/>
+                                               TextTrimming="CharacterEllipsis" Style="{StaticResource DraggedColumnDim}"/>
                                 </DockPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <Canvas IsHitTestVisible="False">
+                        <Border x:Name="DragGhost" Visibility="Collapsed" Canvas.Top="-7" CornerRadius="4" Opacity="0.95"
+                                Background="#3A3216" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.6" Color="Black"/>
+                            </Border.Effect>
+                            <TextBlock x:Name="DragGhostText" Foreground="{StaticResource TextBrush}" FontSize="12"
+                                       FontWeight="SemiBold" Padding="11,0,0,0" VerticalAlignment="Center"/>
+                        </Border>
+                    </Canvas>
+                    </Grid>
                     <TextBlock Text="Name" Foreground="{StaticResource MutedBrush}" FontSize="12" FontWeight="SemiBold"
                                Margin="44,0,0,0" VerticalAlignment="Center"/>
                 </DockPanel>
@@ -335,7 +352,8 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <TextBlock Width="{Binding Width}" FontSize="12" Padding="12,0,8,0"
-                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                           Style="{StaticResource DraggedColumnDim}">
                                                     <TextBlock.Text>
                                                         <MultiBinding Converter="{StaticResource CellText}">
                                                             <Binding Path="Key"/>

@@ -175,6 +175,15 @@
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         </Style>
 
+        <!-- Header text and row cells of a column while its header is being dragged (DataContext = ListColumn). -->
+        <Style x:Key="DraggedColumnDim" TargetType="TextBlock">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsDragging}" Value="True">
+                    <Setter Property="Opacity" Value="0.35"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Install / Update are gold; "Up to date" and "Managed by Git" stay neutral. -->
         <!-- Button whose background fills left to right with ProgressFill.Value (0–1): download progress. -->
         <SolidColorBrush x:Key="ProgressFillBrush" Color="#8A6A16"/>

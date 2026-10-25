@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.2
+- Moving columns: drag a header and a ghost of it follows the cursor, while the column itself (header and rows,
+  dimmed) moves to show where it will land. Let go to drop it; Esc cancels and puts it back.
+- Columns can only be dragged in column edit mode (the columns icon), so they can't be moved by accident.
+
 ## 0.22.1
 - Columns: the Version column is gone (Installed and Latest cover it); the default columns are now Installed, Latest
   and Author. "Released" is now **Release date**.

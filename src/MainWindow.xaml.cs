@@ -238,17 +238,21 @@ public partial class MainWindow : Window
     void Columns_Click(object sender, RoutedEventArgs e) => ColumnEditMode = !ColumnEditMode;
     void ColumnDone_Click(object sender, RoutedEventArgs e) => ColumnEditMode = false;
 
-    // Dragging a header: the columns reorder live as it moves, and the order is saved on release.
+    // Dragging a header (column edit mode only): a ghost of the header follows the cursor, the columns reorder live
+    // to preview where it will land, and the order is saved on release. Esc puts it back.
     ListColumn? _dragColumn;
+    List<ListColumn> _dragOrder = [];
     double _dragStartX, _dragGrabOffset;
-    bool _dragging;
+    bool _dragging, _dropped;
 
     void HeaderCell_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
+        if (!ColumnEditMode) return;
         _dragColumn = ColumnOf(sender);
+        _dragOrder = Columns.ToList();
         _dragStartX = e.GetPosition(HeaderColumns).X;
         _dragGrabOffset = e.GetPosition((IInputElement)sender).X;
-        _dragging = false;
+        _dragging = _dropped = false;
         HeaderColumns.CaptureMouse();
         e.Handled = true;
     }
@@ -262,7 +266,12 @@ public partial class MainWindow : Window
             if (Math.Abs(x - _dragStartX) < SystemParameters.MinimumHorizontalDragDistance) return;
             _dragging = true;
             _dragColumn.IsDragging = true;
+            DragGhostText.Text = _dragColumn.Header;
+            DragGhost.Width = _dragColumn.Width;
+            DragGhost.Height = HeaderColumns.ActualHeight + 14; // the header bar's full height (7px padding each side)
+            DragGhost.Visibility = Visibility.Visible;
         }
+        Canvas.SetLeft(DragGhost, x - _dragGrabOffset);
 
         // Where the dragged header's left edge is now decides its slot: it goes before the first other column
         // whose middle it hasn't passed. Measured against the others alone, so it doesn't flip back and forth
@@ -283,13 +292,23 @@ public partial class MainWindow : Window
 
     void HeaderColumns_MouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (_dragging) SaveColumns();
+        if (_dragging)
+        {
+            _dropped = true;
+            SaveColumns();
+        }
         HeaderColumns.ReleaseMouseCapture();
     }
 
+    /// <summary>End of a drag: dropped (already saved), or cancelled (Esc, focus lost), which restores the order.</summary>
     void HeaderColumns_LostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e)
     {
+        if (_dragging && !_dropped)
+            for (var i = 0; i < _dragOrder.Count; i++)
+                if (Columns.IndexOf(_dragOrder[i]) is var at && at != i && at >= 0)
+                    Columns.Move(at, i);
         if (_dragColumn is not null) _dragColumn.IsDragging = false;
+        DragGhost.Visibility = Visibility.Collapsed;
         _dragColumn = null;
         _dragging = false;
     }
@@ -634,6 +653,11 @@ public partial class MainWindow : Window
         if (e.Key == System.Windows.Input.Key.Escape && _detailsFor is not null)
         {
             ShowList();
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Escape && _dragColumn is not null)
+        {
+            HeaderColumns.ReleaseMouseCapture(); // cancels the column drag
             e.Handled = true;
         }
         else if (e.Key == System.Windows.Input.Key.Escape && ColumnEditMode)

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.0
+- **Update all** now sits between the tabs and the list. Check for updates is a refresh icon at the right of that row
+  (hover it to see when it last checked); the app still checks on its own every so often.
+- New **filter** icon next to refresh: Updates available, Up to date, Not installed, Beta versions or Git working
+  copies, on top of the tab and search. The icon turns gold while a filter is on.
+- **Show beta versions** moved to the File menu, next to Auto-update addons (the Auto-update tickbox is gone; the
+  File menu item is the same setting).
+- Classic Beta shows the WoW Forever logo with a BETA tag (that folder held the Forever beta).
+
 ## 0.20.0
 - **New top bar:** the selected game version's logo, a larger search box, the game-version picker, and a **⋯** menu
   with Scan game folder, Open AddOns folder and Change WoW folder… (still in the File menu too; hover an item to

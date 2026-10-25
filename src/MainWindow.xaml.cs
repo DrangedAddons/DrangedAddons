@@ -33,7 +33,7 @@ public partial class MainWindow : Window
         _view = System.Windows.Data.CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = item => item is AddonRow row && ShowsInList(row);
         if (_settings.Tab == "browse") BrowseTab.IsChecked = true;
-        BetaCheck.IsChecked = _settings.ShowBeta;
+        BetaMenu.IsChecked = _settings.ShowBeta;
         UninstallAppMenu.Visibility = AppInstaller.IsRunningInstalled ? Visibility.Visible : Visibility.Collapsed;
         CloseToTrayMenu.IsChecked = _settings.CloseToTray;
         NotificationsMenu.IsChecked = _settings.UpdateNotifications;
@@ -46,7 +46,6 @@ public partial class MainWindow : Window
         Closed += (_, _) => _tray?.Dispose();
 
         AutoUpdateAddonsMenu.IsChecked = _settings.AutoUpdateAddons;
-        AutoUpdateCheck.IsChecked = _settings.AutoUpdateAddons;
         AutoUpdateAppMenu.IsChecked = _settings.AutoUpdateApp;
         Loaded += async (_, _) => await InitializeAsync();
     }
@@ -75,19 +74,12 @@ public partial class MainWindow : Window
 
     void AutoUpdateAddons_Click(object sender, RoutedEventArgs e) => SetAutoUpdateAddons(AutoUpdateAddonsMenu.IsChecked);
 
-    void AutoUpdateCheck_Changed(object sender, RoutedEventArgs e)
-    {
-        if (IsLoaded) SetAutoUpdateAddons(AutoUpdateCheck.IsChecked == true);
-    }
-
-    /// <summary>The File menu item and the checkbox under Update all are the same setting.</summary>
     void SetAutoUpdateAddons(bool on)
     {
         if (_settings.AutoUpdateAddons == on) return;
         _settings.AutoUpdateAddons = on;
         Storage.Save(SettingsFile, _settings);
         AutoUpdateAddonsMenu.IsChecked = on;
-        AutoUpdateCheck.IsChecked = on;
         if (on) _ = AutoUpdateAddonsAsync();
     }
 
@@ -152,10 +144,41 @@ public partial class MainWindow : Window
     bool ShowsInList(AddonRow row)
     {
         if (!OnBrowseTab && row.State == AddonState.NotInstalled) return false;
+        if (!PassesFilter(row)) return false;
         var words = SearchBox.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length == 0) return true;
         var haystack = $"{row.Name} {row.Description} {row.Author}";
         return words.All(w => haystack.Contains(w, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The filter menu's choice (its item's Tag); null shows all. Applies on top of the tab and search.</summary>
+    string? _filter;
+    string _filterLabel = "";
+
+    bool PassesFilter(AddonRow row) => _filter switch
+    {
+        "updates" => row.State == AddonState.UpdateAvailable,
+        "uptodate" => row.State == AddonState.UpToDate,
+        "notinstalled" => row.State == AddonState.NotInstalled,
+        "beta" => row.IsBeta,
+        "git" => row.State == AddonState.DevCopy,
+        _ => true,
+    };
+
+    void Filter_Click(object sender, RoutedEventArgs e) => OpenMenuUnder(FilterButton);
+
+    void FilterItem_Click(object sender, RoutedEventArgs e)
+    {
+        var picked = (MenuItem)sender;
+        _filter = picked.Tag as string;
+        _filterLabel = picked.Header as string ?? "";
+        foreach (var item in FilterButton.ContextMenu.Items.OfType<MenuItem>())
+            item.IsChecked = item == picked;
+        // Gold while a filter is on, so a shorter list never looks like missing addons.
+        if (_filter is null) FilterButton.ClearValue(ForegroundProperty);
+        else FilterButton.Foreground = (System.Windows.Media.Brush)FindResource("AccentBrush");
+        FilterButton.ToolTip = _filter is null ? "Filter" : $"Filter: {_filterLabel}";
+        UpdateSummary();
     }
 
     void Tab_Checked(object sender, RoutedEventArgs e)
@@ -624,6 +647,7 @@ public partial class MainWindow : Window
             : _loadError is not null ? _loadError
             : _rows.Count == 0 ? "No addons with a packaged release were found in the DrangedAddons organisation."
             : query.Length > 0 ? $"No addons match “{query}”."
+            : _filter is not null ? $"No addons match the filter “{_filterLabel}”."
             : $"Nothing installed for {CurrentFlavor?.DisplayName ?? "this game"} yet. Find addons in Browse.";
         EmptyText.Visibility = shown == 0 && !_working && _detailsFor is null ? Visibility.Visible : Visibility.Collapsed;
 
@@ -637,6 +661,7 @@ public partial class MainWindow : Window
                               + $"{updates} update{(updates == 1 ? "" : "s")} available  ·  "
                               + (pulls > 0 ? $"{pulls} to pull  ·  " : "")
                               + $"checked {checkedAt:t}";
+            RefreshButton.ToolTip = $"Check for updates (last checked {checkedAt:t})";
         }
     }
 
@@ -738,10 +763,9 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
-    void Beta_Changed(object sender, RoutedEventArgs e)
+    void Beta_Click(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded) return;
-        _settings.ShowBeta = BetaCheck.IsChecked == true;
+        _settings.ShowBeta = BetaMenu.IsChecked;
         Storage.Save(SettingsFile, _settings);
         RebuildRows();
     }
@@ -1231,11 +1255,13 @@ public partial class MainWindow : Window
         OpenFolderItem.ToolTip = CurrentFlavor is { } flavor ? flavor.AddOnsPath : "Pick a game version first.";
     }
 
-    /// <summary>Opens the ⋮ menu under its button, right edges lined up.</summary>
-    void GameMenu_Click(object sender, RoutedEventArgs e)
+    void GameMenu_Click(object sender, RoutedEventArgs e) => OpenMenuUnder(GameMenuButton);
+
+    /// <summary>Opens a button's menu under it, right edges lined up.</summary>
+    static void OpenMenuUnder(Button button)
     {
-        var menu = GameMenuButton.ContextMenu;
-        menu.PlacementTarget = GameMenuButton;
+        var menu = button.ContextMenu;
+        menu.PlacementTarget = button;
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Custom;
         menu.CustomPopupPlacementCallback = (popup, target, _) =>
             [new(new System.Windows.Point(target.Width - popup.Width, target.Height + 4), System.Windows.Controls.Primitives.PopupPrimaryAxis.Horizontal)];
@@ -1257,7 +1283,7 @@ public partial class MainWindow : Window
             "_beta_" => ("retail", "BETA"),
             "_classic_" => ("classic", ""),
             "_classic_ptr_" => ("classic", "PTR"),
-            "_classic_beta_" => ("classic", "BETA"),
+            "_classic_beta_" => ("forever", "BETA"), // the WoW Forever beta ran in this folder
             "_classic_era_" => ("era", ""),
             "_classic_era_ptr_" => ("era", "PTR"),
             "_anniversary_" => ("anniversary", ""),

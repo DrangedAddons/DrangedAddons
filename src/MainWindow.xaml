@@ -18,6 +18,8 @@
             <MenuItem x:Name="NotificationsMenu" Header="Show update notifications" IsCheckable="True"
                       Click="Notifications_Click"/>
             <Separator Style="{StaticResource MenuSeparator}"/>
+            <MenuItem x:Name="BetaMenu" Header="Show beta versions" IsCheckable="True" Click="Beta_Click"
+                      ToolTip="Also offer untagged versions from each addon's main branch, not just tagged releases."/>
             <MenuItem x:Name="AutoUpdateAddonsMenu" Header="Auto-update addons" IsCheckable="True"
                       Click="AutoUpdateAddons_Click"
                       ToolTip="Install addon updates automatically in every game version (not Git working copies or versions you picked in Versions…)."/>
@@ -146,22 +148,7 @@
         <Grid Grid.Row="2">
             <DockPanel x:Name="ListPanel">
             <!-- Tabs (installed / everything) and search. -->
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <CheckBox x:Name="BetaCheck" Content="Show beta versions" VerticalAlignment="Center" Margin="0,0,14,0"
-                              Foreground="{StaticResource MutedBrush}" Cursor="Hand"
-                              ToolTip="Also offer untagged versions from each addon's main branch, not just tagged releases."
-                              Checked="Beta_Changed" Unchecked="Beta_Changed"/>
-                    <!-- Quick switch for File → Auto-update addons (kept in sync). -->
-                    <CheckBox x:Name="AutoUpdateCheck" Content="Auto-update" VerticalAlignment="Center" Margin="0,0,14,0"
-                              Foreground="{StaticResource MutedBrush}" Cursor="Hand"
-                              ToolTip="Install addon updates automatically in every game version (not Git working copies or versions you picked in Versions…)."
-                              Checked="AutoUpdateCheck_Changed" Unchecked="AutoUpdateCheck_Changed"/>
-                    <Button x:Name="RefreshButton" Content="Check for updates" Style="{StaticResource GhostBtn}"
-                            Click="Refresh_Click"/>
-                    <Button x:Name="UpdateAllButton" Content="Update all" Style="{StaticResource AccentBtn}"
-                            Click="UpdateAll_Click" Margin="8,0,0,0" IsEnabled="False"/>
-                </StackPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
                     <RadioButton x:Name="MyAddonsTab" GroupName="AddonTabs" Style="{StaticResource TabButton}"
                                  Content="My Addons" IsChecked="True" Checked="Tab_Checked"/>
@@ -169,7 +156,30 @@
                                  Content="Browse" Checked="Tab_Checked"/>
                 </StackPanel>
             </DockPanel>
-            <!-- Column header: select-all for the rows shown (this tab + search). -->
+            <!-- Toolbar: Update all; list tools (filter, refresh) on the right. -->
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="FilterButton" Style="{StaticResource IconBtn}" Content="&#xE71C;" Click="Filter_Click"
+                            ToolTip="Filter">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem x:Name="FilterAll" Header="All addons" IsCheckable="True" IsChecked="True" Click="FilterItem_Click"/>
+                                <Separator Style="{StaticResource MenuSeparator}"/>
+                                <MenuItem Header="Updates available" Tag="updates" IsCheckable="True" Click="FilterItem_Click"/>
+                                <MenuItem Header="Up to date" Tag="uptodate" IsCheckable="True" Click="FilterItem_Click"/>
+                                <MenuItem Header="Not installed" Tag="notinstalled" IsCheckable="True" Click="FilterItem_Click"/>
+                                <MenuItem Header="Beta versions" Tag="beta" IsCheckable="True" Click="FilterItem_Click"/>
+                                <MenuItem Header="Git working copies" Tag="git" IsCheckable="True" Click="FilterItem_Click"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <Button x:Name="RefreshButton" Style="{StaticResource IconBtn}" Content="&#xE72C;" Margin="4,0,0,0"
+                            Click="Refresh_Click" ToolTip="Check for updates"/>
+                </StackPanel>
+                <Button x:Name="UpdateAllButton" Content="Update all" Style="{StaticResource AccentBtn}" HorizontalAlignment="Left"
+                        Click="UpdateAll_Click" IsEnabled="False"/>
+            </DockPanel>
+            <!-- Column header: select-all for the rows shown (this tab + search + filter). -->
             <DockPanel x:Name="ListHeader" DockPanel.Dock="Top" Margin="11,0,11,4">
                 <CheckBox x:Name="SelectAllCheck" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,10,0"
                           Cursor="Hand" Click="SelectAll_Click" ToolTip="Select all addons shown"/>

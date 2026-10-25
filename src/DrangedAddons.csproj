@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <!-- Only for the tray icon (NotifyIcon); WinForms names are used qualified so they don't clash with WPF. -->
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>0.23.3</Version>
+    <Version>0.23.4</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Regenerate with tools/make_icon.py -->
     <ApplicationIcon>app.ico</ApplicationIcon>

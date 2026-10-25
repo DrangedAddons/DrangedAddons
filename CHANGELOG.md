@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.4
+- The window can't be made so narrow that the list squashes: its minimum width leaves room for every column you've
+  chosen plus about 24 characters of addon name (935 px with the default columns; more as you add columns, and the
+  window widens to fit if it's narrower). Longer names still end in "…".
+
 ## 0.23.3
 - Details page: the About box beside the README is gone. Its details are in the header's stats line instead: when it
   was installed, its folders (when they aren't just the addon's name), other game versions it's installed in,

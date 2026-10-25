@@ -225,13 +225,27 @@ public partial class MainWindow : Window
                 Columns.Add(column);
         foreach (var column in _allColumns.Where(c => !Columns.Contains(c)))
             HiddenColumns.Add(column);
+        UpdateMinWidth();
     }
 
     void SaveColumns()
     {
         _settings.Columns = Columns.Select(c => c.Key).ToList();
         Storage.Save(SettingsFile, _settings);
+        UpdateMinWidth();
     }
+
+    /// <summary>
+    /// Window edges and margins, a row's border, padding, tickbox and icon, the Action column and the list's
+    /// scrollbar: everything across a row except the name and the optional columns.
+    /// </summary>
+    const double RowFixedWidth = 315;
+
+    /// <summary>Room for the name column: about 24 characters plus a BETA bubble before it's cut short.</summary>
+    const double NameMinWidth = 230;
+
+    /// <summary>The window can't get narrower than the list needs to show every chosen column and a fair-length name.</summary>
+    void UpdateMinWidth() => MinWidth = Math.Max(720, RowFixedWidth + NameMinWidth + Columns.Sum(c => c.Width));
 
     static ListColumn ColumnOf(object sender) => (ListColumn)((FrameworkElement)sender).DataContext;
 

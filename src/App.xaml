@@ -48,6 +48,62 @@
             <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
             <Setter Property="Foreground" Value="{StaticResource AccentTextBrush}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Style.Triggers>
+                <!-- Grey, not dim gold, when there's nothing to do (e.g. Update all with no updates). -->
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="{StaticResource Panel2Brush}"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+                    <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+                    <Setter Property="FontWeight" Value="Normal"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Checkboxes: a quiet outlined box that only turns gold when ticked, so it doesn't pull focus from the list. -->
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" Background="Transparent">
+                            <Border x:Name="Box" Width="16" Height="16" CornerRadius="3" BorderThickness="1"
+                                    BorderBrush="#4A5160" Background="Transparent" VerticalAlignment="Center">
+                                <Grid>
+                                    <Path x:Name="Tick" Data="M 3 7 L 6 10 L 11 3.5" Stroke="{StaticResource AccentTextBrush}"
+                                          StrokeThickness="2" Visibility="Collapsed"/>
+                                    <Border x:Name="Dash" Width="8" Height="2" CornerRadius="1"
+                                            Background="{StaticResource AccentTextBrush}" Visibility="Collapsed"/>
+                                </Grid>
+                            </Border>
+                            <ContentPresenter x:Name="Label" Margin="8,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="HasContent" Value="False">
+                                <Setter TargetName="Label" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <!-- Partly ticked (select-all with only some rows ticked). -->
+                            <Trigger Property="IsChecked" Value="{x:Null}">
+                                <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Dash" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <SolidColorBrush x:Key="DangerBrush" Color="#E05A4F"/>

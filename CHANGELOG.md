@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.1
+- **Update all** turns grey when there's nothing to update, instead of a dimmed gold.
+- Tickboxes are a quiet dark outline instead of bright white, and turn gold when ticked (select-all shows a gold
+  dash when only some rows are ticked).
+
 ## 0.21.0
 - **Update all** now sits between the tabs and the list. Check for updates is a refresh icon at the right of that row
   (hover it to see when it last checked); the app still checks on its own every so often.

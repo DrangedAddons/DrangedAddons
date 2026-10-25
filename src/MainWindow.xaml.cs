@@ -883,6 +883,8 @@ public partial class MainWindow : Window
         Set(BulkDeleteButton, "Delete", selected.Count(r => r.CanUninstall));
 
         var show = selected.Count > 0 && _detailsFor is null;
+        // Room under the last row so the bar never covers it.
+        AddonList.Margin = new Thickness(0, 0, 0, show ? 64 : 0);
         if (show && BulkBar.Visibility != Visibility.Visible)
         {
             BulkBar.Visibility = Visibility.Visible;

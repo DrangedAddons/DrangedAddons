@@ -56,6 +56,10 @@ public sealed class GitHubClient
     static readonly bool TestAnonymous = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_ANON") == "1";
     static readonly bool TestRateLimit = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_RATELIMIT") == "1";
     static readonly bool TestSlowDownload = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_SLOWDOWNLOAD") == "1";
+    /// <summary>Dev only: extra image URLs (";"-separated) added to every addon's gallery, to test it without screenshots.</summary>
+    public static readonly string[] TestGalleryUrls = IsDev
+        ? (Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_GALLERY") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
+        : [];
 
     static async Task<string?> CurrentTokenAsync()
     {
@@ -477,6 +481,88 @@ public sealed class GitHubClient
         catch (JsonException)
         {
             return "";
+        }
+    }
+
+    // ---- Details page ---------------------------------------------------------------------------------------------
+
+    /// <summary>The README on the default branch, or null if there isn't one.</summary>
+    public async Task<string?> GetReadmeAsync(RemoteAddon addon, CancellationToken ct = default)
+    {
+        foreach (var name in new[] { "README.md", "readme.md", "Readme.md", "README" })
+            if (await GetRawAsync(addon.Name, addon.DefaultBranch, name, ct) is { } text)
+                return text;
+        return null;
+    }
+
+    /// <summary>CHANGELOG.md on the default branch, or null if there isn't one.</summary>
+    public Task<string?> GetChangelogTextAsync(RemoteAddon addon, CancellationToken ct = default) =>
+        GetRawAsync(addon.Name, addon.DefaultBranch, "CHANGELOG.md", ct);
+
+    /// <summary>
+    /// Downloads of every release's files added up (GitHub counts each download of a release asset, including the
+    /// ones this app makes). Null if the repo has no releases.
+    /// </summary>
+    public async Task<long?> GetDownloadCountAsync(string repo, CancellationToken ct = default)
+    {
+        long total = 0;
+        for (var page = 1; page <= 10; page++)
+        {
+            var json = await GetJsonAsync($"https://api.github.com/repos/{Org}/{repo}/releases?per_page=100&page={page}", ct);
+            if (json is null) return page == 1 ? null : total;
+            using var doc = JsonDocument.Parse(json);
+            var releases = doc.RootElement.EnumerateArray().ToList();
+            foreach (var release in releases)
+                foreach (var asset in release.GetProperty("assets").EnumerateArray())
+                    if (asset.TryGetProperty("download_count", out var count) && count.ValueKind == JsonValueKind.Number)
+                        total += count.GetInt64();
+            if (releases.Count < 100) break;
+        }
+        return total;
+    }
+
+    static readonly string[] GalleryFolders = ["screenshots", "screenshot", "gallery", "media", "images"];
+    static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".gif", ".bmp"];
+
+    /// <summary>Images in a screenshots / gallery / media / images folder anywhere in the repo (default branch).</summary>
+    public async Task<List<string>> GetGalleryPathsAsync(RemoteAddon addon, CancellationToken ct = default)
+    {
+        var paths = new List<string>();
+        var json = await GetJsonAsync($"https://api.github.com/repos/{Org}/{addon.Name}/git/trees/{addon.DefaultBranch}?recursive=1", ct);
+        if (json is null) return paths;
+        using var doc = JsonDocument.Parse(json);
+        foreach (var entry in doc.RootElement.GetProperty("tree").EnumerateArray())
+        {
+            if (OptionalString(entry, "type") != "blob" || OptionalString(entry, "path") is not { } path) continue;
+            var parts = path.Split('/');
+            if (parts.Length < 2 || !ImageExtensions.Contains(Path.GetExtension(path).ToLowerInvariant())) continue;
+            if (parts[..^1].Any(folder => GalleryFolders.Contains(folder.ToLowerInvariant())))
+                paths.Add(path);
+        }
+        return paths;
+    }
+
+    public static string RawUrl(string repo, string gitRef, string path) =>
+        $"https://raw.githubusercontent.com/{Org}/{repo}/{gitRef}/{path}";
+
+    /// <summary>
+    /// An image's bytes. Files in this org's repos go through the raw-file path (token, rate limits); anything else
+    /// is a plain download. Null if it can't be fetched.
+    /// </summary>
+    public async Task<byte[]?> GetImageBytesAsync(string url, CancellationToken ct = default)
+    {
+        try
+        {
+            var prefix = $"https://raw.githubusercontent.com/{Org}/";
+            if (url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && url[prefix.Length..].Split('?')[0].Split('/', 3) is [var repo, var gitRef, var path])
+                return await GetRawBytesAsync(repo, gitRef, Uri.UnescapeDataString(path), ct);
+            using var response = await Http.GetAsync(url, ct);
+            return response.IsSuccessStatusCode ? await response.Content.ReadAsByteArrayAsync(ct) : null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or RateLimitException or TaskCanceledException or UriFormatException)
+        {
+            return null;
         }
     }
 

@@ -108,7 +108,8 @@ public static class WowLocator
         return flavors.OrderBy(f => f.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    static string DisplayName(string folder) =>
+    /// <summary>"Classic Era" for "_classic_era_"; unknown folders are title-cased.</summary>
+    public static string DisplayName(string folder) =>
         KnownNames.TryGetValue(folder, out var name)
             ? name
             : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(folder.Trim('_').Replace('_', ' '));

@@ -15,10 +15,14 @@ A small Windows app that installs and updates World of Warcraft addons published
 - **Show beta versions** (off by default) also offers untagged versions from each repo's default branch.
   A beta is built from the source at that commit with the same excludes as the release workflow
   (`.git*`, `.github`, `tools`, `build`), so nothing is released and nothing is announced.
-- **Versions…** lists every release (and, with betas on, every untagged version) with its CHANGELOG notes,
+- Click an addon for its **details page**: downloads (GitHub's count for the release files), last update, size on
+  disk and game versions, then tabs for **Overview** (the repo's README), **Changelog** (`CHANGELOG.md`, or the
+  release notes), **Gallery** (README images plus any images in a `screenshots`, `gallery`, `media` or `images`
+  folder) and **Versions**.
+- **Versions** lists every release (and, with betas on, every untagged version) with its CHANGELOG notes,
   and installs any of them. Untagged versions are found from the commits that changed the `.toc`: each version
   installs the last commit before the next version bump.
-- **Uninstall** moves the addon folders to the Recycle Bin.
+- **Delete** moves the addon folders to the Recycle Bin.
 - A folder containing `.git` is treated as a **Git working copy** and is never overwritten or deleted.
 
 Without signing in, GitHub allows 60 requests an hour per internet connection, so the app checks every 15

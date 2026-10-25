@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.23.0
+- **New addon details page** (click an addon). The header shows its status, the action button and a ⋯ menu
+  (Reinstall, Browse folder, View on GitHub, Delete), plus downloads, when it was last updated, its size on disk and
+  the game versions it's for. Below that are four tabs:
+  - **Overview**: the addon's README, with an About panel (installed and latest version, when it was installed, its
+    folders, other game versions it's installed in, and a link to the repo).
+  - **Changelog**: its CHANGELOG.md, or the release notes if it doesn't have one.
+  - **Gallery**: images from the README and from a `screenshots`, `gallery`, `media` or `images` folder in the
+    repo. Click one to see it large; ← → to move between them, Esc to close.
+  - **Versions**: what the Versions window showed, now on the page. Click a version to see what changed.
+- Downloads is GitHub's count of downloads of the addon's release files (including the app's own installs).
+- "View changelog" in an addon's right-click menu opens the Changelog tab.
+
 ## 0.22.2
 - Moving columns: drag a header and a ghost of it follows the cursor, while the column itself (header and rows,
   dimmed) moves to show where it will land. Let go to drop it; Esc cancels and puts it back.

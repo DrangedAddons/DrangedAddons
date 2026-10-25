@@ -612,7 +612,11 @@ public partial class MainWindow : Window
         // Rows are rebuilt on refresh / game change: keep an open details page on the same addon if it's still listed.
         if (_detailsFor is { } name)
         {
-            if (_rows.FirstOrDefault(r => r.Name == name) is { } same) DetailsPanel.DataContext = same;
+            if (_rows.FirstOrDefault(r => r.Name == name) is { } same)
+            {
+                DetailsPanel.DataContext = same;
+                BindDetails(same, newAddon: false, tab: null);
+            }
             else ShowList();
         }
         UpdateSummary();
@@ -627,17 +631,21 @@ public partial class MainWindow : Window
         if ((sender as FrameworkElement)?.DataContext is AddonRow row) ShowDetails(row);
     }
 
-    void ShowDetails(AddonRow row)
+    /// <param name="tab">"overview", "changelog", "gallery" or "versions".</param>
+    void ShowDetails(AddonRow row, string? tab = null)
     {
+        var newAddon = _detailsFor != row.Name;
         _detailsFor = row.Name;
         DetailsPanel.DataContext = row;
         DetailsPanel.Visibility = Visibility.Visible;
         ListPanel.Visibility = Visibility.Collapsed;
         UpdateBulkBar(); // hidden while on a details page
+        BindDetails(row, newAddon, tab);
     }
 
     void ShowList()
     {
+        UnbindDetails();
         _detailsFor = null;
         DetailsPanel.Visibility = Visibility.Collapsed;
         DetailsPanel.DataContext = null;
@@ -650,7 +658,13 @@ public partial class MainWindow : Window
     // Esc: back to the list from details, else clear the search. Ctrl+F: search. Mouse back button: back.
     protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
     {
-        if (e.Key == System.Windows.Input.Key.Escape && _detailsFor is not null)
+        if (LightboxOpen && e.Key is System.Windows.Input.Key.Escape or System.Windows.Input.Key.Left or System.Windows.Input.Key.Right)
+        {
+            if (e.Key == System.Windows.Input.Key.Escape) CloseLightbox();
+            else ShowLightbox(_lightboxIndex + (e.Key == System.Windows.Input.Key.Left ? -1 : 1));
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Escape && _detailsFor is not null)
         {
             ShowList();
             e.Handled = true;
@@ -912,31 +926,6 @@ public partial class MainWindow : Window
         }
     }
 
-    void Versions_Click(object sender, RoutedEventArgs e)
-    {
-        if (_working || CurrentFlavor is not { } flavor || (sender as FrameworkElement)?.DataContext is not AddonRow row)
-            return;
-
-        var window = new VersionsWindow(_github, row.Remote, flavor, _settings.ShowBeta, row.Icon,
-            () => InstalledVersion(row, flavor),
-            // A Git working copy is view-only: never install over it.
-            row.State == AddonState.DevCopy ? null : async (version, owner) =>
-            {
-                if (_working) return false;
-                SetWorking(true);
-                // Choosing anything other than the latest is deliberate: auto-update shouldn't undo it.
-                var ok = await InstallAsync(row, flavor, version, owner, pinned: version.Version != row.Latest.Version
-                                                                                  || version.IsRelease != row.Latest.IsRelease);
-                SetWorking(false);
-                UpdateSummary();
-                return ok;
-            })
-        {
-            Owner = this,
-        };
-        window.ShowDialog();
-    }
-
     void Beta_Click(object sender, RoutedEventArgs e)
     {
         _settings.ShowBeta = BetaMenu.IsChecked;
@@ -965,14 +954,6 @@ public partial class MainWindow : Window
             await InstallAsync(row, flavor);
         SetWorking(false);
         UpdateSummary();
-    }
-
-    void Uninstall_Click(object sender, RoutedEventArgs e)
-    {
-        if (_working || CurrentFlavor is not { } flavor || (sender as FrameworkElement)?.DataContext is not AddonRow row)
-            return;
-
-        DeleteAddon(row, flavor);
     }
 
     /// <summary>
@@ -1203,14 +1184,9 @@ public partial class MainWindow : Window
             Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
-    async void RowChangelog_Click(object sender, RoutedEventArgs e)
+    void RowChangelog_Click(object sender, RoutedEventArgs e)
     {
-        if (RowOf(sender) is not { } row) return;
-        var repo = $"https://github.com/{GitHubClient.Org}/{row.Name}";
-        var url = await _github.HasFileAsync(row.Name, row.Remote.DefaultBranch, "CHANGELOG.md")
-            ? $"{repo}/blob/{row.Remote.DefaultBranch}/CHANGELOG.md"
-            : $"{repo}/releases";
-        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        if (RowOf(sender) is { } row) ShowDetails(row, "changelog");
     }
 
     void RowDelete_Click(object sender, RoutedEventArgs e)
@@ -1538,11 +1514,5 @@ public partial class MainWindow : Window
     {
         if (AppInstaller.Uninstall(this))
             App.ExitApp();
-    }
-
-    void ReleaseNotes_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkContentElement)?.DataContext is AddonRow row)
-            Process.Start(new ProcessStartInfo(row.Latest.Url) { UseShellExecute = true });
     }
 }

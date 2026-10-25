@@ -71,8 +71,10 @@ public partial class MainWindow
         public Task<string?>? Changelog;
         public Task<long?>? Downloads;
         public Task<List<string>>? GalleryPaths;
-        public Task<List<AddonVersion>>? Versions;
-        public bool VersionsWithBeta;
+        public Task<VersionHistory>? History;
+        public bool HistoryWithBeta;
+        /// <summary>How many versions the Versions tab shows (grows by a page with "Show more").</summary>
+        public int VersionsShown = VersionPage;
     }
 
     readonly Dictionary<string, DetailsData> _details = new();
@@ -363,7 +365,7 @@ public partial class MainWindow
             if (text is null)
             {
                 // No CHANGELOG.md: build one from the release notes.
-                var releases = (await VersionsAsync(row)).Where(v => v.IsRelease).ToList();
+                var releases = (await HistoryAsync(row)).Releases;
                 text = releases.Count == 0
                     ? null
                     : string.Join("\n\n", releases.Select(v =>
@@ -573,17 +575,25 @@ public partial class MainWindow
 
     // ---- Versions -------------------------------------------------------------------------------------------------
 
-    /// <summary>The version history (with betas when they're shown), fetched once per setting.</summary>
-    Task<List<AddonVersion>> VersionsAsync(AddonRow row)
+    const int VersionPage = 20;
+
+    /// <summary>
+    /// The version history (with betas when they're shown): releases, the .toc commits and the changelog, fetched once
+    /// per setting. Beta versions are read in batches as the Versions tab shows more.
+    /// </summary>
+    Task<VersionHistory> HistoryAsync(AddonRow row)
     {
         var data = DataFor(row);
-        if (data.Versions is null || data.VersionsWithBeta != _settings.ShowBeta || data.Versions.IsFaulted)
+        if (data.History is null || data.HistoryWithBeta != _settings.ShowBeta || data.History.IsFaulted)
         {
-            data.VersionsWithBeta = _settings.ShowBeta;
-            data.Versions = _github.GetVersionHistoryAsync(row.Remote, _settings.ShowBeta);
+            data.HistoryWithBeta = _settings.ShowBeta;
+            data.History = _github.StartVersionHistoryAsync(row.Remote, _settings.ShowBeta);
         }
-        return data.Versions;
+        return data.History;
     }
+
+    readonly System.Collections.ObjectModel.ObservableCollection<VersionItem> _versionItems = [];
+    bool _readingVersions;
 
     async Task LoadVersionsAsync(AddonRow row, int load)
     {
@@ -595,9 +605,10 @@ public partial class MainWindow
         if (VersionList.ItemsSource is null) SetTabMessage("versions", "Loading versions…");
         try
         {
-            var versions = await VersionsAsync(row);
+            var history = await HistoryAsync(row);
+            await ReadVersionsAsync(history, DataFor(row).VersionsShown);
             if (load != _detailsLoad) return;
-            ShowVersionItems(row, versions);
+            ShowVersionItems(row, history, reset: true);
         }
         catch (Exception ex) when (ex is HttpRequestException or RateLimitException or InvalidOperationException)
         {
@@ -606,15 +617,62 @@ public partial class MainWindow
         }
     }
 
-    void ShowVersionItems(AddonRow row, List<AddonVersion> versions)
+    /// <summary>Reads more of the history until it has <paramref name="wanted"/> versions (or there are no more).</summary>
+    async Task ReadVersionsAsync(VersionHistory history, int wanted)
+    {
+        while (!history.Complete && history.Versions.Count < wanted)
+            await _github.ReadMoreVersionsAsync(history, wanted - history.Versions.Count + 4);
+    }
+
+    /// <summary>Shows the first VersionsShown versions: from scratch, or adding to the ones already listed.</summary>
+    void ShowVersionItems(AddonRow row, VersionHistory history, bool reset)
     {
         var installed = CurrentFlavor is { } flavor ? InstalledVersion(row, flavor) : null;
-        VersionList.ItemsSource = versions
-            .Select(v => new VersionItem(v, installed is not null && Versions.Compare(v.Version, installed) == 0,
-                row.State != AddonState.DevCopy))
-            .ToList();
-        VersionsTab.Content = $"Versions ({versions.Count})";
-        SetTabMessage("versions", versions.Count == 0 ? "No installable versions were found." : null);
+        var shown = Math.Min(DataFor(row).VersionsShown, history.Versions.Count);
+        if (reset) _versionItems.Clear();
+        VersionList.ItemsSource = _versionItems;
+        foreach (var v in history.Versions.Skip(_versionItems.Count).Take(shown - _versionItems.Count))
+            _versionItems.Add(new VersionItem(v, installed is not null && Versions.Compare(v.Version, installed) == 0,
+                row.State != AddonState.DevCopy));
+
+        var more = history.Versions.Count > shown || !history.Complete;
+        MoreVersionsButton.Content = $"Show {VersionPage} more";
+        MoreVersionsButton.Visibility = more ? Visibility.Visible : Visibility.Collapsed;
+        VersionsCountText.Text = history.Complete
+            ? $"Showing {shown} of {history.Versions.Count}"
+            : $"Showing {shown} so far";
+        VersionsCountText.Visibility = more ? Visibility.Visible : Visibility.Collapsed;
+        VersionsTab.Content = history.Complete ? $"Versions ({history.Versions.Count})" : "Versions";
+        SetTabMessage("versions", shown == 0 && history.Complete ? "No installable versions were found." : null);
+    }
+
+    async void MoreVersions_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readingVersions || _detailsRow is not { } row || DataFor(row).History is not { IsCompletedSuccessfully: true } task) return;
+        _readingVersions = true;
+        MoreVersionsButton.IsEnabled = false;
+        MoreVersionsButton.Content = "Loading…";
+        var load = _detailsLoad;
+        try
+        {
+            DataFor(row).VersionsShown += VersionPage;
+            await ReadVersionsAsync(task.Result, DataFor(row).VersionsShown);
+            if (load == _detailsLoad) ShowVersionItems(row, task.Result, reset: false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or RateLimitException or InvalidOperationException)
+        {
+            if (load == _detailsLoad)
+            {
+                DataFor(row).VersionsShown -= VersionPage;
+                MoreVersionsButton.Content = $"Show {VersionPage} more";
+                VersionsCountText.Text = LoadError(ex);
+            }
+        }
+        finally
+        {
+            _readingVersions = false;
+            MoreVersionsButton.IsEnabled = true;
+        }
     }
 
     void VersionRow_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -642,6 +700,6 @@ public partial class MainWindow
         SetWorking(false);
         UpdateSummary();
         UpdateDetailStats(row);
-        if (DataFor(row).Versions is { IsCompletedSuccessfully: true } done) ShowVersionItems(row, done.Result);
+        if (DataFor(row).History is { IsCompletedSuccessfully: true } done) ShowVersionItems(row, done.Result, reset: true);
     }
 }

@@ -238,15 +238,58 @@ public sealed class GitHubClient
 
     /// <summary>
     /// Every installable version, newest first: all published releases, plus (when <paramref name="includeBeta"/>)
-    /// every untagged version found on the default branch. An untagged version installs the last commit before
-    /// the next version bump, i.e. its finished state.
+    /// every untagged version found on the default branch. Reads the whole history; the details page loads it in
+    /// steps instead (<see cref="StartVersionHistoryAsync"/>).
     /// </summary>
-    public async Task<List<AddonVersion>> GetVersionHistoryAsync(RemoteAddon addon, bool includeBeta,
-        IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task<List<AddonVersion>> GetVersionHistoryAsync(RemoteAddon addon, bool includeBeta, CancellationToken ct = default)
     {
-        var versions = new List<AddonVersion>();
+        var history = await StartVersionHistoryAsync(addon, includeBeta, ct);
+        await ReadMoreVersionsAsync(history, history.Commits.Count, ct);
+        return history.Versions;
+    }
 
-        progress?.Report("Loading releases…");
+    /// <summary>
+    /// The quick part of a version history: releases, the commits that changed the .toc (betas only) and the
+    /// changelog, fetched together. No beta versions are known until <see cref="ReadMoreVersionsAsync"/> reads some.
+    /// </summary>
+    public async Task<VersionHistory> StartVersionHistoryAsync(RemoteAddon addon, bool includeBeta, CancellationToken ct = default)
+    {
+        var releases = GetReleasesAsync(addon, includeBeta, ct);
+        var commits = includeBeta && addon.TocPath is not null && addon.LatestBeta?.Commit is not null
+            ? GetTocCommitsAsync(addon, ct)
+            : Task.FromResult(new List<TocCommit>());
+        var changelog = GetChangelogAsync(addon, ct);
+        await Task.WhenAll(releases, commits, changelog);
+        var history = new VersionHistory(addon, releases.Result, commits.Result, changelog.Result);
+        history.Rebuild();
+        return history;
+    }
+
+    /// <summary>
+    /// Reads the .toc version at the next <paramref name="count"/> commits (newest first), which turns them into beta
+    /// versions. One small file each, cached on disk for good: commits never change.
+    /// </summary>
+    public async Task ReadMoreVersionsAsync(VersionHistory history, int count, CancellationToken ct = default)
+    {
+        var from = history.TocVersions.Count;
+        var batch = history.Commits.Skip(from).Take(count).ToList();
+        if (batch.Count == 0 || history.Addon.TocPath is not { } tocPath) return;
+        // Gentle without a token: GitHub limits bursts of anonymous file requests.
+        using var throttle = new SemaphoreSlim(await CurrentTokenAsync() is null ? 4 : 8);
+        var versions = await Task.WhenAll(batch.Select(async c =>
+        {
+            await throttle.WaitAsync(ct);
+            try { return await GetTocVersionAsync(history.Addon.Name, c.Sha, tocPath, ct); }
+            finally { throttle.Release(); }
+        }));
+        SaveCaches();
+        history.TocVersions.AddRange(versions);
+        history.Rebuild();
+    }
+
+    async Task<List<AddonVersion>> GetReleasesAsync(RemoteAddon addon, bool includePrereleases, CancellationToken ct)
+    {
+        var releases = new List<AddonVersion>();
         for (var page = 1; page <= 10; page++)
         {
             var json = await GetJsonAsync($"https://api.github.com/repos/{Org}/{addon.Name}/releases?per_page=100&page={page}", ct);
@@ -255,70 +298,36 @@ public sealed class GitHubClient
             var items = doc.RootElement.EnumerateArray().ToList();
             foreach (var item in items)
             {
-                if (!includeBeta && item.GetProperty("prerelease").GetBoolean()) continue;
-                if (ReleaseFromJson(item) is { } release) versions.Add(release);
+                if (!includePrereleases && item.GetProperty("prerelease").GetBoolean()) continue;
+                if (ReleaseFromJson(item) is { } release) releases.Add(release);
             }
             if (items.Count < 100) break;
         }
+        return releases;
+    }
 
-        if (includeBeta && addon.TocPath is { } tocPath && addon.LatestBeta?.Commit is { } headSha)
+    /// <summary>The commits on the default branch that changed the .toc, newest first.</summary>
+    async Task<List<TocCommit>> GetTocCommitsAsync(RemoteAddon addon, CancellationToken ct)
+    {
+        var commits = new List<TocCommit>();
+        for (var page = 1; page <= 10; page++)
         {
-            progress?.Report("Loading version history…");
-            var commits = new List<(string Sha, string? Parent, DateTimeOffset Date)>();
-            for (var page = 1; page <= 10; page++)
+            var json = await GetJsonAsync(
+                $"https://api.github.com/repos/{Org}/{addon.Name}/commits?sha={addon.DefaultBranch}&path={addon.TocPath}&per_page=100&page={page}", ct);
+            if (json is null) break;
+            using var doc = JsonDocument.Parse(json);
+            var items = doc.RootElement.EnumerateArray().ToList();
+            foreach (var c in items)
             {
-                var json = await GetJsonAsync(
-                    $"https://api.github.com/repos/{Org}/{addon.Name}/commits?sha={addon.DefaultBranch}&path={tocPath}&per_page=100&page={page}", ct);
-                if (json is null) break;
-                using var doc = JsonDocument.Parse(json);
-                var items = doc.RootElement.EnumerateArray().ToList();
-                foreach (var c in items)
-                {
-                    var parents = c.GetProperty("parents");
-                    commits.Add((
-                        c.GetProperty("sha").GetString()!,
-                        parents.GetArrayLength() > 0 ? parents[0].GetProperty("sha").GetString() : null,
-                        c.GetProperty("commit").GetProperty("committer").GetProperty("date").GetDateTimeOffset()));
-                }
-                if (items.Count < 100) break;
+                var parents = c.GetProperty("parents");
+                commits.Add(new TocCommit(
+                    c.GetProperty("sha").GetString()!,
+                    parents.GetArrayLength() > 0 ? parents[0].GetProperty("sha").GetString() : null,
+                    c.GetProperty("commit").GetProperty("committer").GetProperty("date").GetDateTimeOffset()));
             }
-
-            progress?.Report($"Reading version numbers from {commits.Count} commits…");
-            using var throttle = new SemaphoreSlim(4); // gentle: GitHub limits bursts of anonymous file requests
-            var tocVersions = await Task.WhenAll(commits.Select(async c =>
-            {
-                await throttle.WaitAsync(ct);
-                try { return await GetTocVersionAsync(addon.Name, c.Sha, tocPath, ct); }
-                finally { throttle.Release(); }
-            }));
-            SaveCaches();
-
-            // Walk oldest → newest and note where each version first appears.
-            var bumps = new List<(string Version, int Index)>();
-            string? previous = null;
-            for (var i = commits.Count - 1; i >= 0; i--)
-            {
-                if (tocVersions[i] is not { } v || v == previous) continue;
-                bumps.Add((v, i));
-                previous = v;
-            }
-
-            for (var k = 0; k < bumps.Count; k++)
-            {
-                var (version, index) = bumps[k];
-                // Finished state of this version = the commit just before the next bump (or the branch head for the newest).
-                var end = k + 1 < bumps.Count ? commits[bumps[k + 1].Index].Parent : headSha;
-                if (end is null || versions.Any(v => Versions.Compare(v.Version, version) == 0)) continue;
-                versions.Add(new AddonVersion(version, false, null, null, end, commits[index].Date, CommitUrl(addon.Name, end), null));
-            }
+            if (items.Count < 100) break;
         }
-
-        var changelog = await GetChangelogAsync(addon, ct);
-        return versions
-            .Select(v => v with { Notes = changelog.GetValueOrDefault(v.Version) ?? v.Notes })
-            .OrderByDescending(v => v.Version, Comparer<string>.Create(Versions.Compare))
-            .ThenByDescending(v => v.Date)
-            .ToList();
+        return commits;
     }
 
     /// <summary>CHANGELOG.md sections keyed by version ("## 0.53.2" headings).</summary>

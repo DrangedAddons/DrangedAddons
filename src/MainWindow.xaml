@@ -540,6 +540,13 @@
                     <DockPanel x:Name="VersionsPage" Visibility="Collapsed">
                         <TextBlock x:Name="VersionsNote" DockPanel.Dock="Top" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                                    Margin="0,0,0,10"/>
+                        <!-- Long histories are shown 20 at a time. -->
+                        <StackPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center" Margin="0,6,0,0">
+                            <Button x:Name="MoreVersionsButton" Style="{StaticResource GhostBtn}" Padding="18,6" Click="MoreVersions_Click"
+                                    Visibility="Collapsed"/>
+                            <TextBlock x:Name="VersionsCountText" Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center"
+                                       Margin="0,6,0,0"/>
+                        </StackPanel>
                             <ItemsControl x:Name="VersionList">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>

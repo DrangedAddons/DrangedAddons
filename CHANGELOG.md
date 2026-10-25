@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.1
+- The **Versions** tab opens much faster on addons with a long history (CraftRoute with betas: 3 seconds the first
+  time instead of 21). It shows 20 versions, with **Show 20 more** at the bottom; only the versions shown are looked
+  up, and the releases, commit list and changelog are fetched at the same time instead of one after another.
+
 ## 0.23.0
 - **New addon details page** (click an addon). The header shows its status, the action button and a ⋯ menu
   (Reinstall, Browse folder, View on GitHub, Delete), plus downloads, when it was last updated, its size on disk and

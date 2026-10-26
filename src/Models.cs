@@ -180,7 +180,7 @@ public sealed class AddonRow : INotifyPropertyChanged
     public string BetaTip => (_installedIsBeta, OfferedIsBeta) switch
     {
         _ when _state == AddonState.DevCopy && _installedIsBeta =>
-            "Your working copy isn't at a tagged release: it has commits after the latest release tag, or uncommitted changes.",
+            "Your working copy isn't a published release: its .toc version hasn't been released yet, or it has unpushed commits or uncommitted changes.",
         (true, true) => "Both the installed version and the update are betas: untagged builds from the addon's main branch, not full tagged releases.",
         (true, false) => "The installed version is a beta: an untagged build from the addon's main branch, not a full tagged release.",
         _ when _installedVersion is null => "This version is a beta: an untagged build from the addon's main branch, not a full tagged release.",
@@ -274,7 +274,12 @@ public sealed class AddonRow : INotifyPropertyChanged
     {
         _git = git;
         _gitText = text;
-        if (git is not null) _installedIsBeta = !git.IsRelease; // Git knows exactly whether HEAD is a release tag
+        // A release when HEAD is on a version tag, or when the .toc version is the latest release's and nothing is
+        // local: commits after the tag that don't bump the version (screenshots, workflow) are still that release.
+        if (git is not null)
+            _installedIsBeta = !(git.IsRelease
+                                 || git is { Changed: 0, Ahead: 0 } && _installedVersion is not null
+                                    && Remote.LatestRelease is { } release && Versions.Compare(_installedVersion, release.Version) == 0);
         RaiseAll();
     }
 

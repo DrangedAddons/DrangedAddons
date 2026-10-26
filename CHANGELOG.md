@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.5
+- A Git working copy no longer shows BETA when its .toc version is the latest release and it has no uncommitted
+  changes or unpushed commits. Commits after the release tag that don't change the version (screenshots, workflow
+  edits) used to flag it as a beta.
+
 ## 0.23.4
 - The window can't be made so narrow that the list squashes: its minimum width leaves room for every column you've
   chosen plus about 24 characters of addon name (935 px with the default columns; more as you add columns, and the

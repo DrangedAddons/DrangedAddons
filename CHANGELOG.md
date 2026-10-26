@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.23.6
+- Scrollbars match the dark theme: a slim rounded grey bar (lighter when you hover or drag it) instead of Windows'
+  white track and arrow buttons. Applies everywhere: the addon list, the details page and dialogs.
+
 ## 0.23.5
 - A Git working copy no longer shows BETA when its .toc version is the latest release and it has no uncommitted
   changes or unpushed commits. Commits after the release tag that don't change the version (screenshots, workflow

@@ -355,7 +355,8 @@ public partial class MainWindow : Window
     /// <summary>Keeps the column header's Action label over the row buttons when the list's scrollbar appears.</summary>
     void ListScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
-        var bar = ListScroll.ComputedVerticalScrollBarVisibility == Visibility.Visible ? SystemParameters.VerticalScrollBarWidth : 0;
+        // The scrollbar's real width (the app's own slim style, not Windows' default).
+        var bar = ListScroll.ComputedVerticalScrollBarVisibility == Visibility.Visible ? ListScroll.ActualWidth - ListScroll.ViewportWidth : 0;
         ListHeader.Margin = new Thickness(0, 0, bar, 4);
     }
 

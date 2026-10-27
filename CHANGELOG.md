@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.24.2
+- A new install starts with no games: instead of an empty list it explains how to add one (+ in the side bar, or the
+  **Add a game** button). Nothing is added for you. If you already use DrangedAddons, WoW stays in your side bar.
+- The last game in the side bar can be removed too, which brings that page back.
+
 ## 0.24.1
 - Any supported game can be added from **Add a game**, even before it has addons; they show up in its list as
   they're published. Its page says when none have been published yet.

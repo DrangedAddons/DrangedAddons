@@ -13,8 +13,8 @@ public sealed class AppSettings
     /// <summary>The game shown (a <see cref="GameDefinition.Id"/>).</summary>
     public string Game { get; set; } = "wow";
 
-    /// <summary>The games in the side bar, in order.</summary>
-    public List<string> Games { get; set; } = ["wow"];
+    /// <summary>The games in the side bar, in order. Empty on a new install: the user adds them.</summary>
+    public List<string> Games { get; set; } = [];
 
     /// <summary>Each game's folder and selected version.</summary>
     public Dictionary<string, GameState> GameStates { get; set; } = new();
@@ -22,7 +22,7 @@ public sealed class AppSettings
     public GameState StateFor(string game) =>
         GameStates.TryGetValue(game, out var state) ? state : GameStates[game] = new GameState();
 
-    /// <summary>Moves settings saved before games existed into WoW's entry.</summary>
+    /// <summary>Moves settings saved before games existed into WoW's entry, with WoW in the side bar.</summary>
     public void Migrate()
     {
         if (WowRoot is null && Flavor is null) return;
@@ -30,6 +30,7 @@ public sealed class AppSettings
         wow.Root ??= WowRoot;
         wow.Flavor ??= Flavor;
         WowRoot = Flavor = null;
+        if (!Games.Contains("wow")) Games.Insert(0, "wow");
     }
     public bool ShowBeta { get; set; }
     public bool CloseToTray { get; set; } = true;

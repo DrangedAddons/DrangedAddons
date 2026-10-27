@@ -544,6 +544,13 @@ public partial class MainWindow : Window
     /// <summary>The current game's folder (saved, else found) and its versions into the picker.</summary>
     void LoadFlavors()
     {
+        if (NoGames)
+        {
+            _root = null;
+            FlavorList.ItemsSource = null;
+            RebuildRows();
+            return;
+        }
         var state = _settings.StateFor(_game.Id);
         _root = RootOf(_game);
         // Only WoW has versions to pick; for other games the picker would only ever hold the game itself.
@@ -1388,6 +1395,7 @@ public partial class MainWindow : Window
     /// <summary>Asks for the current game's folder; false if cancelled or it isn't one.</summary>
     bool PickGameFolder()
     {
+        if (NoGames) return false;
         var dialog = new OpenFolderDialog { Title = $"Select your {_game.Name} folder" };
         if (_root is not null) dialog.InitialDirectory = _root;
         if (dialog.ShowDialog(this) != true) return false;

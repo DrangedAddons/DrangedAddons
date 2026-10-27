@@ -1,7 +1,7 @@
 # Changelog
 
 ## 0.25.0
-- **Play** button next to the game version: starts the game from the app.
+- **Play** (a small ▶ next to the game version, like CurseForge's): starts the game from the app.
   - WoW goes through Battle.net, the same way Battle.net's own desktop shortcuts do
     (`World of Warcraft Launcher.exe --productcode=…`), so you're signed in and the version you've picked at the top
     is the one that starts. The product comes from the version folder's `.flavor.info` (`wow`, `wow_classic_era`,

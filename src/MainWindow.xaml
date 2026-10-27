@@ -125,14 +125,9 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
             <!-- Starts the game version that's picked (WoW through Battle.net); disabled when it can't be found. -->
-            <Button x:Name="PlayButton" Grid.Column="3" Style="{StaticResource AccentBtn}" Height="38" Padding="16,0"
-                    Margin="8,0,0,0" VerticalAlignment="Center" Click="Play_Click" ToolTipService.ShowOnDisabled="True">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="&#xE768;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
-                               VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock Text="Play" FontSize="14" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
+            <!-- A plain icon: most people start the game from Battle.net, so it shouldn't compete with the list. -->
+            <Button x:Name="PlayButton" Grid.Column="3" Style="{StaticResource IconBtn}" Width="38" Height="38"
+                    Margin="6,0,0,0" VerticalAlignment="Center" Click="Play_Click" Content="&#xF5B0;" FontSize="16"/>
             <Button x:Name="GameMenuButton" Grid.Column="4" Style="{StaticResource GhostBtn}" Width="38" Height="38"
                     Margin="6,0,0,0" Padding="0" VerticalAlignment="Center" Click="GameMenu_Click" ToolTip="Game folder options">
                 <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"/>

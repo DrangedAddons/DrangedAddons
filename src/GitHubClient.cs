@@ -56,6 +56,14 @@ public sealed class GitHubClient
     static readonly bool TestAnonymous = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_ANON") == "1";
     static readonly bool TestRateLimit = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_RATELIMIT") == "1";
     static readonly bool TestSlowDownload = IsDev && Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_SLOWDOWNLOAD") == "1";
+    /// <summary>Dev only: "Repo=game;…" puts repos in another game, to test games without tagging real repos.</summary>
+    static readonly Dictionary<string, string> TestGames = IsDev
+        ? (Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_GAMES") ?? "")
+            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair => pair.Split('=', 2))
+            .Where(p => p.Length == 2)
+            .ToDictionary(p => p[0].Trim(), p => p[1].Trim(), StringComparer.OrdinalIgnoreCase)
+        : new();
     /// <summary>Dev only: extra image URLs (";"-separated) added to every addon's gallery, to test it without screenshots.</summary>
     public static readonly string[] TestGalleryUrls = IsDev
         ? (Environment.GetEnvironmentVariable("DRANGEDADDONS_TEST_GALLERY") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)
@@ -166,7 +174,7 @@ public sealed class GitHubClient
         var reposJson = await GetJsonAsync($"https://api.github.com/orgs/{Org}/repos?type=public&per_page=100", ct)
             ?? throw new InvalidOperationException($"The GitHub organisation '{Org}' was not found.");
 
-        var repos = new List<(string Name, string Description, string Branch)>();
+        var repos = new List<(string Name, string Description, string Branch, string Game)>();
         using (var doc = JsonDocument.Parse(reposJson))
         {
             foreach (var repo in doc.RootElement.EnumerateArray())
@@ -177,16 +185,20 @@ public sealed class GitHubClient
                 // Skip this app's own repo and org meta repos like ".github".
                 if (name.Length == 0 || name.StartsWith('.') || name.Equals(Org, StringComparison.OrdinalIgnoreCase))
                     continue;
-                repos.Add((name, OptionalString(repo, "description") ?? "", OptionalString(repo, "default_branch") ?? "main"));
+                var topics = repo.TryGetProperty("topics", out var t) && t.ValueKind == JsonValueKind.Array
+                    ? t.EnumerateArray().Select(x => x.GetString() ?? "").ToList()
+                    : [];
+                var game = TestGames.TryGetValue(name, out var testGame) ? testGame : GameDefinition.ForTopics(topics);
+                repos.Add((name, OptionalString(repo, "description") ?? "", OptionalString(repo, "default_branch") ?? "main", game));
             }
         }
 
-        var addons = await Task.WhenAll(repos.Select(r => GetAddonAsync(r.Name, r.Description, r.Branch, ct)));
+        var addons = await Task.WhenAll(repos.Select(r => GetAddonAsync(r.Name, r.Description, r.Branch, r.Game, ct)));
         SaveCaches();
         return addons.OfType<RemoteAddon>().OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    async Task<RemoteAddon?> GetAddonAsync(string repo, string description, string branch, CancellationToken ct)
+    async Task<RemoteAddon?> GetAddonAsync(string repo, string description, string branch, string game, CancellationToken ct)
     {
         var releaseTask = GetLatestReleaseAsync(repo, ct);
         var headTask = GetBranchHeadAsync(repo, branch, ct);
@@ -201,7 +213,7 @@ public sealed class GitHubClient
         var author = tocPath is not null && head?.Commit is { } headSha
             ? await GetTocAuthorAsync(repo, headSha, tocPath, ct)
             : null;
-        return new RemoteAddon(repo, description, branch, tocPath, release, head, games) { Author = author };
+        return new RemoteAddon(repo, description, branch, tocPath, release, head, games) { Author = author, Game = game };
     }
 
     async Task<AddonVersion?> GetLatestReleaseAsync(string repo, CancellationToken ct)

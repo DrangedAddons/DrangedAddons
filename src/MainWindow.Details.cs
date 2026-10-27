@@ -209,14 +209,14 @@ public partial class MainWindow
         FillInstallDetails(row);
     }
 
-    async Task ShowSizeAsync(AddonRow row, WowFlavor flavor, int load)
+    async Task ShowSizeAsync(AddonRow row, GameFlavor flavor, int load)
     {
         var folders = InstalledFolders(row, flavor).Select(f => Path.Combine(flavor.AddOnsPath, f)).ToList();
         var bytes = await Task.Run(() => folders.Sum(FolderSize));
         if (load == _detailsLoad && _detailsRow?.Name == row.Name) SizeText.Text = FormatSize(bytes);
     }
 
-    List<string> InstalledFolders(AddonRow row, WowFlavor flavor) =>
+    List<string> InstalledFolders(AddonRow row, GameFlavor flavor) =>
         _manifest.For(flavor.AddOnsPath).GetValueOrDefault(row.Name)?.Folders is { Count: > 0 } folders ? folders : [row.Name];
 
     /// <summary>Bytes in a folder, not counting a Git working copy's .git history.</summary>

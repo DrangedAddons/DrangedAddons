@@ -18,6 +18,8 @@ public partial class MainWindow : Window
 
     List<RemoteAddon> _remote = new();
     readonly Dictionary<string, System.Windows.Media.ImageSource?> _icons = new();
+    /// <summary>The game shown; <see cref="_root"/> is its folder.</summary>
+    GameDefinition _game = GameDefinition.Wow;
     string? _root;
     string? _loadError;
     DateTime? _lastChecked;
@@ -29,6 +31,9 @@ public partial class MainWindow : Window
         DarkTitleBar.Apply(this);
         _updateBannerBackground = UpdateBanner.Background;
         VersionText.Text = $"v{AppUpdater.CurrentVersion}";
+        _settings.Migrate();
+        _game = GameDefinition.Find(_settings.Game) ?? GameDefinition.Wow;
+        LoadRail();
         LoadColumns();
         AddonList.ItemsSource = _rows;
         _view = System.Windows.Data.CollectionViewSource.GetDefaultView(_rows);
@@ -91,18 +96,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Installs available updates for installed addons in every game version. Skips Git working copies and
-    /// versions the user picked on purpose (Versions…).
+    /// Installs available updates for installed addons in every version of every game in the side bar. Skips Git
+    /// working copies and versions the user picked on purpose (Versions).
     /// </summary>
     async Task AutoUpdateAddonsAsync()
     {
         if (!_settings.AutoUpdateAddons || _working || _remote.Count == 0) return;
-        if (FlavorList.ItemsSource is not IEnumerable<FlavorItem> flavors) return;
 
-        var due = new List<(AddonRow Row, WowFlavor Flavor)>();
-        foreach (var flavor in flavors.Select(f => f.Flavor))
+        var due = new List<(AddonRow Row, GameFlavor Flavor)>();
+        foreach (var (game, flavor) in AllFlavors())
         {
-            foreach (var remote in _remote)
+            foreach (var remote in _remote.Where(r => r.Game == game.Id))
             {
                 if (remote.LatestFor(_settings.ShowBeta) is not { } latest) continue;
                 if (_manifest.For(flavor.AddOnsPath).GetValueOrDefault(remote.Name)?.Pinned == true) continue;
@@ -132,7 +136,7 @@ public partial class MainWindow : Window
             ShowBanner($"Updated automatically: {string.Join(", ", done)}", BannerKind.Info, TimeSpan.FromSeconds(12));
         else if (_settings.UpdateNotifications)
             _tray?.Notify(done.Count == 1 ? "Updated automatically" : $"{done.Count} addons updated automatically",
-                summary + "\nIf WoW is running, /reload to load the new version.");
+                summary + "\nIf the game is running, /reload to load the new version.");
     }
 
     // ---- Tabs and search ----------------------------------------------------------------------------------------
@@ -236,10 +240,10 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Window edges and margins, a row's border, padding, tickbox and icon, the Action column and the list's
-    /// scrollbar: everything across a row except the name and the optional columns.
+    /// The game side bar, window edges and margins, a row's border, padding, tickbox and icon, the Action column and
+    /// the list's scrollbar: everything across a row except the name and the optional columns.
     /// </summary>
-    const double RowFixedWidth = 315;
+    const double RowFixedWidth = 64 + 315;
 
     /// <summary>Room for the name column: about 24 characters plus a BETA bubble before it's cut short.</summary>
     const double NameMinWidth = 230;
@@ -523,7 +527,7 @@ public partial class MainWindow : Window
         Storage.Save(SettingsFile, _settings);
     }
 
-    WowFlavor? CurrentFlavor => (FlavorList.SelectedItem as FlavorItem)?.Flavor;
+    GameFlavor? CurrentFlavor => (FlavorList.SelectedItem as FlavorItem)?.Flavor;
 
     /// <summary>Refreshes the "N installed" counts in the game-version drop-down.</summary>
     void UpdateFlavorCounts()
@@ -532,27 +536,35 @@ public partial class MainWindow : Window
         foreach (var item in items)
         {
             var installed = _manifest.For(item.Flavor.AddOnsPath);
-            item.Installed = _remote.Count(addon => Directory.Exists(Path.Combine(item.Flavor.AddOnsPath,
+            item.Installed = _remote.Where(a => a.Game == _game.Id).Count(addon => Directory.Exists(Path.Combine(item.Flavor.AddOnsPath,
                 installed.GetValueOrDefault(addon.Name)?.Folders.FirstOrDefault() ?? addon.Name)));
         }
     }
 
+    /// <summary>The current game's folder (saved, else found) and its versions into the picker.</summary>
     void LoadFlavors()
     {
-        _root = (_settings.WowRoot is { } saved ? WowLocator.NormalizeRoot(saved) : null) ?? WowLocator.FindRoot();
+        var state = _settings.StateFor(_game.Id);
+        _root = RootOf(_game);
+        // Only WoW has versions to pick; for other games the picker would only ever hold the game itself.
+        FlavorList.Visibility = _game.HasVersions ? Visibility.Visible : Visibility.Collapsed;
+        ScanGamesItem.Visibility = ScanGamesMenu.Visibility = _game.HasVersions ? Visibility.Visible : Visibility.Collapsed;
+        UpdateRailIcon(_game);
         if (_root is null)
         {
             FlavorList.ItemsSource = null;
             RebuildRows();
+            UpdateGameLogo();
             return;
         }
 
-        var flavors = WowLocator.GetFlavors(_root).Select(f => new FlavorItem(f)).ToList();
+        var flavors = _game.GetFlavors(_root).Select(f => new FlavorItem(f)).ToList();
         FlavorList.ItemsSource = flavors;
         UpdateFlavorCounts();
-        var wanted = _settings.Flavor ?? WowLocator.RegistryFlavor() ?? "_retail_";
+        var wanted = state.Flavor ?? _game.DefaultFlavor ?? "";
         FlavorList.SelectedItem = flavors.FirstOrDefault(f => f.Flavor.Folder.Equals(wanted, StringComparison.OrdinalIgnoreCase))
                                   ?? flavors.FirstOrDefault();
+        if (flavors.Count == 0) RebuildRows();
     }
 
     /// <summary>
@@ -607,12 +619,13 @@ public partial class MainWindow : Window
         _rows.Clear();
         if (CurrentFlavor is { } flavor)
         {
-            foreach (var remote in _remote)
+            foreach (var remote in _remote.Where(r => r.Game == _game.Id))
             {
                 // Without betas, an addon that has never been tagged has nothing to offer yet.
                 if (remote.LatestFor(_settings.ShowBeta) is not { } latest) continue;
-                // Only in the games it's for - unless it's already in this one (so it can still be managed).
-                if (!remote.IsFor(flavor.Folder) && !IsInstalledIn(remote.Name, flavor)) continue;
+                // Only in the game versions it's for - unless it's already in this one (so it can still be managed).
+                // Games without versions have nothing to match its .toc's list against.
+                if (_game.HasVersions && !remote.IsFor(flavor.Folder) && !IsInstalledIn(remote.Name, flavor)) continue;
                 if (!_icons.TryGetValue(remote.Name, out var icon))
                     _icons[remote.Name] = icon = AddonIcons.LoadCached(remote.Name);
                 var row = new AddonRow(remote, latest) { Icon = icon, IsSelected = _selected.Contains(remote.Name) };
@@ -733,15 +746,15 @@ public partial class MainWindow : Window
             row.Icon = icon;
     }
 
-    bool IsInstalledIn(string name, WowFlavor flavor) =>
+    bool IsInstalledIn(string name, GameFlavor flavor) =>
         _manifest.For(flavor.AddOnsPath).ContainsKey(name)
         || Directory.Exists(Path.Combine(flavor.AddOnsPath, name));
 
-    string MainFolder(AddonRow row, WowFlavor flavor) =>
+    string MainFolder(AddonRow row, GameFlavor flavor) =>
         Path.Combine(flavor.AddOnsPath,
             _manifest.For(flavor.AddOnsPath).GetValueOrDefault(row.Name)?.Folders.FirstOrDefault() ?? row.Name);
 
-    async Task CheckGitAsync(AddonRow row, WowFlavor flavor, bool fetch)
+    async Task CheckGitAsync(AddonRow row, GameFlavor flavor, bool fetch)
     {
         row.SetGit(null, "checking GitHub…");
         try
@@ -756,7 +769,7 @@ public partial class MainWindow : Window
         UpdateSummary();
     }
 
-    async Task PullAsync(AddonRow row, WowFlavor flavor)
+    async Task PullAsync(AddonRow row, GameFlavor flavor)
     {
         StatusText.Text = $"Pulling {row.Name}…";
         row.SetBusy("Pulling…");
@@ -779,7 +792,7 @@ public partial class MainWindow : Window
         await CheckGitAsync(row, flavor, fetch: false);
     }
 
-    void Evaluate(AddonRow row, WowFlavor flavor)
+    void Evaluate(AddonRow row, GameFlavor flavor)
     {
         var installed = _manifest.For(flavor.AddOnsPath);
         installed.TryGetValue(row.Name, out var record);
@@ -820,7 +833,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The installed version in this game folder, or null if it isn't installed.</summary>
-    string? InstalledVersion(AddonRow row, WowFlavor flavor) =>
+    string? InstalledVersion(AddonRow row, GameFlavor flavor) =>
         row.State == AddonState.NotInstalled
             ? null
             : _manifest.For(flavor.AddOnsPath).GetValueOrDefault(row.Name)?.Version
@@ -846,7 +859,7 @@ public partial class MainWindow : Window
         UpdateBulkBar();
 
         var query = SearchBox.Text.Trim();
-        EmptyText.Text = _root is null ? "Pick your World of Warcraft folder to get started."
+        EmptyText.Text = _root is null ? $"Pick your {_game.Name} folder to get started (⋯ → Change game folder…)."
             : _loadError is not null ? _loadError
             : _rows.Count == 0 ? "No addons with a packaged release were found in the DrangedAddons organisation."
             : query.Length > 0 ? $"No addons match “{query}”."
@@ -891,7 +904,7 @@ public partial class MainWindow : Window
     /// <paramref name="pinned"/>: the user chose this version on purpose (Versions…), so auto-update leaves it alone.
     /// <paramref name="quiet"/>: no error dialog (auto-update reports in the status line instead).
     /// </summary>
-    async Task<bool> InstallAsync(AddonRow row, WowFlavor flavor, AddonVersion? version = null, Window? owner = null,
+    async Task<bool> InstallAsync(AddonRow row, GameFlavor flavor, AddonVersion? version = null, Window? owner = null,
         string? verb = null, bool pinned = false, bool quiet = false)
     {
         version ??= row.Latest;
@@ -975,13 +988,13 @@ public partial class MainWindow : Window
     /// Deletes an addon from this game: asks to confirm, then whether to delete its saved settings too
     /// (default no). Everything goes to the Recycle Bin.
     /// </summary>
-    void DeleteAddon(AddonRow row, WowFlavor flavor) => DeleteAddons([row], flavor);
+    void DeleteAddon(AddonRow row, GameFlavor flavor) => DeleteAddons([row], flavor);
 
     /// <summary>
     /// Deletes one or more addons from this game: one confirmation, then one "delete their saved settings too?"
     /// question (default no). Everything goes to the Recycle Bin. Git working copies are skipped.
     /// </summary>
-    void DeleteAddons(IReadOnlyList<AddonRow> rows, WowFlavor flavor)
+    void DeleteAddons(IReadOnlyList<AddonRow> rows, GameFlavor flavor)
     {
         rows = rows.Where(r => r.CanUninstall).ToList();
         if (rows.Count == 0) return;
@@ -996,12 +1009,12 @@ public partial class MainWindow : Window
                 primary: "Delete", secondary: "Cancel", danger: true))
             return;
 
-        var settingsFiles = AddonInstaller.FindSavedVariables(flavor.AddOnsPath, folders);
+        var settingsFiles = _game.FindSavedVariables(flavor.AddOnsPath, folders);
         var whose = rows.Count == 1 ? $"{rows[0].Name}'s" : "their";
         var deleteSettings = settingsFiles.Count > 0 && DarkDialog.Show(this, $"Also delete {whose} saved settings?",
-            $"{settingsFiles.Count} settings file{(settingsFiles.Count == 1 ? "" : "s")} (account-wide and per character) "
+            $"{settingsFiles.Count} settings file{(settingsFiles.Count == 1 ? "" : "s")} "
             + "would be moved to the Recycle Bin. Keep them if you might reinstall later.\n\n"
-            + "If World of Warcraft is running, close it first, or it will write them back when you log out.",
+            + $"If {_game.Name} is running, close it first, or it will write them back when you log out.",
             primary: "Delete settings", secondary: "Keep settings", danger: true, defaultSecondary: true);
 
         foreach (var row in rows)
@@ -1012,7 +1025,7 @@ public partial class MainWindow : Window
                 installed.Remove(row.Name);
                 Storage.Save(ManifestFile, _manifest);
                 if (deleteSettings)
-                    AddonInstaller.RecycleFiles(AddonInstaller.FindSavedVariables(flavor.AddOnsPath, foldersOf[row]));
+                    AddonInstaller.RecycleFiles(_game.FindSavedVariables(flavor.AddOnsPath, foldersOf[row]));
             }
             catch (Exception ex)
             {
@@ -1096,7 +1109,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Runs <paramref name="action"/> on each ticked addon it applies to, one at a time, then clears the selection.</summary>
-    async Task BulkAsync(Func<AddonRow, bool> applies, Func<AddonRow, WowFlavor, Task> action, string verb)
+    async Task BulkAsync(Func<AddonRow, bool> applies, Func<AddonRow, GameFlavor, Task> action, string verb)
     {
         if (_working || CurrentFlavor is not { } flavor) return;
         var rows = SelectedRows.Where(applies).ToList();
@@ -1163,7 +1176,7 @@ public partial class MainWindow : Window
     /// Puts a fresh copy of the installed version back (same release, or the same beta commit), keeping settings.
     /// If the installed version can't be found among the published ones, the latest is installed instead.
     /// </summary>
-    async Task<bool> ReinstallAsync(AddonRow row, WowFlavor flavor, bool quiet = false)
+    async Task<bool> ReinstallAsync(AddonRow row, GameFlavor flavor, bool quiet = false)
     {
         try
         {
@@ -1361,33 +1374,39 @@ public partial class MainWindow : Window
     {
         if (CurrentFlavor is not { } flavor) return;
         if (e.RemovedItems.Count > 0) _selected.Clear(); // a selection belongs to one game version
-        _settings.WowRoot = _root;
-        _settings.Flavor = flavor.Folder;
+        var state = _settings.StateFor(_game.Id);
+        state.Root = _root;
+        state.Flavor = flavor.Folder;
         Storage.Save(SettingsFile, _settings);
         RebuildRows();
     }
 
-    void ChangeFolder_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFolderDialog { Title = "Select your World of Warcraft folder" };
-        if (_root is not null) dialog.InitialDirectory = _root;
-        if (dialog.ShowDialog(this) != true) return;
+    void ChangeFolder_Click(object sender, RoutedEventArgs e) => PickGameFolder();
 
-        var root = WowLocator.NormalizeRoot(dialog.FolderName);
+    /// <summary>Asks for the current game's folder; false if cancelled or it isn't one.</summary>
+    bool PickGameFolder()
+    {
+        var dialog = new OpenFolderDialog { Title = $"Select your {_game.Name} folder" };
+        if (_root is not null) dialog.InitialDirectory = _root;
+        if (dialog.ShowDialog(this) != true) return false;
+
+        var root = _game.NormalizeRoot(dialog.FolderName);
         if (root is null)
         {
-            DarkDialog.Show(this, "That isn't a World of Warcraft folder",
-                "Pick the folder that contains _retail_, _classic_ and so on.");
-            return;
+            DarkDialog.Show(this, $"That isn't a {_game.Name} folder", _game.HasVersions
+                ? "Pick the folder that contains _retail_, _classic_ and so on."
+                : $"Pick the folder that {_game.Name} is installed in.");
+            return false;
         }
-        _settings.WowRoot = root;
+        _settings.StateFor(_game.Id).Root = root;
         Storage.Save(SettingsFile, _settings);
         LoadFlavors();
+        return true;
     }
 
     /// <summary>
-    /// Re-reads the game versions in the current WoW folder (e.g. after installing another one in Battle.net),
-    /// keeping the selected game, and says what changed in the bar.
+    /// Re-reads the game versions in the current game's folder (e.g. after installing another one in Battle.net),
+    /// keeping the selected one, and says what changed in the bar.
     /// </summary>
     void ScanGames_Click(object sender, RoutedEventArgs e)
     {
@@ -1401,21 +1420,21 @@ public partial class MainWindow : Window
                 .FirstOrDefault(i => i.Flavor.Folder == f)?.Flavor.DisplayName ?? f.Trim('_')));
         var added = after.Except(before).ToList();
         var removed = before.Except(after).ToList();
-        var message = _root is null ? "No World of Warcraft folder found. Use “Change WoW folder…” to pick it."
+        var message = _root is null ? $"No {_game.Name} folder found. Use “Change game folder…” to pick it."
             : added.Count > 0 ? $"Found {added.Count} new game version{(added.Count == 1 ? "" : "s")}: {Names(added)}."
-            : removed.Count > 0 ? $"{removed.Count} game version{(removed.Count == 1 ? " is" : "s are")} no longer in the WoW folder: {string.Join(", ", removed.Select(r => r.Trim('_')))}."
+            : removed.Count > 0 ? $"{removed.Count} game version{(removed.Count == 1 ? " is" : "s are")} no longer in the {_game.Name} folder: {string.Join(", ", removed.Select(r => r.Trim('_')))}."
             : $"No new game versions found ({after.Count} in {_root}).";
         ShowBanner(message, BannerKind.Info, TimeSpan.FromSeconds(6));
     }
 
-    /// <summary>The WoW folder isn't shown in the bar (no room); hovering these buttons shows the paths instead.</summary>
+    /// <summary>The game folder isn't shown in the bar (no room); hovering these menu items shows the paths instead.</summary>
     void UpdateFolderTooltips()
     {
         ChangeFolderItem.ToolTip = _root is null
-            ? "No World of Warcraft folder found yet: pick it here."
-            : $"Current WoW folder:\n{_root}";
+            ? $"No {_game.Name} folder found yet: pick it here."
+            : $"Current {_game.Name} folder:\n{_root}";
         ScanGamesItem.ToolTip = _root is null
-            ? "Pick your World of Warcraft folder first (Change WoW folder…)."
+            ? $"Pick your {_game.Name} folder first (Change game folder…)."
             : $"Look in {_root} again for game versions\n(e.g. one you've just installed).";
         OpenFolderItem.ToolTip = CurrentFlavor is { } flavor ? flavor.AddOnsPath : "Pick a game version first.";
     }
@@ -1449,6 +1468,14 @@ public partial class MainWindow : Window
     /// </summary>
     void UpdateGameLogo()
     {
+        if (_game != GameDefinition.Wow)
+        {
+            ShowWordmark(_game.Name, "#F08A3C");
+            return;
+        }
+        GameLogoLine1.Text = "WORLD of";
+        GameLogoLine1.Visibility = Visibility.Visible;
+        GameLogoTitle.Text = "WARCRAFT";
         var folder = CurrentFlavor?.Folder ?? "";
         var (image, tag) = folder switch
         {
@@ -1496,6 +1523,21 @@ public partial class MainWindow : Window
         GameLogoEditionBox.BorderBrush = brush;
         GameLogoEditionBox.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x30, color.R, color.G, color.B));
         GameLogoEditionBox.Visibility = edition.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>A drawn logo for a game without logo art: its name, last word large ("AZEROTH" over "SURVIVORS").</summary>
+    void ShowWordmark(string name, string hex)
+    {
+        var words = name.ToUpperInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        GameLogoLine1.Text = string.Join(' ', words[..^1]);
+        GameLogoLine1.Visibility = words.Length > 1 ? Visibility.Visible : Visibility.Collapsed;
+        GameLogoTitle.Text = words[^1];
+        GameLogoTitle.Foreground = new System.Windows.Media.SolidColorBrush(
+            (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
+        GameLogoImage.Visibility = Visibility.Collapsed;
+        GameLogoText.Visibility = Visibility.Visible;
+        GameLogoEditionBox.Visibility = Visibility.Collapsed;
+        GameLogoTag.Visibility = Visibility.Collapsed;
     }
 
     static HashSet<string> Folders(System.Collections.IEnumerable? items) =>

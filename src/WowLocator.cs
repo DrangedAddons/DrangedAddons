@@ -4,7 +4,7 @@ using Microsoft.Win32;
 
 namespace DrangedAddons;
 
-public sealed record WowFlavor(string Folder, string DisplayName, string AddOnsPath)
+public sealed record GameFlavor(string Folder, string DisplayName, string AddOnsPath)
 {
     public override string ToString() => DisplayName;
 }
@@ -86,9 +86,9 @@ public static class WowLocator
         }
     }
 
-    public static List<WowFlavor> GetFlavors(string root)
+    public static List<GameFlavor> GetFlavors(string root)
     {
-        var flavors = new List<WowFlavor>();
+        var flavors = new List<GameFlavor>();
         try
         {
             foreach (var dir in Directory.EnumerateDirectories(root))
@@ -98,7 +98,7 @@ public static class WowLocator
                 var isGame = Directory.Exists(Path.Combine(dir, "Interface"))
                              || Directory.EnumerateFiles(dir, "Wow*.exe").Any();
                 if (!isGame) continue;
-                flavors.Add(new WowFlavor(name, DisplayName(name), Path.Combine(dir, "Interface", "AddOns")));
+                flavors.Add(new GameFlavor(name, DisplayName(name), Path.Combine(dir, "Interface", "AddOns")));
             }
         }
         catch

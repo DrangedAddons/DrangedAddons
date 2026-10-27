@@ -134,6 +134,37 @@
             </Setter>
         </Style>
 
+        <!-- Game side bar buttons: an icon tile; the selected game (DataContext.IsSelected) gets a gold bar. -->
+        <Style x:Key="RailButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Width" Value="64"/>
+            <Setter Property="Height" Value="58"/>
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid Background="Transparent">
+                            <Border x:Name="Bar" Width="3" HorizontalAlignment="Left" Margin="0,12" CornerRadius="0,2,2,0"
+                                    Background="{StaticResource AccentBrush}" Visibility="Hidden"/>
+                            <Border x:Name="Tile" Width="46" Height="46" CornerRadius="10" Background="Transparent">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Tile" Property="Background" Value="{StaticResource Panel2Brush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                            </Trigger>
+                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                <Setter TargetName="Bar" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="Tile" Property="Background" Value="{StaticResource Panel2Brush}"/>
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Dark scrollbars: a slim rounded thumb on a clear track, no arrow buttons. -->
         <SolidColorBrush x:Key="ScrollThumbBrush" Color="#3A404C"/>
         <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#4E5666"/>

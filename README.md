@@ -5,6 +5,10 @@ A small Windows app that installs and updates World of Warcraft addons published
 
 ## How it works
 
+- **More than one game:** the side bar on the left switches game, and **+** adds another game that has addons in the
+  org. A repo belongs to a game by GitHub topic: `azeroth-survivors` for Azeroth Survivors; repos without a game
+  topic are World of Warcraft addons. Supported games are defined in `src/Games.cs` (where the game is installed,
+  its versions, where addons and their saved settings go).
 - Lists every **public** repo in the org that has a GitHub **release with a `.zip` asset**.
   Pushing a version tag (which runs the repo's release Action) is what makes an update show up.
 - Finds your WoW folder automatically (registry, then common locations). You pick the game version

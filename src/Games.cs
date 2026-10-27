@@ -1,0 +1,155 @@
+using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+
+namespace DrangedAddons;
+
+/// <summary>
+/// A game the app manages addons for: where it's installed, its versions (WoW's _retail_, _classic_era_ …; one for
+/// games without any), where addons go and where their saved settings live. Repos in the org belong to a game by
+/// GitHub topic (<see cref="Id"/>); repos without a game topic are WoW addons.
+/// </summary>
+public abstract class GameDefinition
+{
+    /// <summary>"wow", "azeroth-survivors": also the GitHub topic that marks a repo as this game's.</summary>
+    public abstract string Id { get; }
+    public abstract string Name { get; }
+
+    /// <summary>Whether it has versions to pick between (WoW); otherwise the version picker is hidden.</summary>
+    public virtual bool HasVersions => false;
+
+    /// <summary>Looks in the usual places; null if it isn't found.</summary>
+    public abstract string? FindRoot();
+
+    /// <summary>The game folder for a folder the user picked (the game folder or one inside it), or null if it isn't one.</summary>
+    public abstract string? NormalizeRoot(string path);
+
+    public abstract List<GameFlavor> GetFlavors(string root);
+
+    /// <summary>The version to start on when none was picked before.</summary>
+    public virtual string? DefaultFlavor => null;
+
+    /// <summary>An addon's saved-settings files (to offer deleting them with it).</summary>
+    public abstract List<string> FindSavedVariables(string addOnsPath, IEnumerable<string> folders);
+
+    /// <summary>The program whose icon stands for the game in the side bar.</summary>
+    protected abstract string? IconExe(string root);
+
+    public static readonly GameDefinition Wow = new WowGame();
+    public static readonly GameDefinition[] All = [Wow, new AzerothSurvivorsGame()];
+
+    public static GameDefinition? Find(string? id) => All.FirstOrDefault(g => g.Id == id);
+
+    /// <summary>The game a repo is for, from its GitHub topics; WoW when it has none of the games' topics.</summary>
+    public static string ForTopics(IEnumerable<string> topics) =>
+        All.FirstOrDefault(g => topics.Contains(g.Id, StringComparer.OrdinalIgnoreCase))?.Id ?? Wow.Id;
+
+    /// <summary>The game's own icon, from its program file; null if that can't be read.</summary>
+    public ImageSource? LoadIcon(string? root)
+    {
+        if (root is null || IconExe(root) is not { } exe || !File.Exists(exe)) return null;
+        try
+        {
+            using var icon = System.Drawing.Icon.ExtractIcon(exe, 0, 64);
+            if (icon is null) return null;
+            var image = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            image.Freeze();
+            return image;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Candidate folders on every fixed drive: X:\&lt;each of <paramref name="relative"/>&gt;.</summary>
+    protected static IEnumerable<string> OnEveryDrive(params string[] relative) =>
+        DriveInfo.GetDrives()
+            .Where(d => d.DriveType == DriveType.Fixed && d.IsReady)
+            .SelectMany(d => relative.Select(r => Path.Combine(d.RootDirectory.FullName, r)));
+}
+
+/// <summary>World of Warcraft: one install folder holding a folder per game version (_retail_, _classic_era_, _forever_ …).</summary>
+sealed class WowGame : GameDefinition
+{
+    public override string Id => "wow";
+    public override string Name => "World of Warcraft";
+    public override bool HasVersions => true;
+    public override string? FindRoot() => WowLocator.FindRoot();
+    public override string? NormalizeRoot(string path) => WowLocator.NormalizeRoot(path);
+    public override List<GameFlavor> GetFlavors(string root) => WowLocator.GetFlavors(root);
+    public override string? DefaultFlavor => WowLocator.RegistryFlavor() ?? "_retail_";
+
+    public override List<string> FindSavedVariables(string addOnsPath, IEnumerable<string> folders) =>
+        AddonInstaller.FindSavedVariables(addOnsPath, folders);
+
+    protected override string? IconExe(string root)
+    {
+        var launcher = Path.Combine(root, "World of Warcraft Launcher.exe");
+        if (File.Exists(launcher)) return launcher;
+        try
+        {
+            return WowLocator.GetFlavors(root)
+                .Select(f => Directory.EnumerateFiles(Path.GetDirectoryName(Path.GetDirectoryName(f.AddOnsPath))!, "Wow*.exe").FirstOrDefault())
+                .FirstOrDefault(e => e is not null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>
+/// Azeroth Survivors: AzerothSurvivors.exe with its addons in benilla-config\AddOns (WoW-style folders with a .toc)
+/// and their saved settings in benilla-config\saved\&lt;Addon&gt;.lua. No game versions.
+/// </summary>
+sealed class AzerothSurvivorsGame : GameDefinition
+{
+    const string Exe = "AzerothSurvivors.exe";
+    const string ConfigFolder = "benilla-config";
+
+    public override string Id => "azeroth-survivors";
+    public override string Name => "Azeroth Survivors";
+
+    public override string? FindRoot() =>
+        OnEveryDrive(@"Games\AzerothSurvivors", @"Games\Azeroth Survivors", "AzerothSurvivors", "Azeroth Survivors",
+                @"Program Files\AzerothSurvivors", @"Program Files (x86)\AzerothSurvivors")
+            .Append(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "AzerothSurvivors"))
+            .Select(NormalizeRoot)
+            .FirstOrDefault(r => r is not null);
+
+    /// <summary>The folder with AzerothSurvivors.exe in it: the one picked or one of the (up to three) above it.</summary>
+    public override string? NormalizeRoot(string path)
+    {
+        try
+        {
+            for (var dir = Path.GetFullPath(path.Trim()).TrimEnd('\\', '/'); dir is not null; dir = Path.GetDirectoryName(dir))
+            {
+                if (File.Exists(Path.Combine(dir, Exe))) return dir;
+                if (dir.Count(c => c == '\\') <= 1) break; // don't climb to the drive root
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            // Not a usable path.
+        }
+        return null;
+    }
+
+    public override List<GameFlavor> GetFlavors(string root) =>
+        [new GameFlavor(Id, Name, Path.Combine(root, ConfigFolder, "AddOns"))];
+
+    public override List<string> FindSavedVariables(string addOnsPath, IEnumerable<string> folders)
+    {
+        var saved = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(addOnsPath).TrimEnd('\\', '/'))!, "saved");
+        if (!Directory.Exists(saved)) return [];
+        var names = folders.SelectMany(f => new[] { f + ".lua", f + ".lua.bak" }).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Directory.EnumerateFiles(saved, "*", SearchOption.AllDirectories)
+            .Where(f => names.Contains(Path.GetFileName(f)))
+            .ToList();
+    }
+
+    protected override string? IconExe(string root) => Path.Combine(root, Exe);
+}

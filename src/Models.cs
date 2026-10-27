@@ -6,8 +6,31 @@ namespace DrangedAddons;
 
 public sealed class AppSettings
 {
+    /// <summary>Before games: WoW's folder and version. Moved into <see cref="GameStates"/>["wow"] on load.</summary>
     public string? WowRoot { get; set; }
     public string? Flavor { get; set; }
+
+    /// <summary>The game shown (a <see cref="GameDefinition.Id"/>).</summary>
+    public string Game { get; set; } = "wow";
+
+    /// <summary>The games in the side bar, in order.</summary>
+    public List<string> Games { get; set; } = ["wow"];
+
+    /// <summary>Each game's folder and selected version.</summary>
+    public Dictionary<string, GameState> GameStates { get; set; } = new();
+
+    public GameState StateFor(string game) =>
+        GameStates.TryGetValue(game, out var state) ? state : GameStates[game] = new GameState();
+
+    /// <summary>Moves settings saved before games existed into WoW's entry.</summary>
+    public void Migrate()
+    {
+        if (WowRoot is null && Flavor is null) return;
+        var wow = StateFor("wow");
+        wow.Root ??= WowRoot;
+        wow.Flavor ??= Flavor;
+        WowRoot = Flavor = null;
+    }
     public bool ShowBeta { get; set; }
     public bool CloseToTray { get; set; } = true;
     /// <summary>"my" or "browse"; null until chosen (then: My Addons if anything's installed, else Browse).</summary>
@@ -18,6 +41,12 @@ public sealed class AppSettings
     public bool TrayTipShown { get; set; }
     /// <summary>Optional list columns shown, in order (ListColumn keys); null = the default set.</summary>
     public List<string>? Columns { get; set; }
+}
+
+public sealed class GameState
+{
+    public string? Root { get; set; }
+    public string? Flavor { get; set; }
 }
 
 public sealed class InstalledRecord
@@ -75,6 +104,9 @@ public sealed record RemoteAddon(
     /// <summary>"## Author:" from the addon's .toc, when it has one.</summary>
     public string? Author { get; init; }
 
+    /// <summary>The game it's for (a <see cref="GameDefinition.Id"/>, from the repo's GitHub topics).</summary>
+    public string Game { get; init; } = GameDefinition.Wow.Id;
+
     /// <summary>Whether it's for this game-version folder: listed in its .toc, or no games listed at all.</summary>
     public bool IsFor(string flavorFolder) =>
         Games.Count == 0 || Games.Contains(flavorFolder, StringComparer.OrdinalIgnoreCase);
@@ -88,13 +120,13 @@ public sealed record RemoteAddon(
 }
 
 /// <summary>A game version in the drop-down, labelled with how many DrangedAddons addons it has installed.</summary>
-public sealed class FlavorItem(WowFlavor flavor) : INotifyPropertyChanged
+public sealed class FlavorItem(GameFlavor flavor) : INotifyPropertyChanged
 {
     int _installed;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public WowFlavor Flavor { get; } = flavor;
+    public GameFlavor Flavor { get; } = flavor;
 
     public int Installed
     {

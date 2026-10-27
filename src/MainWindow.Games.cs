@@ -70,7 +70,7 @@ public partial class MainWindow
 
         _rail.Clear();
         foreach (var game in _settings.Games.Select(id => GameDefinition.Find(id)!))
-            _rail.Add(new RailGame(game) { Icon = game.LoadIcon(RootOf(game)) });
+            _rail.Add(new RailGame(game) { Icon = RailIcon(game) });
         GameRail.ItemsSource = _rail;
         UpdateRailSelection();
         NoGamesPanel.Visibility = NoGames ? Visibility.Visible : Visibility.Collapsed;
@@ -91,11 +91,26 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>After a game's folder is found or changed: its icon comes from the program in it.</summary>
+    /// <summary>After a game's folder or version changes: its side bar icon follows (see <see cref="RailIcon"/>).</summary>
     void UpdateRailIcon(GameDefinition game)
     {
-        if (_rail.FirstOrDefault(r => r.Game == game) is { } item && game.LoadIcon(_root) is { } icon)
+        if (_rail.FirstOrDefault(r => r.Game == game) is { } item && RailIcon(game) is { } icon)
             item.Icon = icon;
+    }
+
+    /// <summary>
+    /// A game's side bar icon: for a game with versions, the icon of the version last picked for it (WoW: Forever's,
+    /// Classic's …, as in the version picker); otherwise, or if that version has none, the game's own icon.
+    /// </summary>
+    ImageSource? RailIcon(GameDefinition game)
+    {
+        var root = RootOf(game);
+        if (game.HasVersions && root is not null
+            && (_settings.StateFor(game.Id).Flavor ?? game.DefaultFlavor) is { } folder
+            && game.GetFlavors(root).FirstOrDefault(f => f.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)) is { } flavor
+            && game.FlavorIcon(root, flavor) is { } icon)
+            return icon;
+        return game.LoadIcon(root);
     }
 
     /// <summary>A game's folder: the one saved for it if it's still there, else wherever it's found.</summary>

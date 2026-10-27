@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.25.2
+## 0.25.3
 - **Play** (a small ▶ next to the game version, like CurseForge's): starts the game from the app.
   - WoW goes through Battle.net, the same way Battle.net's own desktop shortcuts do
     (`World of Warcraft Launcher.exe --productcode=…`), so you're signed in and the version you've picked at the top
@@ -11,6 +11,7 @@
 - The WoW version picker shows each version's icon: Battle.net's version icons (Retail gold, Classic MoP jade,
   Classic Era Hardcore grey, Anniversary BC green) and Forever's own program icon. PTRs and betas show their live
   version's, like the big logos (Classic Beta shows Forever's).
+- WoW's side bar icon is the icon of the version picked for it, and changes when you pick another.
 - When none of a game's addons support the picked WoW version, the list says so, instead of saying no addons were
   found at all.
 

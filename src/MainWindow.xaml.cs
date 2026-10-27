@@ -1391,6 +1391,7 @@ public partial class MainWindow : Window
         state.Root = _root;
         state.Flavor = flavor.Folder;
         Storage.Save(SettingsFile, _settings);
+        UpdateRailIcon(_game);
         RebuildRows();
     }
 

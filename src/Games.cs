@@ -69,17 +69,23 @@ public abstract class GameDefinition
     /// </summary>
     public ImageSource? LoadIcon(string? root)
     {
+        if (Bundled($"gameicons/{Id}.png") is { } bundled) return bundled;
+        return root is not null && IconExe(root) is { } exe ? ExeIcon(exe, 64) : null;
+    }
+
+    /// <summary>An image bundled with the app (e.g. "gameicons/wow.png"); null if there isn't one.</summary>
+    protected static ImageSource? Bundled(string path)
+    {
         try
         {
-            var bundled = new BitmapImage(new Uri($"pack://application:,,,/gameicons/{Id}.png"));
-            bundled.Freeze();
-            return bundled;
+            var image = new BitmapImage(new Uri($"pack://application:,,,/{path}"));
+            image.Freeze();
+            return image;
         }
         catch (IOException)
         {
-            // No bundled icon for this game: read it from the game.
+            return null;
         }
-        return root is not null && IconExe(root) is { } exe ? ExeIcon(exe, 64) : null;
     }
 
     static readonly Dictionary<(string, int), ImageSource?> ExeIcons = new();
@@ -148,12 +154,13 @@ sealed class WowGame : GameDefinition
     }
 
     /// <summary>
-    /// The game program's icon, chosen like the big logos: PTRs and betas show their live version's (Classic Beta
-    /// shows Forever's), falling back to their own program's when that version isn't installed.
+    /// Battle.net's icon for the version (versionicons\, chosen like the big logos: PTRs and betas show their live
+    /// version's, Classic Beta shows Forever's). Versions without one show their game program's icon.
     /// </summary>
     public override ImageSource? FlavorIcon(string root, GameFlavor flavor) =>
-        (VersionExe(Path.Combine(root, WowLocator.LookAlike(flavor.Folder))) ?? VersionExe(Path.Combine(root, flavor.Folder)))
-            is { } exe ? ExeIcon(exe, 32) : null;
+        WowLocator.ArtKey(flavor.Folder) is { } key && Bundled($"versionicons/{key}.png") is { } icon ? icon
+        : VersionExe(Path.Combine(root, flavor.Folder)) is { } exe ? ExeIcon(exe, 32)
+        : null;
 
     /// <summary>A version folder's game program (Wow.exe, WowClassic.exe, WowB.exe …); null if there isn't one.</summary>
     static string? VersionExe(string folder)

@@ -121,6 +121,20 @@ public static class WowLocator
         _ => folder,
     };
 
+    /// <summary>
+    /// The art a version uses, named as in logos\ and versionicons\ ("retail", "classic", "era", "anniversary",
+    /// "forever"); null for versions without any.
+    /// </summary>
+    public static string? ArtKey(string folder) => LookAlike(folder) switch
+    {
+        "_retail_" or "" => "retail",
+        "_classic_" => "classic",
+        "_classic_era_" => "era",
+        "_anniversary_" => "anniversary",
+        "_forever_" => "forever",
+        _ => null,
+    };
+
     /// <summary>Battle.net product codes for installs without a .flavor.info.</summary>
     static readonly Dictionary<string, string> KnownProducts = new(StringComparer.OrdinalIgnoreCase)
     {

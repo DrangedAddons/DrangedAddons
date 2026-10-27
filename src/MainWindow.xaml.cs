@@ -1521,15 +1521,7 @@ public partial class MainWindow : Window
         GameLogoLine1.Visibility = Visibility.Visible;
         GameLogoTitle.Text = "WARCRAFT";
         var folder = CurrentFlavor?.Folder ?? "";
-        var image = WowLocator.LookAlike(folder) switch
-        {
-            "_retail_" or "" => "retail",
-            "_classic_" => "classic",
-            "_classic_era_" => "era",
-            "_anniversary_" => "anniversary",
-            "_forever_" => "forever",
-            _ => null,
-        };
+        var image = WowLocator.ArtKey(folder);
         var tag = folder switch
         {
             "_ptr_" or "_classic_ptr_" or "_classic_era_ptr_" => "PTR",

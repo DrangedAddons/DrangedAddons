@@ -129,6 +129,9 @@ public sealed class FlavorItem(GameFlavor flavor) : INotifyPropertyChanged
 
     public GameFlavor Flavor { get; } = flavor;
 
+    /// <summary>The version's small icon in the picker (the game program's); null for none.</summary>
+    public ImageSource? Icon { get; init; }
+
     public int Installed
     {
         get => _installed;

@@ -51,6 +51,9 @@ public abstract class GameDefinition
     /// <summary>How to start <paramref name="flavor"/> of the game (Play); null if its program isn't there.</summary>
     public abstract GameLaunch? GetLaunch(string root, GameFlavor flavor);
 
+    /// <summary>A small icon for <paramref name="flavor"/> in the version picker; null for none.</summary>
+    public virtual ImageSource? FlavorIcon(string root, GameFlavor flavor) => null;
+
     public static readonly GameDefinition Wow = new WowGame();
     public static readonly GameDefinition[] All = [Wow, new AzerothSurvivorsGame()];
 
@@ -76,10 +79,24 @@ public abstract class GameDefinition
         {
             // No bundled icon for this game: read it from the game.
         }
-        if (root is null || IconExe(root) is not { } exe || !File.Exists(exe)) return null;
+        return root is not null && IconExe(root) is { } exe ? ExeIcon(exe, 64) : null;
+    }
+
+    static readonly Dictionary<(string, int), ImageSource?> ExeIcons = new();
+
+    /// <summary>The icon in <paramref name="exe"/>, at the size nearest <paramref name="size"/>; null if there isn't one.</summary>
+    protected static ImageSource? ExeIcon(string exe, int size)
+    {
+        if (ExeIcons.TryGetValue((exe, size), out var cached)) return cached;
+        return ExeIcons[(exe, size)] = ReadExeIcon(exe, size);
+    }
+
+    static ImageSource? ReadExeIcon(string exe, int size)
+    {
+        if (!File.Exists(exe)) return null;
         try
         {
-            using var icon = System.Drawing.Icon.ExtractIcon(exe, 0, 64);
+            using var icon = System.Drawing.Icon.ExtractIcon(exe, 0, size);
             if (icon is null) return null;
             var image = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
             image.Freeze();
@@ -127,14 +144,29 @@ sealed class WowGame : GameDefinition
         var launcher = Path.Combine(root, "World of Warcraft Launcher.exe");
         if (File.Exists(launcher) && WowLocator.ProductCode(folder) is { } product)
             return new GameLaunch(launcher, $"--productcode={product}", "through Battle.net");
+        return VersionExe(folder) is { } exe ? new GameLaunch(exe, "", "with " + Path.GetFileName(exe)) : null;
+    }
+
+    /// <summary>
+    /// The game program's icon, chosen like the big logos: PTRs and betas show their live version's (Classic Beta
+    /// shows Forever's), falling back to their own program's when that version isn't installed.
+    /// </summary>
+    public override ImageSource? FlavorIcon(string root, GameFlavor flavor) =>
+        (VersionExe(Path.Combine(root, WowLocator.LookAlike(flavor.Folder))) ?? VersionExe(Path.Combine(root, flavor.Folder)))
+            is { } exe ? ExeIcon(exe, 32) : null;
+
+    /// <summary>A version folder's game program (Wow.exe, WowClassic.exe, WowB.exe …); null if there isn't one.</summary>
+    static string? VersionExe(string folder)
+    {
         try
         {
-            return Directory.EnumerateFiles(folder, "Wow*.exe")
-                .Where(f => !Path.GetFileName(f).Contains("Voice", StringComparison.OrdinalIgnoreCase)
-                            && !Path.GetFileName(f).Contains("Error", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(f => Path.GetFileName(f).Length)
-                .Select(exe => new GameLaunch(exe, "", "with " + Path.GetFileName(exe)))
-                .FirstOrDefault();
+            return Directory.Exists(folder)
+                ? Directory.EnumerateFiles(folder, "Wow*.exe")
+                    .Where(f => !Path.GetFileName(f).Contains("Voice", StringComparison.OrdinalIgnoreCase)
+                                && !Path.GetFileName(f).Contains("Error", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(f => Path.GetFileName(f).Length)
+                    .FirstOrDefault()
+                : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

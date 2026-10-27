@@ -8,6 +8,8 @@
     `wowf` …).
   - Games without versions start their own program (Azeroth Survivors: `AzerothSurvivors.exe`).
   - Greyed out, with a tooltip saying why, when the picked version isn't installed in the game folder.
+- The WoW version picker shows each version's icon, taken from its game program. PTRs and betas show their live
+  version's, like the big logos (Classic Beta shows Forever's).
 - When none of a game's addons support the picked WoW version, the list says so, instead of saying no addons were
   found at all.
 

@@ -108,6 +108,19 @@ public static class WowLocator
         return flavors.OrderBy(f => f.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>
+    /// The version whose art (logo, icon) a version uses: PTRs and betas look like their live version; Classic Beta
+    /// looks like Forever, whose beta ran in that folder.
+    /// </summary>
+    public static string LookAlike(string folder) => folder.ToLowerInvariant() switch
+    {
+        "_ptr_" or "_xptr_" or "_beta_" => "_retail_",
+        "_classic_ptr_" => "_classic_",
+        "_classic_beta_" => "_forever_",
+        "_classic_era_ptr_" => "_classic_era_",
+        _ => folder,
+    };
+
     /// <summary>Battle.net product codes for installs without a .flavor.info.</summary>
     static readonly Dictionary<string, string> KnownProducts = new(StringComparer.OrdinalIgnoreCase)
     {

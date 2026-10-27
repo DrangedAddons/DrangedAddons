@@ -565,7 +565,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        var flavors = _game.GetFlavors(_root).Select(f => new FlavorItem(f)).ToList();
+        var root = _root;
+        var flavors = _game.GetFlavors(root).Select(f => new FlavorItem(f) { Icon = _game.FlavorIcon(root, f) }).ToList();
         FlavorList.ItemsSource = flavors;
         UpdateFlavorCounts();
         var wanted = state.Flavor ?? _game.DefaultFlavor ?? "";
@@ -1520,20 +1521,21 @@ public partial class MainWindow : Window
         GameLogoLine1.Visibility = Visibility.Visible;
         GameLogoTitle.Text = "WARCRAFT";
         var folder = CurrentFlavor?.Folder ?? "";
-        var (image, tag) = folder switch
+        var image = WowLocator.LookAlike(folder) switch
         {
-            "_retail_" or "" => ("retail", ""),
-            "_ptr_" => ("retail", "PTR"),
-            "_xptr_" => ("retail", "XPTR"),
-            "_beta_" => ("retail", "BETA"),
-            "_classic_" => ("classic", ""),
-            "_classic_ptr_" => ("classic", "PTR"),
-            "_classic_beta_" => ("forever", "BETA"), // the WoW Forever beta ran in this folder
-            "_classic_era_" => ("era", ""),
-            "_classic_era_ptr_" => ("era", "PTR"),
-            "_anniversary_" => ("anniversary", ""),
-            "_forever_" => ("forever", ""),
-            _ => (null, ""),
+            "_retail_" or "" => "retail",
+            "_classic_" => "classic",
+            "_classic_era_" => "era",
+            "_anniversary_" => "anniversary",
+            "_forever_" => "forever",
+            _ => null,
+        };
+        var tag = folder switch
+        {
+            "_ptr_" or "_classic_ptr_" or "_classic_era_ptr_" => "PTR",
+            "_xptr_" => "XPTR",
+            "_beta_" or "_classic_beta_" => "BETA",
+            _ => "",
         };
         GameLogoImage.Source = image is null ? null
             : new System.Windows.Media.Imaging.BitmapImage(new Uri($"pack://application:,,,/logos/{image}.png"));

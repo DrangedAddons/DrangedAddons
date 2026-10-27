@@ -66,9 +66,6 @@
             <Button x:Name="AddGameButton" Style="{StaticResource RailButton}" Click="AddGame_Click" ToolTip="Add a game">
                 <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="18"
                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                <Button.ContextMenu>
-                    <ContextMenu Placement="Right"/>
-                </Button.ContextMenu>
             </Button>
         </StackPanel>
     </Border>

@@ -133,32 +133,19 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// + lists the games the app knows that have at least one addon in the org and aren't in the side bar yet.
+    /// + opens the "Add a game" window: every game the app supports, with its addons in the org and where it's
+    /// installed. Games already in the side bar show as added; games with no addons yet can't be added.
     /// </summary>
     void AddGame_Click(object sender, RoutedEventArgs e)
     {
-        var menu = AddGameButton.ContextMenu;
-        menu.Items.Clear();
-        var available = GameDefinition.All
-            .Where(g => !_settings.Games.Contains(g.Id))
-            .Select(g => (Game: g, Addons: _remote.Count(r => r.Game == g.Id)))
-            .Where(x => x.Addons > 0)
-            .ToList();
-        foreach (var (game, addons) in available)
+        var cards = GameDefinition.All.Select(game =>
         {
-            var item = new MenuItem { Header = $"{game.Name}  ({addons} addon{(addons == 1 ? "" : "s")})" };
-            item.Click += (_, _) => AddGame(game);
-            menu.Items.Add(item);
-        }
-        if (available.Count == 0)
-            menu.Items.Add(new MenuItem
-            {
-                Header = _remote.Count == 0 ? "Checking GitHub for addons…" : "No other games have addons yet",
-                IsEnabled = false,
-            });
-        menu.PlacementTarget = AddGameButton;
-        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Right;
-        menu.IsOpen = true;
+            var root = RootOf(game);
+            return new GameCard(game, game.LoadIcon(root), _remote.Count(r => r.Game == game.Id),
+                _settings.Games.Contains(game.Id), root);
+        });
+        var window = new AddGameWindow(cards) { Owner = this };
+        if (window.ShowDialog() == true && window.Chosen is { } chosen) AddGame(chosen);
     }
 
     void AddGame(GameDefinition game)

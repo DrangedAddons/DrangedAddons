@@ -16,6 +16,9 @@ public abstract class GameDefinition
     public abstract string Id { get; }
     public abstract string Name { get; }
 
+    /// <summary>A line or two about the game and its addons, for the "Add a game" window.</summary>
+    public abstract string Description { get; }
+
     /// <summary>Whether it has versions to pick between (WoW); otherwise the version picker is hidden.</summary>
     public virtual bool HasVersions => false;
 
@@ -75,6 +78,8 @@ sealed class WowGame : GameDefinition
 {
     public override string Id => "wow";
     public override string Name => "World of Warcraft";
+    public override string Description =>
+        "Retail, Classic, Anniversary, Forever and the rest. Each game version has its own addons, picked at the top.";
     public override bool HasVersions => true;
     public override string? FindRoot() => WowLocator.FindRoot();
     public override string? NormalizeRoot(string path) => WowLocator.NormalizeRoot(path);
@@ -112,6 +117,8 @@ sealed class AzerothSurvivorsGame : GameDefinition
 
     public override string Id => "azeroth-survivors";
     public override string Name => "Azeroth Survivors";
+    public override string Description =>
+        "Its addons work like WoW's: folders with a .toc, in benilla-config\\AddOns inside the game folder.";
 
     public override string? FindRoot() =>
         OnEveryDrive(@"Games\AzerothSurvivors", @"Games\Azeroth Survivors", "AzerothSurvivors", "Azeroth Survivors",

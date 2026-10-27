@@ -4,9 +4,10 @@
 - **More than one game.** A side bar on the left holds a button per game (with the game's own icon); click one to
   switch, and everything (list, versions, folder, settings) follows that game. Each game remembers its own folder
   and version. Right-click a game to remove it from the side bar.
-- **+** in the side bar opens **Add a game**: every supported game with its icon, a description, how many addons it
-  has and where it was found on your PC. Games with addons can be added; if one isn't found in the usual places,
-  you're asked where it's installed.
+- **+** in the side bar opens **Add a game**: a searchable grid of every supported game with its icon, a
+  description and how many addons it has. **Add** then asks where the game is installed, filled in with the folder
+  found on your PC (or the usual place), with Browse… and a check that the game really is there.
+- Each game in the side bar shows its own icon (bundled with the app, so it's there before the game is found).
 - **Azeroth Survivors** is the first game after WoW: addons go in `benilla-config\AddOns` and their saved settings
   live in `benilla-config\saved`. It has no versions, so the version picker is hidden for it. It shows up under +
   once its first addon is published.

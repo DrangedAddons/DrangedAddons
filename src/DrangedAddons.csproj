@@ -20,6 +20,7 @@
     <!-- Header logo; regenerate with tools/make_icon.py alongside app.ico -->
     <Resource Include="logo.png" />
     <Resource Include="logos\*.png" />
+    <Resource Include="gameicons\*.png" />
     <!-- Tray icon -->
     <Resource Include="app.ico" />
     <Using Remove="System.Windows.Forms" />

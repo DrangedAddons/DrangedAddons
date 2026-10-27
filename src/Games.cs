@@ -25,6 +25,12 @@ public abstract class GameDefinition
     /// <summary>Looks in the usual places; null if it isn't found.</summary>
     public abstract string? FindRoot();
 
+    /// <summary>Where it's usually installed: suggested when it isn't found.</summary>
+    public abstract string TypicalRoot { get; }
+
+    /// <summary>What a folder needs to be this game's: shown when the folder picked isn't.</summary>
+    public abstract string FolderHint { get; }
+
     /// <summary>The game folder for a folder the user picked (the game folder or one inside it), or null if it isn't one.</summary>
     public abstract string? NormalizeRoot(string path);
 
@@ -48,9 +54,22 @@ public abstract class GameDefinition
     public static string ForTopics(IEnumerable<string> topics) =>
         All.FirstOrDefault(g => topics.Contains(g.Id, StringComparer.OrdinalIgnoreCase))?.Id ?? Wow.Id;
 
-    /// <summary>The game's own icon, from its program file; null if that can't be read.</summary>
+    /// <summary>
+    /// The game's icon: the one bundled with the app (gameicons\&lt;Id&gt;.png, taken from the game's program), else
+    /// read from the game's program file; null if neither is there.
+    /// </summary>
     public ImageSource? LoadIcon(string? root)
     {
+        try
+        {
+            var bundled = new BitmapImage(new Uri($"pack://application:,,,/gameicons/{Id}.png"));
+            bundled.Freeze();
+            return bundled;
+        }
+        catch (IOException)
+        {
+            // No bundled icon for this game: read it from the game.
+        }
         if (root is null || IconExe(root) is not { } exe || !File.Exists(exe)) return null;
         try
         {
@@ -82,6 +101,8 @@ sealed class WowGame : GameDefinition
         "Retail, Classic, Anniversary, Forever and the rest. Each game version has its own addons, picked at the top.";
     public override bool HasVersions => true;
     public override string? FindRoot() => WowLocator.FindRoot();
+    public override string TypicalRoot => @"C:\Program Files (x86)\World of Warcraft";
+    public override string FolderHint => "Pick the World of Warcraft folder: the one with _retail_, _classic_ and so on in it.";
     public override string? NormalizeRoot(string path) => WowLocator.NormalizeRoot(path);
     public override List<GameFlavor> GetFlavors(string root) => WowLocator.GetFlavors(root);
     public override string? DefaultFlavor => WowLocator.RegistryFlavor() ?? "_retail_";
@@ -119,6 +140,9 @@ sealed class AzerothSurvivorsGame : GameDefinition
     public override string Name => "Azeroth Survivors";
     public override string Description =>
         "Its addons work like WoW's: folders with a .toc, in benilla-config\\AddOns inside the game folder.";
+
+    public override string TypicalRoot => @"C:\Games\AzerothSurvivors";
+    public override string FolderHint => $"Pick the folder with {Exe} in it.";
 
     public override string? FindRoot() =>
         OnEveryDrive(@"Games\AzerothSurvivors", @"Games\Azeroth Survivors", "AzerothSurvivors", "Azeroth Survivors",

@@ -145,16 +145,16 @@ public partial class MainWindow
                 _settings.Games.Contains(game.Id), root);
         });
         var window = new AddGameWindow(cards) { Owner = this };
-        if (window.ShowDialog() == true && window.Chosen is { } chosen) AddGame(chosen);
+        if (window.ShowDialog() == true && window is { Chosen: { } chosen, ChosenRoot: { } root }) AddGame(chosen, root);
     }
 
-    void AddGame(GameDefinition game)
+    void AddGame(GameDefinition game, string root)
     {
         if (_settings.Games.Contains(game.Id)) return;
         _settings.Games.Add(game.Id);
+        _settings.StateFor(game.Id).Root = root;
         Storage.Save(SettingsFile, _settings);
         LoadRail();
         SwitchGame(game);
-        if (_root is null) PickGameFolder(); // not found in the usual places: ask where it is
     }
 }

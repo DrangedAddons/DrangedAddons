@@ -12,8 +12,13 @@
                 <TextBlock Text="Add a game" FontSize="20" FontWeight="SemiBold"/>
                 <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,14"
                            Text="Games DrangedAddons supports. Adding one puts it in the side bar, where you can switch to it; its addons show there as they're published."/>
-                <TextBox x:Name="SearchBox" Style="{StaticResource SearchBox}" Height="36" FontSize="14" Margin="0,0,0,16"
-                         Tag="Search games…" TextChanged="Search_TextChanged"/>
+                <DockPanel Margin="0,0,0,16">
+                    <CheckBox x:Name="HideAddedCheck" DockPanel.Dock="Right" Content="Hide games already added" IsChecked="True"
+                              VerticalAlignment="Center" Margin="14,0,0,0" Foreground="{StaticResource MutedBrush}"
+                              Checked="Filter_Changed" Unchecked="Filter_Changed"/>
+                    <TextBox x:Name="SearchBox" Style="{StaticResource SearchBox}" Height="36" FontSize="14"
+                             Tag="Search games…" TextChanged="Search_TextChanged"/>
+                </DockPanel>
             </StackPanel>
             <Button DockPanel.Dock="Bottom" Content="Close" Style="{StaticResource Btn}" MinWidth="90" HorizontalAlignment="Right"
                     Margin="0,16,0,0" IsCancel="True"/>

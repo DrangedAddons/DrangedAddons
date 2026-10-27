@@ -59,18 +59,26 @@ public partial class AddGameWindow : Window
         InitializeComponent();
         DarkTitleBar.Apply(this);
         _games = games.ToList();
-        GameList.ItemsSource = _games;
+        ApplyFilter();
         Loaded += (_, _) => SearchBox.Focus();
     }
 
-    /// <summary>Shows the games whose name or description has every word typed.</summary>
-    void Search_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    void Search_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => ApplyFilter();
+    void Filter_Changed(object sender, RoutedEventArgs e) => ApplyFilter();
+
+    /// <summary>Shows the games whose name or description has every word typed, leaving out added ones when ticked.</summary>
+    void ApplyFilter()
     {
+        if (!IsInitialized) return;
         var words = SearchBox.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var hideAdded = HideAddedCheck.IsChecked == true;
         var shown = _games
+            .Where(g => !(hideAdded && !g.CanAdd))
             .Where(g => words.All(w => $"{g.Name} {g.Description}".Contains(w, StringComparison.OrdinalIgnoreCase)))
             .ToList();
         GameList.ItemsSource = shown;
+        NoMatchText.Text = words.Length > 0 ? "No games match your search."
+            : "Every supported game is already in your side bar.";
         NoMatchText.Visibility = shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 

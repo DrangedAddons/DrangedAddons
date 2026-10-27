@@ -3,6 +3,7 @@
 ## 0.24.1
 - Any supported game can be added from **Add a game**, even before it has addons; they show up in its list as
   they're published. Its page says when none have been published yet.
+- **Hide games already added** (ticked by default) next to the search box in Add a game.
 
 ## 0.24.0
 - **More than one game.** A side bar on the left holds a button per game (with the game's own icon); click one to

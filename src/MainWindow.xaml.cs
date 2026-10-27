@@ -623,6 +623,7 @@ public partial class MainWindow : Window
 
     void RebuildRows()
     {
+        UpdatePlayButton();
         _rows.Clear();
         if (CurrentFlavor is { } flavor)
         {
@@ -870,7 +871,9 @@ public partial class MainWindow : Window
             : _loadError is not null ? _loadError
             : _rows.Count == 0 && _remote.Count > 0 && !_remote.Any(r => r.Game == _game.Id)
                 ? $"No {_game.Name} addons have been published yet."
-            : _rows.Count == 0 ? "No addons with a packaged release were found in the DrangedAddons organisation."
+            : _rows.Count == 0 && _remote.Any(r => r.Game == _game.Id)
+                ? $"None of the {_game.Name} addons support {CurrentFlavor?.DisplayName ?? "this version"} yet."
+            : _rows.Count == 0 ?"No addons with a packaged release were found in the DrangedAddons organisation."
             : query.Length > 0 ? $"No addons match “{query}”."
             : _filter is not null ? $"No addons match the filter “{_filterLabel}”."
             : $"Nothing installed for {CurrentFlavor?.DisplayName ?? "this game"} yet. Find addons in Browse.";
@@ -1388,6 +1391,36 @@ public partial class MainWindow : Window
         state.Flavor = flavor.Folder;
         Storage.Save(SettingsFile, _settings);
         RebuildRows();
+    }
+
+    /// <summary>How Play would start the picked game version; null if there's nothing to start.</summary>
+    GameLaunch? CurrentLaunch => !NoGames && _root is { } root && CurrentFlavor is { } flavor ? _game.GetLaunch(root, flavor) : null;
+
+    void UpdatePlayButton()
+    {
+        var launch = CurrentLaunch;
+        var what = _game.HasVersions && CurrentFlavor is { } flavor ? $"{_game.Name} {flavor.DisplayName}" : _game.Name;
+        PlayButton.Visibility = NoGames ? Visibility.Collapsed : Visibility.Visible;
+        PlayButton.IsEnabled = launch is not null;
+        PlayButton.ToolTip = launch is not null ? $"Start {what} {launch.How}" : $"{what} isn't installed in the game folder";
+    }
+
+    void Play_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentLaunch is not { } launch) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(launch.Exe, launch.Arguments)
+            {
+                WorkingDirectory = Path.GetDirectoryName(launch.Exe)!,
+                UseShellExecute = true,
+            })?.Dispose();
+            StatusText.Text = $"Starting {(_game.HasVersions ? CurrentFlavor?.DisplayName : _game.Name)} {launch.How}…";
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            DarkDialog.Show(this, $"Couldn't start {_game.Name}", ex.Message);
+        }
     }
 
     void ChangeFolder_Click(object sender, RoutedEventArgs e) => PickGameFolder();

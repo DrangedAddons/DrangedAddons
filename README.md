@@ -12,7 +12,10 @@ A small Windows app that installs and updates World of Warcraft addons published
 - Lists every **public** repo in the org that has a GitHub **release with a `.zip` asset**.
   Pushing a version tag (which runs the repo's release Action) is what makes an update show up.
 - Finds your WoW folder automatically (registry, then common locations). You pick the game version
-  (Retail, Classic Era, Anniversary, …) with the tabs.
+  (Retail, Classic Era, Anniversary, …) at the top.
+- **Play** starts the picked game version. WoW goes through Battle.net, like its desktop shortcuts:
+  `World of Warcraft Launcher.exe --productcode=<product>`, with the product read from the version folder's
+  `.flavor.info`. Other games start their own program (`GameDefinition.GetLaunch`).
 - **Install / Update** downloads the release zip, stages it in `Interface\.DrangedAddons-staging`, then swaps
   the addon folders into `Interface\AddOns`. If anything fails, the old folders are put back.
   SavedVariables live in `WTF\`, so addon settings are never touched.

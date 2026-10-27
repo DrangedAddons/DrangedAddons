@@ -108,6 +108,43 @@ public static class WowLocator
         return flavors.OrderBy(f => f.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>Battle.net product codes for installs without a .flavor.info.</summary>
+    static readonly Dictionary<string, string> KnownProducts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["_retail_"] = "wow",
+        ["_ptr_"] = "wowt",
+        ["_xptr_"] = "wowxptr",
+        ["_beta_"] = "wow_beta",
+        ["_classic_"] = "wow_classic",
+        ["_classic_ptr_"] = "wow_classic_ptr",
+        ["_classic_beta_"] = "wow_classic_beta",
+        ["_classic_era_"] = "wow_classic_era",
+        ["_classic_era_ptr_"] = "wow_classic_era_ptr",
+        ["_anniversary_"] = "wow_anniversary",
+        ["_forever_"] = "wowf",
+    };
+
+    /// <summary>
+    /// The Battle.net product a game-version folder belongs to ("wow", "wow_classic_era", "wowf" …): the second line
+    /// of its .flavor.info, else the usual one for the folder name.
+    /// </summary>
+    public static string? ProductCode(string flavorFolder)
+    {
+        try
+        {
+            var info = Path.Combine(flavorFolder, ".flavor.info");
+            if (File.Exists(info)
+                && File.ReadLines(info).Skip(1).Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) is { } product
+                && Regex.IsMatch(product, "^[a-z0-9_]+$", RegexOptions.IgnoreCase))
+                return product;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Unreadable: fall back to the folder name.
+        }
+        return KnownProducts.GetValueOrDefault(Path.GetFileName(flavorFolder.TrimEnd('\\', '/')));
+    }
+
     /// <summary>"Classic Era" for "_classic_era_"; unknown folders are title-cased.</summary>
     public static string DisplayName(string folder) =>
         KnownNames.TryGetValue(folder, out var name)

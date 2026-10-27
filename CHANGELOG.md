@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.25.0
+- **Play** button next to the game version: starts the game from the app.
+  - WoW goes through Battle.net, the same way Battle.net's own desktop shortcuts do
+    (`World of Warcraft Launcher.exe --productcode=…`), so you're signed in and the version you've picked at the top
+    is the one that starts. The product comes from the version folder's `.flavor.info` (`wow`, `wow_classic_era`,
+    `wowf` …).
+  - Games without versions start their own program (Azeroth Survivors: `AzerothSurvivors.exe`).
+  - Greyed out, with a tooltip saying why, when the picked version isn't installed in the game folder.
+- When none of a game's addons support the picked WoW version, the list says so, instead of saying no addons were
+  found at all.
+
 ## 0.24.2
 - A new install starts with no games: instead of an empty list it explains how to add one (+ in the side bar, or the
   **Add a game** button). Nothing is added for you. If you already use DrangedAddons, WoW stays in your side bar.

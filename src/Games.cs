@@ -5,6 +5,9 @@ using System.Windows.Media.Imaging;
 
 namespace DrangedAddons;
 
+/// <summary>How to start a game: the program, its arguments, and how it starts (shown in the Play tooltip).</summary>
+public sealed record GameLaunch(string Exe, string Arguments, string How);
+
 /// <summary>
 /// A game the app manages addons for: where it's installed, its versions (WoW's _retail_, _classic_era_ …; one for
 /// games without any), where addons go and where their saved settings live. Repos in the org belong to a game by
@@ -44,6 +47,9 @@ public abstract class GameDefinition
 
     /// <summary>The program whose icon stands for the game in the side bar.</summary>
     protected abstract string? IconExe(string root);
+
+    /// <summary>How to start <paramref name="flavor"/> of the game (Play); null if its program isn't there.</summary>
+    public abstract GameLaunch? GetLaunch(string root, GameFlavor flavor);
 
     public static readonly GameDefinition Wow = new WowGame();
     public static readonly GameDefinition[] All = [Wow, new AzerothSurvivorsGame()];
@@ -109,6 +115,32 @@ sealed class WowGame : GameDefinition
 
     public override List<string> FindSavedVariables(string addOnsPath, IEnumerable<string> folders) =>
         AddonInstaller.FindSavedVariables(addOnsPath, folders);
+
+    /// <summary>
+    /// Through Battle.net, the way its own desktop shortcuts do: World of Warcraft Launcher.exe
+    /// --productcode=&lt;the version's product&gt; signs in and starts that version. Without the launcher or a product
+    /// code, the version's own Wow*.exe (which hands over to Battle.net to sign in).
+    /// </summary>
+    public override GameLaunch? GetLaunch(string root, GameFlavor flavor)
+    {
+        var folder = Path.Combine(root, flavor.Folder);
+        var launcher = Path.Combine(root, "World of Warcraft Launcher.exe");
+        if (File.Exists(launcher) && WowLocator.ProductCode(folder) is { } product)
+            return new GameLaunch(launcher, $"--productcode={product}", "through Battle.net");
+        try
+        {
+            return Directory.EnumerateFiles(folder, "Wow*.exe")
+                .Where(f => !Path.GetFileName(f).Contains("Voice", StringComparison.OrdinalIgnoreCase)
+                            && !Path.GetFileName(f).Contains("Error", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => Path.GetFileName(f).Length)
+                .Select(exe => new GameLaunch(exe, "", "with " + Path.GetFileName(exe)))
+                .FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
 
     protected override string? IconExe(string root)
     {
@@ -183,4 +215,7 @@ sealed class AzerothSurvivorsGame : GameDefinition
     }
 
     protected override string? IconExe(string root) => Path.Combine(root, Exe);
+
+    public override GameLaunch? GetLaunch(string root, GameFlavor flavor) =>
+        File.Exists(Path.Combine(root, Exe)) ? new GameLaunch(Path.Combine(root, Exe), "", "with " + Exe) : null;
 }

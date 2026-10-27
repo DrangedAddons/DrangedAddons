@@ -861,6 +861,8 @@ public partial class MainWindow : Window
         var query = SearchBox.Text.Trim();
         EmptyText.Text = _root is null ? $"Pick your {_game.Name} folder to get started (⋯ → Change game folder…)."
             : _loadError is not null ? _loadError
+            : _rows.Count == 0 && _remote.Count > 0 && !_remote.Any(r => r.Game == _game.Id)
+                ? $"No {_game.Name} addons have been published yet."
             : _rows.Count == 0 ? "No addons with a packaged release were found in the DrangedAddons organisation."
             : query.Length > 0 ? $"No addons match “{query}”."
             : _filter is not null ? $"No addons match the filter “{_filterLabel}”."

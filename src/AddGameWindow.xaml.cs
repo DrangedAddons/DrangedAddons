@@ -28,12 +28,9 @@ public sealed class GameCard(GameDefinition game, ImageSource? icon, int addons,
         ? $"Found on this PC: {Root}"
         : "Not found in the usual places: you'll pick where it's installed.";
 
-    /// <summary>Can be added: has addons to install and isn't in the side bar already.</summary>
-    public bool CanAdd => addons > 0 && !added;
+    /// <summary>Any game not in the side bar yet can be added, even before it has addons.</summary>
+    public bool CanAdd => !added;
     public string ButtonText => added ? "Added" : "Add";
-
-    /// <summary>Games with nothing to install yet are shown faded.</summary>
-    public double CardOpacity => addons > 0 || added ? 1 : 0.6;
 
     static Brush Frozen(byte r, byte g, byte b)
     {

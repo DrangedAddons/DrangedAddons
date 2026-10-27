@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.24.1
+- Any supported game can be added from **Add a game**, even before it has addons; they show up in its list as
+  they're published. Its page says when none have been published yet.
+
 ## 0.24.0
 - **More than one game.** A side bar on the left holds a button per game (with the game's own icon); click one to
   switch, and everything (list, versions, folder, settings) follows that game. Each game remembers its own folder

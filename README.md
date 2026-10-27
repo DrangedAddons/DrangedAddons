@@ -35,7 +35,8 @@ A small Windows app that installs and updates World of Warcraft addons published
 Without signing in, GitHub allows 60 requests an hour per internet connection, so the app checks every 15
 minutes. With a free GitHub token (File → GitHub token…, stored encrypted by Windows) or the GitHub CLI signed in
 on the PC, it's 5,000 an hour and the app checks every minute; responses are cached with ETags, so unchanged
-results don't count against that limit.
+results don't count against that limit. Once a check has seen the list, a later check where nothing in the org
+has changed is a single request.
 
 App data (settings, install records, HTTP cache) lives in `%AppData%\DrangedAddons`.
 

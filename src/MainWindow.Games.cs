@@ -39,17 +39,6 @@ public sealed class RailGame(GameDefinition game) : INotifyPropertyChanged
         }
     }
 
-    bool _canRemove;
-    public bool CanRemove
-    {
-        get => _canRemove;
-        set
-        {
-            _canRemove = value;
-            Changed(nameof(CanRemove));
-        }
-    }
-
     public event PropertyChangedEventHandler? PropertyChanged;
 
     void Changed(params string[] names)
@@ -85,10 +74,7 @@ public partial class MainWindow
     void UpdateRailSelection()
     {
         foreach (var item in _rail)
-        {
             item.IsSelected = item.Game == _game;
-            item.CanRemove = true;
-        }
     }
 
     /// <summary>After a game's folder or version changes: its side bar icon follows (see <see cref="RailIcon"/>).</summary>

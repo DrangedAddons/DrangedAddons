@@ -76,18 +76,20 @@ public abstract class GameDefinition
     /// <summary>An image bundled with the app (e.g. "gameicons/wow.png"); null if there isn't one.</summary>
     protected static ImageSource? Bundled(string path)
     {
+        if (BundledImages.TryGetValue(path, out var cached)) return cached;
         try
         {
             var image = new BitmapImage(new Uri($"pack://application:,,,/{path}"));
             image.Freeze();
-            return image;
+            return BundledImages[path] = image;
         }
         catch (IOException)
         {
-            return null;
+            return BundledImages[path] = null;
         }
     }
 
+    static readonly Dictionary<string, ImageSource?> BundledImages = new();
     static readonly Dictionary<(string, int), ImageSource?> ExeIcons = new();
 
     /// <summary>The icon in <paramref name="exe"/>, at the size nearest <paramref name="size"/>; null if there isn't one.</summary>

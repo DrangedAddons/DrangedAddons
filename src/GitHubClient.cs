@@ -28,11 +28,12 @@ public readonly record struct DownloadProgress(long Bytes, long? Total)
 
 /// <summary>
 /// Reads the public DrangedAddons org. API responses are cached with ETags, and GitHub doesn't count
-/// "304 Not Modified" replies against the hourly limit. File contents at a commit come from
-/// raw.githubusercontent.com and source zips from codeload.github.com, neither of which uses that limit.
-/// Anonymous use gets 60 API requests an hour per internet connection (and then 304s do count); signed in it's
-/// 5,000 an hour, using a token saved in the app (File → GitHub token…), GH_TOKEN / GITHUB_TOKEN, or the GitHub
-/// CLI's login on this PC.
+/// "304 Not Modified" replies against the hourly limit when signed in (anonymous 304s do count toward 60/hour).
+/// Once a check has built the addon list, a later check that gets 304 for the org repo list stops there:
+/// a tag push updates the list, so a real release still refetches each repo. File contents at a commit come from
+/// raw.githubusercontent.com and source zips from codeload.github.com, neither of which uses the API limit.
+/// Signed in it's 5,000 API requests an hour, using a token saved in the app (File → GitHub token…),
+/// GH_TOKEN / GITHUB_TOKEN, or the GitHub CLI's login on this PC.
 /// </summary>
 public sealed class GitHubClient
 {
@@ -158,9 +159,33 @@ public sealed class GitHubClient
     }
 
     readonly Dictionary<string, CachedResponse> _cache = Storage.Load<Dictionary<string, CachedResponse>>(CacheFile);
+    readonly object _httpWrite = new();
+    int _httpGen;
+    bool _httpDirty;
 
-    // "repo@sha:path" → .toc version ("" when the file is missing). Commits never change, so this never expires.
+    // "repo@sha:path" → .toc version ("" when the file is missing). "games|" and "author|" hold the other
+    // fields from that same file. Commits never change, so this never expires.
     readonly Dictionary<string, string> _tocVersions = Storage.Load<Dictionary<string, string>>(TocCacheFile);
+    readonly object _tocWrite = new();
+    int _tocGen;
+    bool _tocDirty;
+
+    // One version-history walk at a time, so opening several addons doesn't fire hundreds of .toc reads at once.
+    readonly SemaphoreSlim _tocWalk = new(1, 1);
+
+    // Raw files and images fetched this session. Cleared when the org repo list actually changes, so a branch
+    // name ("main") isn't served forever after a push. Keyed so two callers share one download.
+    readonly Dictionary<string, Task<string?>> _rawMemo = new(StringComparer.Ordinal);
+    readonly Dictionary<string, Task<byte[]?>> _imageMemo = new(StringComparer.Ordinal);
+
+    // The addon list built for the org-list ETag. A 304 with the same ETag returns this instead of refetching
+    // every repo. Null until a check has succeeded, so the first check of a run still walks the repos.
+    List<RemoteAddon>? _addonSnapshot;
+    string? _snapshotETag;
+
+    static readonly JsonSerializerOptions CompactJson = new();
+
+    readonly record struct JsonFetched(string? Body, bool NotModified, string? ETag);
 
     static HttpClient CreateHttp()
     {
@@ -171,9 +196,14 @@ public sealed class GitHubClient
 
     public async Task<List<RemoteAddon>> GetAddonsAsync(CancellationToken ct = default)
     {
-        var reposJson = await GetJsonAsync($"https://api.github.com/orgs/{Org}/repos?type=public&per_page=100", ct)
+        var fetched = await FetchJsonAsync($"https://api.github.com/orgs/{Org}/repos?type=public&per_page=100", ct);
+        // Test game overrides are applied while building the list, so a dev run always rebuilds.
+        if (fetched.NotModified && _addonSnapshot is not null && fetched.ETag == _snapshotETag && TestGames.Count == 0)
+            return _addonSnapshot;
+        var reposJson = fetched.Body
             ?? throw new InvalidOperationException($"The GitHub organisation '{Org}' was not found.");
 
+        ClearFetchedFiles();
         var repos = new List<(string Name, string Description, string Branch, string Game)>();
         using (var doc = JsonDocument.Parse(reposJson))
         {
@@ -194,8 +224,11 @@ public sealed class GitHubClient
         }
 
         var addons = await Task.WhenAll(repos.Select(r => GetAddonAsync(r.Name, r.Description, r.Branch, r.Game, ct)));
-        SaveCaches();
-        return addons.OfType<RemoteAddon>().OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        var list = addons.OfType<RemoteAddon>().OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        _addonSnapshot = list;
+        _snapshotETag = fetched.ETag;
+        await Task.Run(SaveCaches);
+        return list;
     }
 
     async Task<RemoteAddon?> GetAddonAsync(string repo, string description, string branch, string game, CancellationToken ct)
@@ -204,16 +237,22 @@ public sealed class GitHubClient
         var headTask = GetBranchHeadAsync(repo, branch, ct);
         await Task.WhenAll(releaseTask, headTask);
         var release = releaseTask.Result;
-        var (tocPath, head) = headTask.Result;
+        var (tocPath, head, headSha) = headTask.Result;
         if (release is null && head is null) return null;
-        // which games it's for (its .toc on the default branch; none listed: every game)
+        // which games it's for (its .toc on the default branch; none listed: every game).
+        // GetBranchHead already parsed this file, so these two are cache hits.
         var games = tocPath is not null && head?.Commit is { } sha
             ? await GetTocGamesAsync(repo, sha, tocPath, ct)
             : [];
-        var author = tocPath is not null && head?.Commit is { } headSha
-            ? await GetTocAuthorAsync(repo, headSha, tocPath, ct)
+        var author = tocPath is not null && head?.Commit is { } headCommit
+            ? await GetTocAuthorAsync(repo, headCommit, tocPath, ct)
             : null;
-        return new RemoteAddon(repo, description, branch, tocPath, release, head, games) { Author = author, Game = game };
+        return new RemoteAddon(repo, description, branch, tocPath, release, head, games)
+        {
+            Author = author,
+            Game = game,
+            HeadCommit = string.IsNullOrEmpty(headSha) ? null : headSha,
+        };
     }
 
     async Task<AddonVersion?> GetLatestReleaseAsync(string repo, CancellationToken ct)
@@ -224,11 +263,14 @@ public sealed class GitHubClient
         return ReleaseFromJson(doc.RootElement);
     }
 
-    /// <summary>The newest commit on the default branch as an (untagged) beta version, if it has a readable .toc version.</summary>
-    async Task<(string? TocPath, AddonVersion? Head)> GetBranchHeadAsync(string repo, string branch, CancellationToken ct)
+    /// <summary>
+    /// The newest commit on the default branch. The version is set when that commit has a readable .toc;
+    /// the SHA is returned either way so an icon can be stamped to the commit that contains it.
+    /// </summary>
+    async Task<(string? TocPath, AddonVersion? Head, string? Sha)> GetBranchHeadAsync(string repo, string branch, CancellationToken ct)
     {
         var json = await GetJsonAsync($"https://api.github.com/repos/{Org}/{repo}/branches/{branch}", ct);
-        if (json is null) return (null, null);
+        if (json is null) return (null, null, null);
 
         string sha;
         DateTimeOffset date;
@@ -243,9 +285,9 @@ public sealed class GitHubClient
         foreach (var path in new[] { $"{repo}.toc", $"{repo}/{repo}.toc" })
         {
             if (await GetTocVersionAsync(repo, sha, path, ct) is { } version)
-                return (path, new AddonVersion(version, false, null, null, sha, date, CommitUrl(repo, sha), null));
+                return (path, new AddonVersion(version, false, null, null, sha, date, CommitUrl(repo, sha), null), sha);
         }
-        return (null, null);
+        return (null, null, sha);
     }
 
     /// <summary>
@@ -257,6 +299,7 @@ public sealed class GitHubClient
     {
         var history = await StartVersionHistoryAsync(addon, includeBeta, ct);
         await ReadMoreVersionsAsync(history, history.Commits.Count, ct);
+        await Task.Run(SaveTocCache);
         return history.Versions;
     }
 
@@ -275,6 +318,7 @@ public sealed class GitHubClient
         var history = new VersionHistory(addon, releases.Result, commits.Result, changelog.Result);
         ReadCachedVersions(history);
         history.Rebuild();
+        await Task.Run(SaveHttpCache);
         return history;
     }
 
@@ -296,31 +340,50 @@ public sealed class GitHubClient
     /// </summary>
     public async Task ReadMoreVersionsAsync(VersionHistory history, int count, CancellationToken ct = default)
     {
-        // One reader at a time (the details page reads ahead in the background while "Show more" can ask too).
-        await history.Gate.WaitAsync(ct);
+        // One walk in the app, then one reader per history (the background read and "Show more").
+        await _tocWalk.WaitAsync(ct);
         try
         {
-            var from = history.TocVersions.Count;
-            var batch = history.Commits.Skip(from).Take(count).ToList();
-            if (batch.Count == 0 || history.Addon.TocPath is not { } tocPath) return;
-            // Gentle without a token: GitHub limits bursts of anonymous file requests.
-            using var throttle = new SemaphoreSlim(await CurrentTokenAsync() is null ? 4 : 8);
-            var versions = await Task.WhenAll(batch.Select(async c =>
+            await history.Gate.WaitAsync(ct);
+            try
             {
-                await throttle.WaitAsync(ct);
-                try { return await GetTocVersionAsync(history.Addon.Name, c.Sha, tocPath, ct); }
-                finally { throttle.Release(); }
-            }));
-            SaveCaches();
-            history.TocVersions.AddRange(versions);
-            history.Rebuild();
+                var from = history.TocVersions.Count;
+                var batch = history.Commits.Skip(from).Take(count).ToList();
+                if (batch.Count == 0 || history.Addon.TocPath is not { } tocPath) return;
+                // Gentle without a token: GitHub limits bursts of anonymous file requests.
+                using var throttle = new SemaphoreSlim(await CurrentTokenAsync() is null ? 4 : 8);
+                var versions = await Task.WhenAll(batch.Select(async c =>
+                {
+                    await throttle.WaitAsync(ct);
+                    try { return await GetTocVersionAsync(history.Addon.Name, c.Sha, tocPath, ct); }
+                    finally { throttle.Release(); }
+                }));
+                history.TocVersions.AddRange(versions);
+                history.Rebuild();
+            }
+            finally
+            {
+                history.Gate.Release();
+            }
         }
         finally
         {
-            history.Gate.Release();
+            _tocWalk.Release();
         }
     }
 
+    /// <summary>A published release with this version, including GitHub prereleases. Null if it was never tagged.</summary>
+    internal async Task<AddonVersion?> FindReleaseAsync(RemoteAddon addon, string version, CancellationToken ct = default)
+    {
+        var releases = await GetReleasesAsync(addon, includePrereleases: true, ct);
+        await Task.Run(SaveHttpCache);
+        return releases.FirstOrDefault(v => Versions.Compare(v.Version, version) == 0);
+    }
+
+    /// <param name="includePrereleases">
+    /// GitHub's prerelease flag, which is separate from an untagged branch beta. "Show beta versions" passes
+    /// this through, so a release marked prerelease is listed only then. <c>/releases/latest</c> never returns one.
+    /// </param>
     async Task<List<AddonVersion>> GetReleasesAsync(RemoteAddon addon, bool includePrereleases, CancellationToken ct)
     {
         var releases = new List<AddonVersion>();
@@ -403,55 +466,97 @@ public sealed class GitHubClient
         return sections;
     }
 
-    async Task<string?> GetTocVersionAsync(string repo, string sha, string path, CancellationToken ct)
+    static string TocKey(string repo, string sha, string path) => $"{repo}@{sha}:{path}";
+
+    /// <summary>
+    /// Downloads the .toc once and stores its version, games and author. A cache written before all three were
+    /// stored together misses the later keys and is filled in with one download.
+    /// </summary>
+    async Task EnsureTocAsync(string repo, string sha, string path, CancellationToken ct)
     {
-        var key = $"{repo}@{sha}:{path}";
+        var key = TocKey(repo, sha, path);
+        var gamesKey = $"games|{key}";
+        var authorKey = $"author|{key}";
         lock (_tocVersions)
         {
-            if (_tocVersions.TryGetValue(key, out var known))
-                return known.Length > 0 ? known : null;
+            if (_tocVersions.ContainsKey(key) && _tocVersions.ContainsKey(gamesKey) && _tocVersions.ContainsKey(authorKey))
+                return;
         }
+
         var text = await GetRawAsync(repo, sha, path, ct);
-        var version = text is null ? null : AddonInstaller.ParseTocVersion(text.Split('\n'));
-        lock (_tocVersions) _tocVersions[key] = version ?? "";
-        return version;
+        var lines = text is null ? [] : text.Split('\n');
+        lock (_tocVersions)
+        {
+            _tocVersions[key] = text is null ? "" : AddonInstaller.ParseTocVersion(lines) ?? "";
+            _tocVersions[gamesKey] = text is null ? "" : string.Join(',', AddonInstaller.ParseTocGames(lines));
+            _tocVersions[authorKey] = text is null ? "" : AddonInstaller.ParseTocField(lines, "Author") ?? "";
+            _tocDirty = true;
+            _tocGen++;
+        }
     }
 
-    /// <summary>The games its .toc lists at this commit (cached with the versions: commits never change).</summary>
+    async Task<string?> GetTocVersionAsync(string repo, string sha, string path, CancellationToken ct)
+    {
+        var key = TocKey(repo, sha, path);
+        await EnsureTocAsync(repo, sha, path, ct);
+        lock (_tocVersions)
+            return _tocVersions.TryGetValue(key, out var known) && known.Length > 0 ? known : null;
+    }
+
+    /// <summary>The games its .toc lists at this commit (cached with the version: commits never change).</summary>
     async Task<IReadOnlyList<string>> GetTocGamesAsync(string repo, string sha, string path, CancellationToken ct)
     {
-        var key = $"games|{repo}@{sha}:{path}";
+        var key = $"games|{TocKey(repo, sha, path)}";
+        await EnsureTocAsync(repo, sha, path, ct);
         lock (_tocVersions)
-        {
-            if (_tocVersions.TryGetValue(key, out var known))
-                return known.Split(',', StringSplitOptions.RemoveEmptyEntries);
-        }
-        var text = await GetRawAsync(repo, sha, path, ct);
-        var games = text is null ? [] : AddonInstaller.ParseTocGames(text.Split('\n'));
-        lock (_tocVersions) _tocVersions[key] = string.Join(',', games);
-        return games;
+            return _tocVersions.TryGetValue(key, out var known)
+                ? known.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                : [];
     }
 
     /// <summary>"## Author:" from the .toc at a commit (cached; commits never change).</summary>
     async Task<string?> GetTocAuthorAsync(string repo, string sha, string path, CancellationToken ct)
     {
-        var key = $"author|{repo}@{sha}:{path}";
+        var key = $"author|{TocKey(repo, sha, path)}";
+        await EnsureTocAsync(repo, sha, path, ct);
         lock (_tocVersions)
-        {
-            if (_tocVersions.TryGetValue(key, out var known))
-                return known.Length > 0 ? known : null;
-        }
-        var text = await GetRawAsync(repo, sha, path, ct);
-        var author = text is null ? null : AddonInstaller.ParseTocField(text.Split('\n'), "Author");
-        lock (_tocVersions) _tocVersions[key] = author ?? "";
-        return author;
+            return _tocVersions.TryGetValue(key, out var known) && known.Length > 0 ? known : null;
     }
 
     async Task<string?> GetRawAsync(string repo, string gitRef, string path, CancellationToken ct)
     {
-        using var response = await SendRawAsync(HttpMethod.Get, repo, gitRef, path, ct);
+        var key = $"{repo}\n{gitRef}\n{path}";
+        Task<string?> task;
+        lock (_rawMemo)
+        {
+            if (!_rawMemo.TryGetValue(key, out task!))
+                _rawMemo[key] = task = ReadRawAsync(repo, gitRef, path);
+        }
+        try
+        {
+            return await task.WaitAsync(ct);
+        }
+        catch (OperationCanceledException) when (!task.IsCompleted)
+        {
+            throw; // this caller stopped waiting; the shared download stays cached
+        }
+        catch
+        {
+            if (task.IsFaulted)
+            {
+                lock (_rawMemo)
+                    if (_rawMemo.TryGetValue(key, out var current) && current == task)
+                        _rawMemo.Remove(key);
+            }
+            throw;
+        }
+    }
+
+    async Task<string?> ReadRawAsync(string repo, string gitRef, string path)
+    {
+        using var response = await SendRawAsync(HttpMethod.Get, repo, gitRef, path, CancellationToken.None);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        return await response.Content.ReadAsStringAsync(ct);
+        return await response.Content.ReadAsStringAsync(CancellationToken.None);
     }
 
     /// <summary>
@@ -594,32 +699,53 @@ public sealed class GitHubClient
     /// </summary>
     public async Task<byte[]?> GetImageBytesAsync(string url, CancellationToken ct = default)
     {
+        Task<byte[]?> task;
+        lock (_imageMemo)
+        {
+            if (!_imageMemo.TryGetValue(url, out task!))
+                _imageMemo[url] = task = DownloadImageAsync(url);
+        }
+        try
+        {
+            var bytes = await task.WaitAsync(ct);
+            if (bytes is null)
+            {
+                lock (_imageMemo)
+                    if (_imageMemo.TryGetValue(url, out var current) && current == task)
+                        _imageMemo.Remove(url);
+            }
+            return bytes;
+        }
+        catch (OperationCanceledException) when (!task.IsCompleted)
+        {
+            throw; // this caller stopped waiting; the shared download stays cached
+        }
+        catch
+        {
+            if (task.IsFaulted)
+            {
+                lock (_imageMemo)
+                    if (_imageMemo.TryGetValue(url, out var current) && current == task)
+                        _imageMemo.Remove(url);
+            }
+            throw;
+        }
+    }
+
+    async Task<byte[]?> DownloadImageAsync(string url)
+    {
         try
         {
             var prefix = $"https://raw.githubusercontent.com/{Org}/";
             if (url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                 && url[prefix.Length..].Split('?')[0].Split('/', 3) is [var repo, var gitRef, var path])
-                return await GetRawBytesAsync(repo, gitRef, Uri.UnescapeDataString(path), ct);
-            using var response = await Http.GetAsync(url, ct);
-            return response.IsSuccessStatusCode ? await response.Content.ReadAsByteArrayAsync(ct) : null;
+                return await GetRawBytesAsync(repo, gitRef, Uri.UnescapeDataString(path), CancellationToken.None);
+            using var response = await Http.GetAsync(url, CancellationToken.None);
+            return response.IsSuccessStatusCode ? await response.Content.ReadAsByteArrayAsync(CancellationToken.None) : null;
         }
         catch (Exception ex) when (ex is HttpRequestException or RateLimitException or TaskCanceledException or UriFormatException)
         {
             return null;
-        }
-    }
-
-    /// <summary>Whether a file exists at a branch or commit (false if GitHub can't be reached).</summary>
-    public async Task<bool> HasFileAsync(string repo, string gitRef, string path)
-    {
-        try
-        {
-            using var response = await SendRawAsync(HttpMethod.Head, repo, gitRef, path, default);
-            return response.IsSuccessStatusCode;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or RateLimitException)
-        {
-            return false;
         }
     }
 
@@ -660,12 +786,46 @@ public sealed class GitHubClient
 
     internal void SaveCaches()
     {
-        lock (_cache) Storage.Save(CacheFile, _cache);
-        lock (_tocVersions) Storage.Save(TocCacheFile, _tocVersions);
+        SaveHttpCache();
+        SaveTocCache();
+    }
+
+    /// <summary>Writes the HTTP cache if a request stored a new body. A 304 leaves it untouched.</summary>
+    internal void SaveHttpCache() => SaveSnapshot(_httpWrite, _cache, () => _httpDirty, () => _httpGen, v => _httpDirty = v, CacheFile);
+
+    /// <summary>Writes the .toc cache if a file was parsed. History walks call this once at the end, not per page.</summary>
+    internal void SaveTocCache() => SaveSnapshot(_tocWrite, _tocVersions, () => _tocDirty, () => _tocGen, v => _tocDirty = v, TocCacheFile);
+
+    void SaveSnapshot<T>(object writeLock, Dictionary<string, T> source, Func<bool> dirty, Func<int> gen, Action<bool> setDirty, string file)
+    {
+        lock (writeLock)
+        {
+            Dictionary<string, T> copy;
+            int seen;
+            lock (source)
+            {
+                if (!dirty()) return;
+                copy = new Dictionary<string, T>(source);
+                seen = gen();
+            }
+            Storage.WriteAtomic(file, JsonSerializer.Serialize(copy, CompactJson));
+            lock (source)
+                if (gen() == seen) setDirty(false);
+        }
+    }
+
+    void ClearFetchedFiles()
+    {
+        lock (_rawMemo) _rawMemo.Clear();
+        lock (_imageMemo) _imageMemo.Clear();
     }
 
     /// <summary>Returns the response body, or null on 404.</summary>
-    internal async Task<string?> GetJsonAsync(string url, CancellationToken ct)
+    internal async Task<string?> GetJsonAsync(string url, CancellationToken ct) =>
+        (await FetchJsonAsync(url, ct)).Body;
+
+    /// <summary>The body, whether GitHub said nothing changed, and the ETag that body belongs to.</summary>
+    async Task<JsonFetched> FetchJsonAsync(string url, CancellationToken ct)
     {
         CachedResponse? cached;
         lock (_cache) _cache.TryGetValue(url, out cached);
@@ -685,12 +845,12 @@ public sealed class GitHubClient
         {
             // Expired or revoked login: carry on anonymously.
             _rejectedToken = token;
-            return await GetJsonAsync(url, ct);
+            return await FetchJsonAsync(url, ct);
         }
         if (response.StatusCode == HttpStatusCode.NotModified && cached is not null)
-            return cached.Body;
+            return new JsonFetched(cached.Body, true, cached.ETag);
         if (response.StatusCode == HttpStatusCode.NotFound)
-            return null;
+            return new JsonFetched(null, false, null);
         if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
         {
             var text = await response.Content.ReadAsStringAsync(ct);
@@ -701,7 +861,7 @@ public sealed class GitHubClient
                 // The token isn't allowed to see this (e.g. a token tied to the org that's awaiting approval):
                 // public data doesn't need it, so carry on anonymously.
                 _rejectedToken = token;
-                return await GetJsonAsync(url, ct);
+                return await FetchJsonAsync(url, ct);
             }
             throw new HttpRequestException($"GitHub refused {Describe(url)} ({(int)response.StatusCode}): {GitHubMessage(text)}");
         }
@@ -709,9 +869,17 @@ public sealed class GitHubClient
             throw new HttpRequestException($"GitHub couldn't return {Describe(url)} ({(int)response.StatusCode} {response.ReasonPhrase}).");
 
         var body = await response.Content.ReadAsStringAsync(ct);
-        if (response.Headers.ETag?.ToString() is { } etag)
-            lock (_cache) _cache[url] = new CachedResponse(etag, body);
-        return body;
+        var etag = response.Headers.ETag?.ToString();
+        if (etag is not null)
+        {
+            lock (_cache)
+            {
+                _cache[url] = new CachedResponse(etag, body);
+                _httpDirty = true;
+                _httpGen++;
+            }
+        }
+        return new JsonFetched(body, false, etag);
     }
 
     /// <summary>Source zip of the repo at a commit.</summary>

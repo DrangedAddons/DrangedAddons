@@ -618,10 +618,14 @@ public partial class MainWindow
         var data = DataFor(row);
         if (history.Complete || data.Finishing == history) return;
         data.Finishing = history;
+        var read = false;
         try
         {
             while (!history.Complete)
+            {
                 await _github.ReadMoreVersionsAsync(history, VersionPage);
+                read = true;
+            }
         }
         catch (Exception ex) when (ex is HttpRequestException or RateLimitException or InvalidOperationException)
         {
@@ -630,6 +634,7 @@ public partial class MainWindow
         finally
         {
             if (data.Finishing == history) data.Finishing = null;
+            if (read) await Task.Run(_github.SaveTocCache);
         }
         // Still looking at this addon (and this history): update the count and the "Show more" line.
         if (_detailsRow?.Name == row.Name && data.History is { IsCompletedSuccessfully: true } current
@@ -640,8 +645,13 @@ public partial class MainWindow
     /// <summary>Reads more of the history until it has <paramref name="wanted"/> versions (or there are no more).</summary>
     async Task ReadVersionsAsync(VersionHistory history, int wanted)
     {
+        var read = false;
         while (!history.Complete && history.Versions.Count < wanted)
+        {
             await _github.ReadMoreVersionsAsync(history, wanted - history.Versions.Count + 4);
+            read = true;
+        }
+        if (read) await Task.Run(_github.SaveTocCache);
     }
 
     /// <summary>Shows the first VersionsShown versions: from scratch, or adding to the ones already listed.</summary>

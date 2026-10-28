@@ -31,9 +31,13 @@ public sealed record GitStatus(string Branch, int Ahead, int Behind, int Changed
 /// </summary>
 public static class GitRepo
 {
+    // Signed-in checks run every minute. A fetch newer than this, with the same HEAD, is still the answer.
+    static readonly TimeSpan FreshFetch = TimeSpan.FromMinutes(2);
+    static readonly Dictionary<string, (string Fingerprint, DateTime FetchedUtc)> Fetches = new(StringComparer.OrdinalIgnoreCase);
+
     public static async Task<GitStatus> GetStatusAsync(string dir, bool fetch)
     {
-        if (fetch)
+        if (fetch && !await FetchIsFreshAsync(dir))
         {
             try
             {
@@ -43,6 +47,7 @@ public static class GitRepo
             {
                 throw new GitException("Couldn't check GitHub: " + ex.Message);
             }
+            await RememberFetchAsync(dir);
         }
 
         var branch = (await RunAsync(dir, "rev-parse", "--abbrev-ref", "HEAD")).Trim();
@@ -66,6 +71,36 @@ public static class GitRepo
     }
 
     public static Task<string> PullAsync(string dir) => RunAsync(dir, "pull", "--ff-only");
+
+    /// <summary>True when we fetched this checkout recently and its HEAD commit has not moved since.</summary>
+    static async Task<bool> FetchIsFreshAsync(string dir)
+    {
+        // git rev-parse follows worktrees and packed refs. Reading .git/HEAD ourselves misses both.
+        if (await HeadFingerprintAsync(dir) is not { } finger) return false;
+        lock (Fetches)
+            return Fetches.TryGetValue(dir, out var prev)
+                   && prev.Fingerprint == finger
+                   && DateTime.UtcNow - prev.FetchedUtc < FreshFetch;
+    }
+
+    static async Task RememberFetchAsync(string dir)
+    {
+        if (await HeadFingerprintAsync(dir) is not { } finger) return;
+        lock (Fetches) Fetches[dir] = (finger, DateTime.UtcNow);
+    }
+
+    /// <summary>The commit HEAD points at, or null if this isn't a readable checkout.</summary>
+    static async Task<string?> HeadFingerprintAsync(string workTree)
+    {
+        try
+        {
+            return (await RunAsync(workTree, "rev-parse", "HEAD")).Trim();
+        }
+        catch (GitException)
+        {
+            return null;
+        }
+    }
 
     static async Task<string> RunAsync(string dir, params string[] args)
     {

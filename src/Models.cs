@@ -108,6 +108,9 @@ public sealed record RemoteAddon(
     /// <summary>The game it's for (a <see cref="GameDefinition.Id"/>, from the repo's GitHub topics).</summary>
     public string Game { get; init; } = GameDefinition.Wow.Id;
 
+    /// <summary>HEAD of the default branch, when the branch request succeeded. Addon icons are stamped with this.</summary>
+    public string? HeadCommit { get; init; }
+
     /// <summary>Whether it's for this game-version folder: listed in its .toc, or no games listed at all.</summary>
     public bool IsFor(string flavorFolder) =>
         Games.Count == 0 || Games.Contains(flavorFolder, StringComparer.OrdinalIgnoreCase);
@@ -189,10 +192,6 @@ public sealed class AddonRow : INotifyPropertyChanged
 
     public string Description => string.IsNullOrWhiteSpace(Remote.Description) ? "No description." : Remote.Description;
     public string LatestVersion => Latest.Version;
-    public string ReleasedText => Latest.IsRelease
-        ? $"Released {Latest.Date.ToLocalTime():d MMM yyyy}"
-        : $"Beta build, committed {Latest.Date.ToLocalTime():d MMM yyyy}";
-    public string LinkText => Latest.IsRelease ? "Release notes" : "View commit";
     public string? Author => Remote.Author;
     public string AuthorText => Remote.Author is { } a ? $"by {a}" : "";
 
@@ -279,8 +278,6 @@ public sealed class AddonRow : INotifyPropertyChanged
     // Stays "enabled" while busy so the progress fill isn't dimmed; clicks are ignored while the app is working.
     public bool ActionEnabled => IsPrimaryAction || IsBusy;
     public bool CanUninstall => !IsBusy && _state is AddonState.UpdateAvailable or AddonState.UpToDate;
-    /// <summary>Versions… is always available; for a Git working copy it opens view-only.</summary>
-    public bool CanPickVersion => !IsBusy;
     public bool CanBrowse => _state != AddonState.NotInstalled;
     /// <summary>The action button shows only while there's something to do (or it's doing it); otherwise a label.</summary>
     public bool ShowRowAction => IsPrimaryAction || IsBusy;
@@ -289,13 +286,6 @@ public sealed class AddonRow : INotifyPropertyChanged
     /// <summary>What's shown instead of a button when there's nothing to do.</summary>
     public string RowLabel => _state == AddonState.DevCopy ? "Git working copy" : "✓  Up to date";
     public Brush RowLabelBrush => _state == AddonState.DevCopy ? InfoBrush : GoodBrush;
-
-    public string UninstallTip => _state switch
-    {
-        AddonState.NotInstalled => "Not installed in this game version.",
-        AddonState.DevCopy => "This is a Git working copy, so it's left alone.",
-        _ => "Move this addon's folders to the Recycle Bin. Your settings are kept.",
-    };
 
     public void Update(AddonState state, string? installedVersion, bool installedIsBeta = false)
     {

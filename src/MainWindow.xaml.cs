@@ -384,9 +384,9 @@ public partial class MainWindow : Window
     readonly HashSet<string> _notified = new();
 
     /// <summary>
-    /// Background checks run every minute when signed in to GitHub (unchanged results don't count towards the
-    /// 5,000 an hour), but only every 15 minutes without a token: each check is ~8 requests and the anonymous
-    /// allowance is 60 an hour.
+    /// Background checks run every minute when signed in, and every 15 minutes when not. A check that finds the
+    /// org repo list unchanged stops there (one request; anonymous 304s still count). The first check of a run,
+    /// and any check where a repo actually changed, still looks at each addon.
     /// </summary>
     async Task UpdateCheckIntervalAsync()
     {
@@ -529,9 +529,26 @@ public partial class MainWindow : Window
 
     GameFlavor? CurrentFlavor => (FlavorList.SelectedItem as FlavorItem)?.Flavor;
 
+    // Bumped when an install record or the addon list changes. Searching doesn't, so the counts aren't
+    // recomputed (a Directory.Exists per addon per version) on every keystroke.
+    int _installStamp;
+    int _flavorCountStamp = -1;
+    string? _flavorCountKey;
+
+    void NoteInstallChange() => _installStamp++;
+
+    string FlavorCountKey() =>
+        FlavorList.ItemsSource is IEnumerable<FlavorItem> items
+            ? string.Join("|", items.Select(i => i.Flavor.AddOnsPath))
+            : "";
+
     /// <summary>Refreshes the "N installed" counts in the game-version drop-down.</summary>
     void UpdateFlavorCounts()
     {
+        var key = FlavorCountKey();
+        if (key == _flavorCountKey && _installStamp == _flavorCountStamp) return;
+        _flavorCountKey = key;
+        _flavorCountStamp = _installStamp;
         if (FlavorList.ItemsSource is not IEnumerable<FlavorItem> items) return;
         foreach (var item in items)
         {
@@ -611,7 +628,10 @@ public partial class MainWindow : Window
             if (!quiet) SetWorking(false);
         }
         if (!quiet || Signature(_remote) != before || hadError != (_loadError is not null))
+        {
+            NoteInstallChange();
             RebuildRows();
+        }
         else
             UpdateSummary(); // just the "checked at" time
         await UpdateUsageAsync();
@@ -620,7 +640,7 @@ public partial class MainWindow : Window
 
     /// <summary>Everything about the addon list that would change what's shown.</summary>
     static string Signature(List<RemoteAddon> remote) => string.Join("|", remote.Select(a =>
-        $"{a.Name}:{a.LatestRelease?.Version}:{a.LatestBeta?.Commit}:{a.Author}:{a.Description}:{string.Join(',', a.Games)}"));
+        $"{a.Name}:{a.LatestRelease?.Version}:{a.LatestBeta?.Commit}:{a.HeadCommit}:{a.Author}:{a.Description}:{string.Join(',', a.Games)}"));
 
     void RebuildRows()
     {
@@ -811,7 +831,10 @@ public partial class MainWindow : Window
         {
             // Deleted outside the app: forget it.
             if (record is not null && installed.Remove(row.Name))
+            {
                 Storage.Save(ManifestFile, _manifest);
+                NoteInstallChange();
+            }
             row.Update(AddonState.NotInstalled, null);
             return;
         }
@@ -837,6 +860,7 @@ public partial class MainWindow : Window
             record.IsBeta = false;
             record.Commit = null;
             Storage.Save(ManifestFile, _manifest);
+            NoteInstallChange();
         }
         row.Update(upToDate ? AddonState.UpToDate : AddonState.UpdateAvailable, version ?? "unknown", record?.IsBeta == true);
     }
@@ -918,7 +942,7 @@ public partial class MainWindow : Window
     /// <paramref name="quiet"/>: no error dialog (auto-update reports in the status line instead).
     /// </summary>
     async Task<bool> InstallAsync(AddonRow row, GameFlavor flavor, AddonVersion? version = null, Window? owner = null,
-        string? verb = null, bool pinned = false, bool quiet = false)
+        string? verb = null, bool pinned = false, bool quiet = false, List<string>? errors = null)
     {
         version ??= row.Latest;
         verb ??= row.State == AddonState.NotInstalled ? "Installing" : "Updating";
@@ -952,11 +976,16 @@ public partial class MainWindow : Window
                 Pinned = pinned,
             };
             Storage.Save(ManifestFile, _manifest);
+            NoteInstallChange();
             return true;
         }
         catch (Exception ex)
         {
-            if (quiet) StatusText.Text = $"Couldn't update {row.Name} automatically: {ex.Message}";
+            if (quiet)
+            {
+                errors?.Add($"{row.Name}: {ex.Message}");
+                StatusText.Text = $"{verb} {row.Name} failed: {ex.Message}";
+            }
             else DarkDialog.Show(owner ?? this, $"Couldn't install {row.Name} {version.Label}", ex.Message);
             return false;
         }
@@ -1038,7 +1067,7 @@ public partial class MainWindow : Window
                 installed.Remove(row.Name);
                 Storage.Save(ManifestFile, _manifest);
                 if (deleteSettings)
-                    AddonInstaller.RecycleFiles(_game.FindSavedVariables(flavor.AddOnsPath, foldersOf[row]));
+                    AddonInstaller.RecycleFiles(SettingsFor(settingsFiles, foldersOf[row]));
             }
             catch (Exception ex)
             {
@@ -1046,7 +1075,23 @@ public partial class MainWindow : Window
             }
             Evaluate(row, flavor);
         }
+        NoteInstallChange();
         UpdateSummary();
+
+        // Names the saved-settings file belongs to: "Addon.lua" and "Addon.lua.bak" are both Addon.
+        static string SavedSettingsName(string path)
+        {
+            var name = Path.GetFileName(path);
+            if (name.EndsWith(".lua.bak", StringComparison.OrdinalIgnoreCase)) return name[..^".lua.bak".Length];
+            if (name.EndsWith(".lua", StringComparison.OrdinalIgnoreCase)) return name[..^".lua".Length];
+            return Path.GetFileNameWithoutExtension(name);
+        }
+
+        static IEnumerable<string> SettingsFor(List<string> files, IEnumerable<string> addonFolders)
+        {
+            var names = addonFolders.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return files.Where(f => names.Contains(SavedSettingsName(f)));
+        }
     }
 
     // ---- Multi-select and bulk actions ----------------------------------------------------------------------------
@@ -1147,8 +1192,14 @@ public partial class MainWindow : Window
     async void BulkInstall_Click(object sender, RoutedEventArgs e) =>
         await BulkAsync(r => r.State == AddonState.NotInstalled, (r, f) => InstallAsync(r, f), "Installing");
 
-    async void BulkReinstall_Click(object sender, RoutedEventArgs e) =>
-        await BulkAsync(r => r.CanUninstall, (r, f) => ReinstallAsync(r, f), "Reinstalling");
+    async void BulkReinstall_Click(object sender, RoutedEventArgs e)
+    {
+        var errors = new List<string>();
+        await BulkAsync(r => r.CanUninstall, (r, f) => ReinstallAsync(r, f, quiet: true, errors: errors), "Reinstalling");
+        if (errors.Count == 0) return;
+        DarkDialog.Show(this, errors.Count == 1 ? "Couldn't reinstall an addon" : $"Couldn't reinstall {errors.Count} addons",
+            string.Join("\n\n", errors));
+    }
 
     void BulkDelete_Click(object sender, RoutedEventArgs e)
     {
@@ -1189,32 +1240,61 @@ public partial class MainWindow : Window
     /// Puts a fresh copy of the installed version back (same release, or the same beta commit), keeping settings.
     /// If the installed version can't be found among the published ones, the latest is installed instead.
     /// </summary>
-    async Task<bool> ReinstallAsync(AddonRow row, GameFlavor flavor, bool quiet = false)
+    async Task<bool> ReinstallAsync(AddonRow row, GameFlavor flavor, bool quiet = false, List<string>? errors = null)
     {
         try
         {
             var record = _manifest.For(flavor.AddOnsPath).GetValueOrDefault(row.Name);
             var installed = record?.Version ?? row.InstalledVersion;
-            AddonVersion target = row.Latest;
-            var installedIsRelease = record?.IsBeta != true;
-            var sameAsLatest = installed is not null && Versions.Compare(installed, row.Latest.Version) == 0
-                               && row.Latest.IsRelease == installedIsRelease;
-            if (installed is not null && !sameAsLatest)
-            {
-                var history = await _github.GetVersionHistoryAsync(row.Remote, includeBeta: record?.IsBeta == true || _settings.ShowBeta);
-                target = history.FirstOrDefault(v => record?.Commit is { } sha ? v.Commit == sha
-                                                     : Versions.Compare(v.Version, installed) == 0 && v.IsRelease)
-                         ?? history.FirstOrDefault(v => Versions.Compare(v.Version, installed) == 0)
-                         ?? row.Latest;
-            }
-            return await InstallAsync(row, flavor, target, verb: "Reinstalling", quiet: quiet);
+            var target = installed is null ? row.Latest : await VersionForReinstallAsync(row, record, installed);
+            return await InstallAsync(row, flavor, target, verb: "Reinstalling", quiet: quiet, errors: errors);
         }
         catch (Exception ex)
         {
-            if (quiet) StatusText.Text = $"Couldn't reinstall {row.Name}: {ex.Message}";
+            if (quiet)
+            {
+                errors?.Add($"{row.Name}: {ex.Message}");
+                StatusText.Text = $"Reinstalling {row.Name} failed: {ex.Message}";
+            }
             else DarkDialog.Show(this, $"Couldn't reinstall {row.Name}", ex.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// The published build matching what's installed. A tagged release is looked up in the release list.
+    /// A beta walks .toc commits newest-first and stops when its commit (or version) shows up.
+    /// </summary>
+    async Task<AddonVersion> VersionForReinstallAsync(AddonRow row, InstalledRecord? record, string installed)
+    {
+        var beta = record?.IsBeta == true || record?.Commit is not null;
+        var sameAsLatest = Versions.Compare(installed, row.Latest.Version) == 0 && row.Latest.IsRelease == !beta;
+        if (sameAsLatest) return row.Latest;
+        if (!beta)
+            return await _github.FindReleaseAsync(row.Remote, installed) ?? row.Latest;
+
+        var history = await _github.StartVersionHistoryAsync(row.Remote, includeBeta: true);
+        while (true)
+        {
+            if (MatchReinstall(history, record, installed, allowFallback: history.Complete) is { } match)
+            {
+                await Task.Run(_github.SaveTocCache);
+                return match;
+            }
+            if (history.Complete) break;
+            await _github.ReadMoreVersionsAsync(history, 20);
+        }
+        await Task.Run(_github.SaveTocCache);
+        return row.Latest;
+    }
+
+    static AddonVersion? MatchReinstall(VersionHistory history, InstalledRecord? record, string installed, bool allowFallback)
+    {
+        if (record?.Commit is { } sha && history.Versions.FirstOrDefault(v => v.Commit == sha) is { } byCommit)
+            return byCommit;
+        if (record?.Commit is not null && !allowFallback) return null;
+        return history.Versions.FirstOrDefault(v => Versions.Compare(v.Version, installed) == 0 && v.IsRelease)
+               ?? history.Versions.FirstOrDefault(v => Versions.Compare(v.Version, installed) == 0);
     }
 
     void RowBrowse_Click(object sender, RoutedEventArgs e)
@@ -1507,12 +1587,26 @@ public partial class MainWindow : Window
         if (((ContextMenu)sender).PlacementTarget is UIElement button) button.IsHitTestVisible = true;
     }
 
+    string? _logoKey;
+    readonly Dictionary<string, System.Windows.Media.ImageSource> _logoImages = new();
+
+    System.Windows.Media.ImageSource LogoImage(string name)
+    {
+        if (_logoImages.TryGetValue(name, out var image)) return image;
+        var bitmap = new System.Windows.Media.Imaging.BitmapImage(new Uri($"pack://application:,,,/logos/{name}.png"));
+        bitmap.Freeze();
+        return _logoImages[name] = bitmap;
+    }
+
     /// <summary>
     /// Top-left logo for the selected game version: the official logo from logos\ (PTR/Beta reuse their game's logo
     /// with a tag; Classic Era uses Hardcore's, its main use now), else a drawn wordmark in that version's colour.
     /// </summary>
     void UpdateGameLogo()
     {
+        var logoKey = $"{_game.Id}|{CurrentFlavor?.Folder ?? ""}";
+        if (logoKey == _logoKey) return;
+        _logoKey = logoKey;
         if (_game != GameDefinition.Wow)
         {
             ShowWordmark(_game.Name, "#F08A3C");
@@ -1530,8 +1624,7 @@ public partial class MainWindow : Window
             "_beta_" or "_classic_beta_" => "BETA",
             _ => "",
         };
-        GameLogoImage.Source = image is null ? null
-            : new System.Windows.Media.Imaging.BitmapImage(new Uri($"pack://application:,,,/logos/{image}.png"));
+        GameLogoImage.Source = image is null ? null : LogoImage(image);
         GameLogoImage.Visibility = image is null ? Visibility.Collapsed : Visibility.Visible;
         GameLogoText.Visibility = image is null ? Visibility.Visible : Visibility.Collapsed;
         GameLogoTagText.Text = tag;

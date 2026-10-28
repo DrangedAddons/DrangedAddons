@@ -46,7 +46,7 @@
                         <Button Style="{StaticResource RailButton}" Click="RailGame_Click" ToolTip="{Binding Name}">
                             <Button.ContextMenu>
                                 <ContextMenu>
-                                    <MenuItem Header="Remove from the side bar" Click="RailRemove_Click" IsEnabled="{Binding CanRemove}"/>
+                                    <MenuItem Header="Remove from the side bar" Click="RailRemove_Click"/>
                                 </ContextMenu>
                             </Button.ContextMenu>
                             <Grid Width="36" Height="36">

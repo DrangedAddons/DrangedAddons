@@ -40,7 +40,7 @@ public static class AppUpdater
     public static async Task<AppRelease?> CheckAsync(GitHubClient github)
     {
         var json = await github.GetJsonAsync($"https://api.github.com/repos/{GitHubClient.Org}/{Repo}/releases/latest", default);
-        github.SaveCaches();
+        github.SaveHttpCache();
         if (json is null) return null;
 
         using var doc = JsonDocument.Parse(json);

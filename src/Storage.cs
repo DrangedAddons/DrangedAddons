@@ -27,12 +27,16 @@ public static class Storage
         return new T();
     }
 
-    public static void Save<T>(string file, T value)
+    public static void Save<T>(string file, T value) =>
+        WriteAtomic(file, JsonSerializer.Serialize(value, Options));
+
+    /// <summary>Writes <paramref name="contents"/> via a temp file so a crash can't leave a half-written cache.</summary>
+    public static void WriteAtomic(string file, string contents)
     {
         Directory.CreateDirectory(Dir);
         var path = Path.Combine(Dir, file);
         var tmp = path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(value, Options));
+        File.WriteAllText(tmp, contents);
         File.Move(tmp, path, overwrite: true);
     }
 }

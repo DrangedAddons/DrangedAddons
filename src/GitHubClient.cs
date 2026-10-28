@@ -29,8 +29,9 @@ public readonly record struct DownloadProgress(long Bytes, long? Total)
 /// <summary>
 /// Reads the public DrangedAddons org. API responses are cached with ETags, and GitHub doesn't count
 /// "304 Not Modified" replies against the hourly limit when signed in (anonymous 304s do count toward 60/hour).
-/// Once a check has built the addon list, a later check that gets 304 for the org repo list stops there:
-/// a tag push updates the list, so a real release still refetches each repo. File contents at a commit come from
+/// Once a check has built the addon list, a later check that gets 304 for the org repo list stops there, unless a
+/// repo was pushed in the last 15 minutes: a tag push changes the list, but the release its workflow publishes
+/// afterwards doesn't, so each repo is still asked until that release has had time to appear. File contents at a commit come from
 /// raw.githubusercontent.com and source zips from codeload.github.com, neither of which uses the API limit.
 /// Signed in it's 5,000 API requests an hour, using a token saved in the app (File → GitHub token…),
 /// GH_TOKEN / GITHUB_TOKEN, or the GitHub CLI's login on this PC.
@@ -198,7 +199,8 @@ public sealed class GitHubClient
     {
         var fetched = await FetchJsonAsync($"https://api.github.com/orgs/{Org}/repos?type=public&per_page=100", ct);
         // Test game overrides are applied while building the list, so a dev run always rebuilds.
-        if (fetched.NotModified && _addonSnapshot is not null && fetched.ETag == _snapshotETag && TestGames.Count == 0)
+        if (fetched.NotModified && _addonSnapshot is not null && fetched.ETag == _snapshotETag && TestGames.Count == 0
+            && !PushedRecently(fetched.Body))
             return _addonSnapshot;
         var reposJson = fetched.Body
             ?? throw new InvalidOperationException($"The GitHub organisation '{Org}' was not found.");
@@ -230,6 +232,31 @@ public sealed class GitHubClient
         await Task.Run(SaveCaches);
         return list;
     }
+
+    /// <summary>
+    /// Whether any repo in the org list was pushed within <see cref="ReleaseWindow"/>. A tag push changes the list,
+    /// but the release its workflow publishes a minute or two later doesn't, so until that window has passed every
+    /// check still asks each repo for its release.
+    /// </summary>
+    static bool PushedRecently(string? reposJson)
+    {
+        if (reposJson is null) return true;
+        try
+        {
+            using var doc = JsonDocument.Parse(reposJson);
+            var since = DateTimeOffset.UtcNow - ReleaseWindow;
+            return doc.RootElement.EnumerateArray().Any(r =>
+                r.TryGetProperty("pushed_at", out var p) && p.ValueKind == JsonValueKind.String
+                && p.TryGetDateTimeOffset(out var pushed) && pushed > since);
+        }
+        catch (JsonException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>How long after a push a release can still appear (release workflows take a few minutes).</summary>
+    static readonly TimeSpan ReleaseWindow = TimeSpan.FromMinutes(15);
 
     async Task<RemoteAddon?> GetAddonAsync(string repo, string description, string branch, string game, CancellationToken ct)
     {

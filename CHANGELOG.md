@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.34.0
+- **Pings in co-op lobbies.** While you host, your manager times each player's round trip to you every 2 seconds over
+  their direct link, and every slot shows it beside Ready or In game ("In game · 34 ms"), for everyone in the lobby.
+  Players on an older manager show no ping.
+- The host's manager reports those pings to the lobby on the co-op service every 10 seconds, for the platform
+  dashboard's session view (session time, players, roughly where each connects from, and ping over time). Only the
+  dashboard's admin key can read it.
+
 ## 0.33.0
 - **Friends.** The people icon above your picture in the side bar opens Friends; a red badge counts friend requests
   waiting for you.

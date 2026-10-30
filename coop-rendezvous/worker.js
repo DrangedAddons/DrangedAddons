@@ -47,6 +47,11 @@
 //                 {t:"unfriend", to}   removes a friend, or declines / cancels a request
 //   to a member:  {t:"friends", friends:[{id,name,avatar}], incoming:[…], outgoing:[…]} on connect and whenever
 //                 that changes. Which friends are online comes from the online / here / gone messages.
+// Sessions: the host's manager sends {t:"telemetry", pings:{<player id>:{avg,min,max,jitter}}} every 10 s while hosting
+// (each player's round trip to the host over the direct link, in ms). The lobby keeps an hour of samples and hands a
+// summary to the Presence object: host, players, when each joined, roughly where each connects from (Cloudflare's
+// country, city and network for the connection) and their pings. GET /sessions with the stats token lists the open
+// ones for the platform dashboard. Unlike /stats this has names, places and networks: admin only.
 // GET /stats with "Authorization: Bearer <STATS_TOKEN>" (a Worker secret) returns totals for the platform dashboard:
 // how many are connected, by status and game, open lobbies per game, members, friendships. Counts only: no names,
 // ids or lobby codes.
@@ -63,6 +68,8 @@ const CHAT_LENGTH = 300;
 const CHATS_PER_5S = 5;
 const INVITE_GAP_MS = 5000; // the same member, at most once per 5 seconds
 const INVITES_PER_MINUTE = 20;
+const SESSION_SAMPLES = 360; // 10 s apart: the last hour
+const SESSION_STALE_MS = 90000; // a session not reported for this long is gone (its lobby object stopped)
 const AVATAR_BYTES = 64 * 1024;
 const AVATAR_GAP_MS = 5000; // one picture change per 5 seconds per member
 const SEARCH_LENGTH = 24;
@@ -80,7 +87,7 @@ export default {
     if (url.pathname === "/avatar" || /^\/avatar\/[0-9a-f]{16}$/.test(url.pathname)) {
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
     }
-    if (url.pathname === "/stats") {
+    if (url.pathname === "/stats" || url.pathname === "/sessions") {
       if (!(await sameSecret(request.headers.get("Authorization") ?? "", "Bearer " + (env.STATS_TOKEN ?? "")))
           || !env.STATS_TOKEN) {
         return new Response("not allowed", { status: 401 });
@@ -139,8 +146,9 @@ function withoutLocal(data, from, to) {
 }
 
 export class Lobby {
-  constructor(state) {
+  constructor(state, env) {
     this.state = state;
+    this.env = env;
     this.wrong = new Map(); // ip -> times of wrong passwords this minute; lost on hibernation, fine
     this.chats = new Map(); // player id -> times of recent chat messages; same
   }
@@ -166,8 +174,15 @@ export class Lobby {
     if (role === "host") {
       if (host) return refuse("taken");
       this.state.acceptWebSocket(server);
-      server.serializeAttachment({ role: "host", id: "host", name: cleanName(params.get("name")) || "Host", ip, locked: false, pw: null, allow: [], banned: [] });
+      server.serializeAttachment({
+        role: "host", id: "host", name: cleanName(params.get("name")) || "Host", ip, locked: false, pw: null, allow: [], banned: [],
+        // Before games were named, only Azeroth Survivors hosted.
+        session: crypto.randomUUID().slice(0, 12), game: cleanGame(params.get("game")) ?? "azeroth-survivors",
+        opened: Date.now(), where: place(request),
+      });
       server.send(JSON.stringify({ t: "hosting" }));
+      await this.state.storage.deleteAll(); // a fresh lobby under a code used before
+      await this.report();
     } else if (role === "join") {
       if (!host) return refuse("no lobby");
       const key = params.get("key") ?? "";
@@ -193,7 +208,7 @@ export class Lobby {
       const id = "p" + crypto.randomUUID().slice(0, 8);
       this.state.acceptWebSocket(server);
       const name = cleanName(params.get("name")) || "A player";
-      server.serializeAttachment({ role: "join", id, ip, member, name });
+      server.serializeAttachment({ role: "join", id, ip, member, name, joined: Date.now(), where: place(request) });
       server.send(JSON.stringify({ t: "joined", id }));
       host.send(JSON.stringify({ t: "join", id, member, name }));
     } else {
@@ -243,8 +258,12 @@ export class Lobby {
       case "start": {
         const text = JSON.stringify(message.t === "party" ? { t: "party", data: message.data } : { t: "start" });
         for (const joiner of joiners) joiner.send(text);
+        this.sessionUpdate(message);
         break;
       }
+      case "telemetry":
+        this.sessionUpdate(message);
+        break;
       case "settings":
         ws.serializeAttachment({
           ...me,
@@ -270,6 +289,61 @@ export class Lobby {
     }
   }
 
+  /** A party, start or telemetry message from the host: keep what the session view needs, then report it. */
+  async sessionUpdate(message) {
+    const now = Date.now();
+    if (message.t === "start" && !(await this.state.storage.get("started"))) await this.state.storage.put("started", now);
+    if (message.t === "party" && message.data && typeof message.data === "object") {
+      const states = {};
+      for (const m of Array.isArray(message.data.members) ? message.data.members : [])
+        if (typeof m?.id === "string" && typeof m.state === "string") states[m.id] = m.state.slice(0, 12);
+      await this.state.storage.put("states", states);
+      if (message.data.started === true && !(await this.state.storage.get("started"))) await this.state.storage.put("started", now);
+    }
+    if (message.t === "telemetry") {
+      const pings = {};
+      for (const [id, p] of Object.entries(message.pings && typeof message.pings === "object" ? message.pings : {}).slice(0, 8))
+        if (/^p[0-9a-f]{8}$/.test(id) && cleanPing(p)) pings[id] = cleanPing(p);
+      const samples = (await this.state.storage.get("samples")) ?? [];
+      samples.push({ t: now, p: Object.fromEntries(Object.entries(pings).map(([id, p]) => [id, p.avg])) });
+      await this.state.storage.put({ samples: samples.slice(-SESSION_SAMPLES), pings });
+    }
+    await this.report();
+  }
+
+  /** The session as the dashboard sees it, handed to the Presence object (which /sessions reads). */
+  async report() {
+    const host = this.sockets("host")[0]?.deserializeAttachment();
+    if (!host?.session) return;
+    const stored = await this.state.storage.get(["started", "states", "samples", "pings"]);
+    const samples = stored.get("samples") ?? [];
+    const pings = stored.get("pings") ?? {};
+    const states = stored.get("states") ?? {};
+    const players = this.sockets("join").map((s) => s.deserializeAttachment()).filter(Boolean).map((j) => {
+      const all = samples.map((x) => x.p[j.id]).filter((v) => Number.isFinite(v));
+      return {
+        id: j.id, name: j.name, member: j.member, joined: j.joined ?? null, where: j.where ?? null,
+        state: states[j.id] ?? "Connecting",
+        ping: pings[j.id] ? { ...pings[j.id], session: all.length ? Math.round(all.reduce((a, b) => a + b, 0) / all.length) : null } : null,
+      };
+    });
+    await this.tellPresence({
+      id: host.session, game: host.game, opened: host.opened, started: stored.get("started") ?? null,
+      host: { name: host.name, where: host.where, locked: host.locked, password: !!host.pw },
+      players, samples,
+    });
+  }
+
+  async tellPresence(body) {
+    if (!this.env?.PRESENCE) return;
+    try {
+      await this.env.PRESENCE.get(this.env.PRESENCE.idFromName("global"))
+        .fetch("https://presence/internal/session", { method: "POST", body: JSON.stringify(body) });
+    } catch {
+      // The dashboard misses one update; the next one (10 s later) catches up.
+    }
+  }
+
   async webSocketClose(ws) {
     this.gone(ws);
   }
@@ -280,6 +354,10 @@ export class Lobby {
 
   gone(ws) {
     const me = ws.deserializeAttachment();
+    if (me?.role === "host" && me.session) {
+      this.tellPresence({ id: me.session, ended: true });
+      this.state.storage.deleteAll();
+    }
     for (const other of this.state.getWebSockets()) {
       if (other === ws) continue;
       if (me?.role === "host") {
@@ -290,6 +368,20 @@ export class Lobby {
       }
     }
   }
+}
+
+/** Roughly where a connection comes from, as Cloudflare sees it: country, city, network. Never the address. */
+function place(request) {
+  const cf = request.cf ?? {};
+  const text = (v, n) => (typeof v === "string" && v ? v.slice(0, n) : null);
+  return { country: text(cf.country, 2), city: text(cf.city, 40), isp: text(cf.asOrganization, 60), colo: text(cf.colo, 4) };
+}
+
+/** A ping as the host reported it: whole milliseconds, 0 to 10 s; anything else is no reading. */
+function cleanPing(p) {
+  const ms = (v) => (Number.isFinite(v) && v >= 0 && v <= 10000 ? Math.round(v) : null);
+  if (!p || typeof p !== "object" || ms(p.avg) === null) return null;
+  return { avg: ms(p.avg), min: ms(p.min) ?? ms(p.avg), max: ms(p.max) ?? ms(p.avg), jitter: ms(p.jitter) ?? 0 };
 }
 
 /** A hosting member's lobby as listed to others: only open (unlocked) lobbies list their code. */
@@ -345,6 +437,9 @@ export class Presence {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/avatar")) return this.avatar(request, url);
     if (url.pathname === "/stats") return this.stats(); // the token was checked before it got here
+    if (url.pathname === "/sessions") return this.sessions(); // so was this one's
+    // Only lobby objects reach this: the Worker's front door never forwards /internal/ here.
+    if (url.pathname === "/internal/session" && request.method === "POST") return this.storeSession(await request.json());
     const params = url.searchParams;
     const key = params.get("key") ?? params.get("id") ?? "";
     const name = cleanName(params.get("name"));
@@ -470,6 +565,26 @@ export class Presence {
 
   async webSocketError(ws) {
     this.gone(ws);
+  }
+
+  async storeSession(body) {
+    if (typeof body?.id !== "string" || !/^[0-9a-f-]{12}$/.test(body.id)) return new Response("bad session", { status: 400 });
+    if (body.ended) await this.state.storage.delete("session:" + body.id);
+    else await this.state.storage.put("session:" + body.id, { ...body, updated: Date.now() });
+    return new Response("ok");
+  }
+
+  /** Open lobbies and games in progress for the dashboard; a session that stopped reporting is dropped. */
+  async sessions() {
+    const now = Date.now();
+    const out = [];
+    for (const [key, s] of await this.state.storage.list({ prefix: "session:" })) {
+      if (now - s.updated > SESSION_STALE_MS) await this.state.storage.delete(key);
+      else out.push(s);
+    }
+    out.sort((a, b) => a.opened - b.opened);
+    return new Response(JSON.stringify({ at: new Date(now).toISOString(), sessions: out }),
+      { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
   /** Totals for the platform dashboard (see /stats at the top). */

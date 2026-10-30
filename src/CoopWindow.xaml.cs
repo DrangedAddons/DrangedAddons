@@ -161,7 +161,7 @@ public partial class CoopWindow : Window
         {
             using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             _hostGamePort = CoopTunnel.FreeLocalPort();
-            _host = await CoopHost.StartAsync(_hostGamePort, _name, cancel.Token);
+            _host = await CoopHost.StartAsync(_hostGamePort, _name, cancel.Token, CoopGameId);
             LogList.Children.Clear();
             _roster.Clear();
             _started = false;
@@ -397,7 +397,8 @@ public partial class CoopWindow : Window
             var you = _join is not null && member.Id == _join.Id;
             var state = member.State switch
             {
-                MemberState.Connected => party.Started ? ("In game", ready) : ("Ready", ready),
+                // With the round trip to the host once measured (the host's manager does, every 2 s).
+                MemberState.Connected => ((party.Started ? "In game" : "Ready") + (member.Ping is { } ms ? $" · {ms} ms" : ""), ready),
                 MemberState.Failed => ("Couldn't connect", Danger),
                 _ => ("Connecting…", Muted),
             };

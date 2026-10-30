@@ -305,7 +305,8 @@ public enum MemberState { Connecting, Connected, Failed }
 public sealed record ChatLine(string From, bool FromHost, string Text);
 
 /// <summary>A player in a lobby: Id within this lobby; Member their hashed member id, as checked by the co-op service.</summary>
-public sealed record PartyMember(string Id, string Name, MemberState State, string? Member = null);
+/// <param name="Ping">Round trip to the host over the direct link, in ms (the last 10 s on average); null until measured.</param>
+public sealed record PartyMember(string Id, string Name, MemberState State, string? Member = null, int? Ping = null);
 
 /// <summary>What everyone in a party sees: the host's name, who's in it, and whether the host has started the game.</summary>
 public sealed record PartyInfo(string Host, IReadOnlyList<PartyMember> Members, bool Started);
@@ -325,6 +326,8 @@ public sealed class CoopHost : IAsyncDisposable
     readonly Dictionary<string, (Socket Socket, CoopTunnel.Candidates Me)> _pending = new();
     readonly Dictionary<string, PartyMember> _members = new();
     readonly Dictionary<string, QuicConnection> _connections = new();
+    /// <summary>Round trips measured to each player since the last telemetry report, in ms.</summary>
+    readonly Dictionary<string, List<double>> _pings = new();
     CoopTunnel.Rendezvous? _rendezvous;
 
     public string Code { get; }
@@ -352,16 +355,19 @@ public sealed class CoopHost : IAsyncDisposable
     }
 
     /// <summary>Opens a party; the game must be started with WOW_ROGUE_COOP_HOST = <paramref name="gamePort"/>.</summary>
-    public static async Task<CoopHost> StartAsync(int gamePort, string name, CancellationToken cancel)
+    /// <param name="game">The game's id, so the platform dashboard knows which game the session is.</param>
+    public static async Task<CoopHost> StartAsync(int gamePort, string name, CancellationToken cancel, string game = "azeroth-survivors")
     {
         for (var attempt = 0; ; attempt++)
         {
             var host = new CoopHost(CoopTunnel.NewCode(), gamePort, name);
-            host._rendezvous = await CoopTunnel.Rendezvous.ConnectAsync($"lobby/{host.Code}?role=host&name={Uri.EscapeDataString(name)}", cancel);
+            host._rendezvous = await CoopTunnel.Rendezvous.ConnectAsync(
+                $"lobby/{host.Code}?role=host&name={Uri.EscapeDataString(name)}&game={Uri.EscapeDataString(game)}", cancel);
             var first = await host._rendezvous.ReceiveAsync(cancel);
             if ((string?)first?["t"] == "hosting")
             {
                 _ = host.RunAsync();
+                _ = host.ReportAsync();
                 return host;
             }
             await host.DisposeAsync();
@@ -436,7 +442,7 @@ public sealed class CoopHost : IAsyncDisposable
         PartyChanged?.Invoke(party);
         var members = new JsonArray();
         foreach (var m in party.Members)
-            members.Add(new JsonObject { ["id"] = m.Id, ["name"] = m.Name, ["state"] = m.State.ToString(), ["member"] = m.Member });
+            members.Add(new JsonObject { ["id"] = m.Id, ["name"] = m.Name, ["state"] = m.State.ToString(), ["member"] = m.Member, ["ping"] = m.Ping });
         await _rendezvous!.TrySendAsync(new JsonObject
         {
             ["t"] = "party",
@@ -536,6 +542,7 @@ public sealed class CoopHost : IAsyncDisposable
                 _connections[id] = connection;
             }
             SetMember(id, m => m is null ? null : m with { State = MemberState.Connected });
+            _ = PingAsync(id, connection, cancel);
                         if (Started) await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "start" });
             while (!cancel.IsCancellationRequested)
             {
@@ -554,6 +561,94 @@ public sealed class CoopHost : IAsyncDisposable
             lock (_lock) stillHere = _connections.Remove(id) | _members.ContainsKey(id);
             // Their connection ended: they left (or dropped). Free the slot; the lobby chat logs who left.
             if (!cancel.IsCancellationRequested && stillHere) SetMember(id, _ => null);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    /// <summary>
+    /// Measures the round trip to a player every 2 s over its own small stream on the player's link: 8 bytes out,
+    /// the player's manager sends them straight back. A player's manager from before this doesn't accept the stream,
+    /// so it just has no ping.
+    /// </summary>
+    async Task PingAsync(string id, QuicConnection connection, CancellationToken cancel)
+    {
+        try
+        {
+            QuicStream stream;
+            using (var open = CancellationTokenSource.CreateLinkedTokenSource(cancel))
+            {
+                open.CancelAfter(TimeSpan.FromSeconds(5));
+                stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Bidirectional, open.Token);
+            }
+            await using (stream)
+            {
+                var sent = new byte[8];
+                var back = new byte[8];
+                while (!cancel.IsCancellationRequested)
+                {
+                    var start = System.Diagnostics.Stopwatch.GetTimestamp();
+                    BitConverter.TryWriteBytes(sent, start);
+                    await stream.WriteAsync(sent, cancel);
+                    await stream.ReadExactlyAsync(back, cancel);
+                    if (BitConverter.ToInt64(back) == start)
+                    {
+                        var ms = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+                        lock (_lock)
+                        {
+                            if (!_members.ContainsKey(id)) return; // left or removed
+                            (_pings.TryGetValue(id, out var list) ? list : _pings[id] = []).Add(ms);
+                        }
+                    }
+                    await Task.Delay(2000, cancel);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or QuicException or ObjectDisposedException or EndOfStreamException)
+        {
+            // An older player's manager, or the player left: no ping.
+        }
+    }
+
+    /// <summary>
+    /// Every 10 s: each player's ping over that time (average, best, worst, jitter) to the lobby on the co-op service
+    /// (for the platform dashboard), and the average into the party list so every player sees it.
+    /// </summary>
+    async Task ReportAsync()
+    {
+        var cancel = _stop.Token;
+        try
+        {
+            while (!cancel.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(10), cancel);
+                Dictionary<string, List<double>> window;
+                lock (_lock)
+                {
+                    window = _pings.Where(p => p.Value.Count > 0 && _members.ContainsKey(p.Key)).ToDictionary(p => p.Key, p => p.Value.ToList());
+                    _pings.Clear();
+                }
+                var pings = new JsonObject();
+                foreach (var (id, ms) in window)
+                {
+                    var jitter = ms.Count > 1 ? ms.Zip(ms.Skip(1), (a, b) => Math.Abs(a - b)).Average() : 0;
+                    pings[id] = new JsonObject { ["avg"] = Math.Round(ms.Average()), ["min"] = Math.Round(ms.Min()), ["max"] = Math.Round(ms.Max()), ["jitter"] = Math.Round(jitter) };
+                }
+                await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "telemetry", ["pings"] = pings });
+                var changed = false;
+                lock (_lock)
+                {
+                    foreach (var (id, ms) in window)
+                    {
+                        var avg = (int)Math.Round(ms.Average());
+                        if (_members.TryGetValue(id, out var m) && m.Ping != avg)
+                        {
+                            _members[id] = m with { Ping = avg };
+                            changed = true;
+                        }
+                    }
+                }
+                if (changed) await SendPartyAsync();
+            }
         }
         catch (OperationCanceledException) { }
     }
@@ -719,7 +814,7 @@ public sealed class CoopJoin : IAsyncDisposable
                 {
                     RemoteEndPoint = target,
                     LocalEndPoint = new IPEndPoint(IPAddress.Any, localPort),
-                    MaxInboundBidirectionalStreams = 0,
+                    MaxInboundBidirectionalStreams = 1, // the host's ping stream (see CoopHost.PingAsync)
                     ClientAuthenticationOptions = new SslClientAuthenticationOptions
                     {
                         ApplicationProtocols = [CoopTunnel.Alpn],
@@ -751,6 +846,27 @@ public sealed class CoopJoin : IAsyncDisposable
         LocalPort = ((IPEndPoint)_local.LocalEndpoint).Port;
         _ = ServeGameAsync();
         _ = FollowPartyAsync();
+        _ = EchoPingsAsync();
+    }
+
+    /// <summary>Sends the host's ping bytes straight back, so it can time the round trip.</summary>
+    async Task EchoPingsAsync()
+    {
+        var cancel = _stop.Token;
+        try
+        {
+            await using var stream = await _connection!.AcceptInboundStreamAsync(cancel);
+            var buffer = new byte[8];
+            while (!cancel.IsCancellationRequested)
+            {
+                await stream.ReadExactlyAsync(buffer, cancel);
+                await stream.WriteAsync(buffer, cancel);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or QuicException or ObjectDisposedException or EndOfStreamException)
+        {
+            // The link closed, or a host from before pings: nothing to echo.
+        }
     }
 
     static PartyInfo? ParseParty(JsonNode? data)
@@ -758,7 +874,7 @@ public sealed class CoopJoin : IAsyncDisposable
         if (data is null) return null;
         var members = data["members"]?.AsArray()
             .Select(m => (string?)m?["id"] is { } id && (string?)m?["name"] is { } name
-                ? new PartyMember(id, name, Enum.TryParse<MemberState>((string?)m["state"], out var s) ? s : MemberState.Connecting, (string?)m["member"])
+                ? new PartyMember(id, name, Enum.TryParse<MemberState>((string?)m["state"], out var s) ? s : MemberState.Connecting, (string?)m["member"], (int?)m["ping"])
                 : null)
             .OfType<PartyMember>().ToList() ?? [];
         return new PartyInfo((string?)data["host"] ?? "Host", members, (bool?)data["started"] == true);

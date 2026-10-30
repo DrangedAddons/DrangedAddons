@@ -1,0 +1,34 @@
+[
+ {
+  "id": "direct-tcp",
+  "name": "Direct TCP over QUIC",
+  "status": "Live",
+  "how": "Each player's app punches a UDP path to the host's app, then carries the game's TCP connection inside QUIC.",
+  "needs": "Routers that keep one outside port per socket (endpoint-independent NAT). Most home routers do.",
+  "latency": "Direct path between the two PCs"
+ },
+ {
+  "id": "direct-udp",
+  "name": "Direct UDP over QUIC datagrams",
+  "status": "Planned",
+  "how": "The same punched path, carrying a game's UDP packets as QUIC datagrams.",
+  "needs": "Same router behaviour as Direct TCP.",
+  "latency": "Direct path between the two PCs"
+ },
+ {
+  "id": "relay",
+  "name": "Relayed fallback",
+  "status": "Planned",
+  "how": "When punching fails (strict NAT, carrier-grade NAT), traffic goes through a relay such as Cloudflare's TURN service.",
+  "needs": "Works through any router.",
+  "latency": "Adds the trip to the relay; relay traffic may cost money"
+ },
+ {
+  "id": "presence-only",
+  "name": "Presence only",
+  "status": "Live",
+  "how": "No connection between players: account, status, friends and In game only. The game uses its own servers.",
+  "needs": "Nothing beyond the app being online.",
+  "latency": "Not applicable"
+ }
+]

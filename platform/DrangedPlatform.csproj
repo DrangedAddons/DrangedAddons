@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>DrangedPlatform</RootNamespace>
+    <AssemblyName>DrangedPlatform</AssemblyName>
+    <Version>0.1.0</Version>
+    <!-- DrangedAddons' icon in greyscale (src/app.ico through PIL), so the two apps read as a pair. -->
+    <ApplicationIcon>platform.ico</ApplicationIcon>
+    <Product>DrangedAddons Platform</Product>
+    <AssemblyTitle>DrangedAddons Platform</AssemblyTitle>
+    <Company>DrangedAddons</Company>
+    <Copyright>© 2026 DrangedAddons</Copyright>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shared with DrangedAddons: the dark title bar and its dialog. -->
+    <Compile Include="..\src\DarkTitleBar.cs" Link="Shared\DarkTitleBar.cs" />
+    <Compile Include="..\src\DarkDialog.cs" Link="Shared\DarkDialog.cs" />
+    <Resource Include="logo.png" />
+    <Resource Include="platform.ico" />
+    <!-- The platform's fixed description: profiles, connectivity types, components, security controls. -->
+    <EmbeddedResource Include="data\*.json" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- dotnet publish -c Release  →  one self-contained DrangedPlatform.exe -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+</Project>

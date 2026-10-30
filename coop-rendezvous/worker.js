@@ -57,6 +57,10 @@
 // ids or lobby codes.
 // avatar is a short hash of the member's picture, or null. PUT /avatar?key=<install secret> (a PNG or JPEG of at most
 // 64 KB) sets it and DELETE /avatar?key=… removes it; GET /avatar/<id> returns it.
+// Game profiles: each game on the platform, as the manager lists it under Add a game and as the dashboard shows it.
+// GET /profiles returns the Live ones to anyone ({at, profiles:[…]}); with the stats token it returns Drafts too.
+// PUT /profiles/<id> (JSON, see cleanProfile) and DELETE /profiles/<id> need the stats token. Each profile's icon:
+// PUT /profiles/<id>/icon (a PNG or JPEG of at most 64 KB, stats token), DELETE the same, GET for anyone.
 
 const CODE = /^[A-HJ-NP-Z2-9]{6}$/;
 const KEY = /^[A-Za-z0-9-]{16,64}$/;
@@ -76,6 +80,10 @@ const SEARCH_LENGTH = 24;
 const SEARCHES_PER_10S = 20;
 const FRIENDS_MAX = 200;
 const REQUESTS_MAX = 50; // pending each way
+const PROFILES_MAX = 50;
+const PROFILE_BYTES = 8 * 1024;
+const CONNECTIVITY = ["direct-tcp", "direct-udp", "relay", "presence-only"];
+const PROFILE_STATUSES = ["Draft", "Live"];
 
 export default {
   async fetch(request, env) {
@@ -88,11 +96,16 @@ export default {
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
     }
     if (url.pathname === "/stats" || url.pathname === "/sessions") {
-      if (!(await sameSecret(request.headers.get("Authorization") ?? "", "Bearer " + (env.STATS_TOKEN ?? "")))
-          || !env.STATS_TOKEN) {
-        return new Response("not allowed", { status: 401 });
-      }
+      if (!(await isAdmin(request, env))) return new Response("not allowed", { status: 401 });
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
+    }
+    if (url.pathname === "/profiles" || /^\/profiles\/[a-z0-9-]{1,32}(\/icon)?$/.test(url.pathname)) {
+      const admin = await isAdmin(request, env);
+      if (request.method !== "GET" && !admin) return new Response("not allowed", { status: 401 });
+      // Set here, whatever the caller sent: the Presence object is only reached through this door.
+      const headers = new Headers(request.headers);
+      headers.set("X-Platform-Admin", admin ? "1" : "0");
+      return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(new Request(request, { headers }));
     }
     const match = url.pathname.match(/^\/lobby\/([A-Za-z0-9]+)$/);
     if (!match) return new Response("DrangedAddons co-op rendezvous", { status: url.pathname === "/" ? 200 : 404 });
@@ -110,6 +123,11 @@ async function sameSecret(a, b) {
   let diff = 0;
   for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
   return diff === 0;
+}
+
+/** Whether the request carries the stats token (the platform's admin key). */
+async function isAdmin(request, env) {
+  return !!env.STATS_TOKEN && sameSecret(request.headers.get("Authorization") ?? "", "Bearer " + env.STATS_TOKEN);
 }
 
 /** The id others see: a hash of the secret key, so seeing it doesn't let anyone connect as that member. */
@@ -397,6 +415,70 @@ function cleanGame(game) {
   return typeof game === "string" && /^[a-z0-9-]{1,32}$/.test(game) ? game : null;
 }
 
+/**
+ * A game profile as stored and served, from what the dashboard sent; or the problem with it. Text is trimmed and
+ * capped, paths must stay inside the game folder, and anything not listed here is dropped.
+ *   id            the game id, also the GitHub topic that marks a repo as this game's (from the URL)
+ *   name, description, status (Draft or Live), order (listing order)
+ *   builtin       the manager has its own code for this game (WoW): it uses only the name, description and icon
+ *   install       exe (file name), launchArgs, addons and saved (folders inside the game folder), search (folders
+ *                 to look for it in: relative to each drive, or starting %LOCALAPPDATA% / %PROGRAMFILES%), typical
+ *                 (where it's usually installed). exe and addons are needed unless builtin.
+ *   connectivity  direct-tcp, direct-udp, relay or presence-only; partySize
+ *   coop          hostEnv, joinEnv, passwordEnv: environment variables the game reads to host or join directly
+ *   notes         hosting, joining, lobby, inGame, state: free text for the dashboard
+ */
+function cleanProfile(id, b) {
+  if (!b || typeof b !== "object") return { problem: "expected an object" };
+  const text = (v, max) =>
+    typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, "").trim().slice(0, max) : "";
+  // A folder inside the game folder: no drive, no leading slash, no "..".
+  const inside = (v) => {
+    const p = text(v, 160).replace(/\//g, "\\").replace(/\\+$/, "");
+    return p && !p.includes(":") && !p.startsWith("\\") && !p.split("\\").includes("..") ? p : null;
+  };
+  // Somewhere to look for the game: like inside(), or starting with one of a few known folders.
+  const searchPath = (v) => {
+    const p = text(v, 160).replace(/\//g, "\\");
+    const known = p.match(/^%(LOCALAPPDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|APPDATA|USERPROFILE)%\\(.+)$/i);
+    return known ? (inside(known[2]) ? `%${known[1].toUpperCase()}%\\${inside(known[2])}` : null) : inside(p);
+  };
+  const env = (v) => (typeof v === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(v) ? v : null);
+
+  const name = text(b.name, 40);
+  if (!name) return { problem: "name required" };
+  const status = PROFILE_STATUSES.includes(b.status) ? b.status : "Draft";
+  const connectivity = CONNECTIVITY.includes(b.connectivity) ? b.connectivity : null;
+  if (!connectivity) return { problem: "connectivity must be one of " + CONNECTIVITY.join(", ") };
+  const builtin = b.builtin === true;
+
+  const i = b.install && typeof b.install === "object" ? b.install : {};
+  const exe = text(i.exe, 64);
+  const install = {
+    exe: /^[^\\/:*?"<>|]+\.exe$/i.test(exe) ? exe : null,
+    launchArgs: text(i.launchArgs, 200),
+    addons: inside(i.addons),
+    saved: inside(i.saved),
+    search: Array.isArray(i.search) ? i.search.slice(0, 12).map(searchPath).filter(Boolean) : [],
+    typical: text(i.typical, 200) || null,
+  };
+  if (!builtin && (!install.exe || !install.addons)) return { problem: "install.exe (a file name ending .exe) and install.addons (a folder inside the game folder) required" };
+
+  const c = b.coop && typeof b.coop === "object" ? b.coop : null;
+  const coop = c && (env(c.hostEnv) || env(c.joinEnv)) ? { hostEnv: env(c.hostEnv), joinEnv: env(c.joinEnv), passwordEnv: env(c.passwordEnv) } : null;
+  const n = b.notes && typeof b.notes === "object" ? b.notes : {};
+  const party = Number.isInteger(b.partySize) && b.partySize >= 1 && b.partySize <= 16 ? b.partySize : null;
+
+  return {
+    profile: {
+      id, name, description: text(b.description, 300), status, builtin,
+      order: Number.isInteger(b.order) ? Math.max(0, Math.min(b.order, 999)) : 100,
+      install, connectivity, partySize: party, coop,
+      notes: { hosting: text(n.hosting, 300), joining: text(n.joining, 300), lobby: text(n.lobby, 300), inGame: text(n.inGame, 300), state: text(n.state, 300) },
+    },
+  };
+}
+
 function visible(player) {
   return player.state !== "offline";
 }
@@ -438,6 +520,7 @@ export class Presence {
     if (url.pathname.startsWith("/avatar")) return this.avatar(request, url);
     if (url.pathname === "/stats") return this.stats(); // the token was checked before it got here
     if (url.pathname === "/sessions") return this.sessions(); // so was this one's
+    if (url.pathname.startsWith("/profiles")) return this.gameProfiles(request, url, request.headers.get("X-Platform-Admin") === "1");
     // Only lobby objects reach this: the Worker's front door never forwards /internal/ here.
     if (url.pathname === "/internal/session" && request.method === "POST") return this.storeSession(await request.json());
     const params = url.searchParams;
@@ -572,6 +655,76 @@ export class Presence {
     if (body.ended) await this.state.storage.delete("session:" + body.id);
     else await this.state.storage.put("session:" + body.id, { ...body, updated: Date.now() });
     return new Response("ok");
+  }
+
+  /** Game profiles (see the top). The front door has checked the token for anything but GET. */
+  async gameProfiles(request, url, admin) {
+    const json = (body, status = 200, cache = "no-store") =>
+      new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": cache } });
+    const [, , id, icon] = url.pathname.split("/");
+
+    if (!id) {
+      if (request.method !== "GET") return new Response("GET", { status: 405 });
+      const all = [...(await this.state.storage.list({ prefix: "profile:" })).values()];
+      const shown = all.filter((p) => admin || p.status === "Live").sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+      // Managers ask at start and now and then: a minute's caching is plenty, but never for the admin's view.
+      return json({ at: new Date().toISOString(), profiles: shown }, 200, admin ? "no-store" : "public, max-age=60");
+    }
+
+    if (icon) {
+      if (request.method === "GET") {
+        const stored = await this.state.storage.get("profileicon:" + id);
+        if (!stored) return new Response("no icon", { status: 404 });
+        return new Response(stored.data, {
+          headers: { "Content-Type": stored.type, "Cache-Control": "public, max-age=300", ETag: `"${stored.hash}"` },
+        });
+      }
+      const profile = await this.state.storage.get("profile:" + id);
+      if (!profile) return new Response("no such profile", { status: 404 });
+      if (request.method === "PUT") {
+        const data = await request.arrayBuffer();
+        const type = imageType(new Uint8Array(data));
+        if (!type || data.byteLength > AVATAR_BYTES) return new Response("a PNG or JPEG of at most 64 KB", { status: 400 });
+        const digest = await crypto.subtle.digest("SHA-256", data);
+        const hash = [...new Uint8Array(digest).slice(0, 6)].map((b) => b.toString(16).padStart(2, "0")).join("");
+        await this.state.storage.put({ ["profileicon:" + id]: { hash, type, data }, ["profile:" + id]: { ...profile, icon: hash, updated: Date.now() } });
+        return json({ icon: hash });
+      }
+      if (request.method === "DELETE") {
+        await this.state.storage.delete("profileicon:" + id);
+        await this.state.storage.put("profile:" + id, { ...profile, icon: null, updated: Date.now() });
+        return json({ icon: null });
+      }
+      return new Response("PUT, DELETE or GET", { status: 405 });
+    }
+
+    if (request.method === "GET") {
+      const profile = await this.state.storage.get("profile:" + id);
+      return profile && (admin || profile.status === "Live") ? json(profile) : new Response("no such profile", { status: 404 });
+    }
+    if (request.method === "DELETE") {
+      await this.state.storage.delete(["profile:" + id, "profileicon:" + id]);
+      return json({ deleted: id });
+    }
+    if (request.method !== "PUT") return new Response("PUT, DELETE or GET", { status: 405 });
+
+    const raw = await request.text();
+    if (raw.length > PROFILE_BYTES) return new Response("too big", { status: 413 });
+    let body;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return new Response("not JSON", { status: 400 });
+    }
+    const existing = await this.state.storage.get("profile:" + id);
+    if (!existing && (await this.state.storage.list({ prefix: "profile:" })).size >= PROFILES_MAX) {
+      return new Response(`at most ${PROFILES_MAX} profiles`, { status: 400 });
+    }
+    const { profile, problem } = cleanProfile(id, body);
+    if (problem) return new Response(problem, { status: 400 });
+    const stored = { ...profile, icon: existing?.icon ?? null, updated: Date.now() };
+    await this.state.storage.put("profile:" + id, stored);
+    return json(stored);
   }
 
   /** Open lobbies and games in progress for the dashboard; a session that stopped reporting is dropped. */

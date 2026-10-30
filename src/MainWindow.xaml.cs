@@ -54,6 +54,7 @@ public partial class MainWindow : Window
         AutoUpdateAddonsMenu.IsChecked = _settings.AutoUpdateAddons;
         AutoUpdateAppMenu.IsChecked = _settings.AutoUpdateApp;
         Loaded += async (_, _) => await InitializeAsync();
+        Closed += (_, _) => _coopPresence?.Dispose();
     }
 
     bool _initialized;
@@ -1504,27 +1505,6 @@ public partial class MainWindow : Window
         {
             DarkDialog.Show(this, $"Couldn't start {_game.Name}", ex.Message);
         }
-    }
-
-    CoopWindow? _coopWindow;
-
-    /// <summary>One co-op window at a time; it stays open (not modal) while the game runs, since it carries the connection.</summary>
-    void DirectCoop_Click(object sender, RoutedEventArgs e)
-    {
-        if (_coopWindow is not null)
-        {
-            if (_coopWindow.WindowState == WindowState.Minimized) _coopWindow.WindowState = WindowState.Normal;
-            _coopWindow.Activate();
-            return;
-        }
-        if (CurrentLaunch is not { } launch)
-        {
-            DarkDialog.Show(this, $"Couldn't start {_game.Name}", $"{_game.Name} isn't installed in the game folder.");
-            return;
-        }
-        _coopWindow = new CoopWindow(launch.Exe) { Owner = this };
-        _coopWindow.Closed += (_, _) => _coopWindow = null;
-        _coopWindow.Show();
     }
 
     void ChangeFolder_Click(object sender, RoutedEventArgs e) => PickGameFolder();

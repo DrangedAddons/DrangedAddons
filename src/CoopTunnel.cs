@@ -318,17 +318,28 @@ public sealed class CoopHost : IAsyncDisposable
 
     async Task ForwardToGameAsync(QuicStream stream)
     {
-        var tcp = new TcpClient { NoDelay = true };
-        try
+        // A player can connect while the host's game is still loading: wait for it to start listening.
+        TcpClient? tcp = null;
+        for (var waited = 0; tcp is null; waited++)
         {
-            await tcp.ConnectAsync(IPAddress.Loopback, _gamePort);
-        }
-        catch (SocketException)
-        {
-            Status?.Invoke("A player reached you, but the game isn't hosting yet. They'll retry when it is.");
-            tcp.Dispose();
-            await stream.DisposeAsync();
-            return;
+            var attempt = new TcpClient { NoDelay = true };
+            try
+            {
+                await attempt.ConnectAsync(IPAddress.Loopback, _gamePort, _stop.Token);
+                tcp = attempt;
+            }
+            catch (Exception ex) when (ex is SocketException or OperationCanceledException)
+            {
+                attempt.Dispose();
+                if (_stop.IsCancellationRequested || waited >= 90)
+                {
+                    if (!_stop.IsCancellationRequested) Status?.Invoke("A player reached you, but your game never started hosting.");
+                    await stream.DisposeAsync();
+                    return;
+                }
+                if (waited == 0) Status?.Invoke("A player is waiting for your game to finish loading.");
+                await Task.Delay(1000);
+            }
         }
         await CoopTunnel.PumpAsync(stream, tcp.GetStream());
         tcp.Dispose();

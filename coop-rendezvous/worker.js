@@ -9,6 +9,12 @@
 //   to the host:  {t:"hosting"}  {t:"join", id} {t:"signal", from:<id>, data}     {t:"leave", id}
 //   from anyone:  {t:"signal", to?, data}      (a joiner's always goes to the host; the host's needs `to`)
 //   errors:       {t:"error", why} then the socket closes
+//
+// /presence?id=<install id>&name=<hero name> keeps one socket per running manager, so players can see who's online
+// and invite them (one global Durable Object; fine for a friends-sized group):
+//   to a player:  {t:"online", players:[{id,name}]}   {t:"here", player:{id,name}}   {t:"gone", id}
+//                 {t:"invite", from:{id,name}, code}  {t:"declined", from:{id,name}}
+//   from anyone:  {t:"invite", to, code}  {t:"decline", to}
 
 const CODE = /^[A-HJ-NP-Z2-9]{6}$/;
 const MAX_JOINERS = 4; // the game's party is 5
@@ -17,6 +23,10 @@ const MAX_MESSAGE = 4096;
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/presence") {
+      if (request.headers.get("Upgrade") !== "websocket") return new Response("expected a WebSocket", { status: 426 });
+      return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
+    }
     const match = url.pathname.match(/^\/lobby\/([A-Za-z0-9]+)$/);
     if (!match) return new Response("DrangedAddons co-op rendezvous", { status: url.pathname === "/" ? 200 : 404 });
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected a WebSocket", { status: 426 });
@@ -103,5 +113,80 @@ export class Lobby {
         other.send(JSON.stringify({ t: "leave", id: me.id }));
       }
     }
+  }
+}
+
+const ID = /^[A-Za-z0-9-]{8,64}$/;
+
+export class Presence {
+  constructor(state) {
+    this.state = state;
+  }
+
+  players() {
+    return this.state.getWebSockets().map((ws) => ws.deserializeAttachment()).filter(Boolean);
+  }
+
+  async fetch(request) {
+    const params = new URL(request.url).searchParams;
+    const id = params.get("id") ?? "";
+    const name = (params.get("name") ?? "").replace(/[\u0000-\u001f]/g, "").trim().slice(0, 24);
+    if (!ID.test(id) || !name) return new Response("id and name required", { status: 400 });
+
+    // The same manager reconnecting replaces its old socket.
+    for (const old of this.state.getWebSockets()) {
+      if (old.deserializeAttachment()?.id === id) {
+        old.serializeAttachment(null);
+        old.close(1000, "replaced");
+      }
+    }
+    const [client, server] = Object.values(new WebSocketPair());
+    this.state.acceptWebSocket(server);
+    const me = { id, name };
+    server.serializeAttachment(me);
+    server.send(JSON.stringify({ t: "online", players: this.players().filter((p) => p.id !== id) }));
+    this.broadcast({ t: "here", player: me }, id);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  broadcast(message, except) {
+    const text = JSON.stringify(message);
+    for (const ws of this.state.getWebSockets()) {
+      const who = ws.deserializeAttachment();
+      if (who && who.id !== except) ws.send(text);
+    }
+  }
+
+  async webSocketMessage(ws, raw) {
+    if (typeof raw !== "string" || raw.length > MAX_MESSAGE) return;
+    let message;
+    try {
+      message = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const me = ws.deserializeAttachment();
+    if (!me || typeof message?.to !== "string") return;
+    const target = this.state.getWebSockets().find((s) => s.deserializeAttachment()?.id === message.to);
+    if (!target) return;
+    if (message.t === "invite" && typeof message.code === "string" && CODE.test(message.code))
+      target.send(JSON.stringify({ t: "invite", from: me, code: message.code }));
+    else if (message.t === "decline")
+      target.send(JSON.stringify({ t: "declined", from: me }));
+  }
+
+  async webSocketClose(ws) {
+    this.gone(ws);
+  }
+
+  async webSocketError(ws) {
+    this.gone(ws);
+  }
+
+  gone(ws) {
+    const me = ws.deserializeAttachment();
+    if (!me) return; // replaced by a newer socket from the same manager
+    ws.serializeAttachment(null);
+    this.broadcast({ t: "gone", id: me.id }, me.id);
   }
 }

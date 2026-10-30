@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.28.0
+- **Direct co-op works without touching anyone's router, and friends invite each other.** 0.27.0 needed the host's router to open a port (UPnP), which plenty of routers don't allow. Now the two managers find each other through a small co-op service and punch a direct path through both routers, the way voice chat apps do. The game's connection then runs inside an encrypted link between the two PCs; nothing else needs installing, and nobody needs an account.
+  - **Friends online**: while DrangedAddons runs, with Azeroth Survivors in the side bar, you show as online under the hero you last played. ⋯ → Direct co-op… lists who else is online, with a search box.
+  - **Invite**: one click starts your game hosting and invites them. They get a notification ("Inami invites you to co-op"); clicking it and then **Join** connects and starts their game in the host's party. **Decline** tells the host. Invites don't open windows over a game you're playing.
+  - **Lobby codes** still work for anyone not in the list: hosting shows a 6-character code, and "Join with a code" takes it.
+  - "Show me as online so friends can invite me" (in the co-op window, on by default) turns your listing off.
+  - Keep the co-op window open while you play: the connection runs through the app. Closing it, or the game, ends co-op.
+  - If Windows asks whether DrangedAddons may use the network, allow it.
+  - If a player's internet provider blocks direct connections (some mobile and shared-address connections), the window says so; they can still use the game's own co-op.
+  - The co-op service only passes each side's address and the host's certificate fingerprint to the other side; the game traffic never goes through it. The joiner only accepts the host whose fingerprint it was given. Its code is in `coop-rendezvous/` (a Cloudflare Worker).
+  - Experimental: it starts the game with settings it reads at start but doesn't document (`WOW_ROGUE_COOP_HOST`, `WOW_ROGUE_COOP_JOIN`, `WOW_ROGUE_COOP_PASSWORD`), so a game update can change them.
+- Removed 0.27.0's UPnP port opening and typed addresses: the direct path replaces both.
+
 ## 0.27.0
 - **Direct co-op for Azeroth Survivors** (game menu ⋯ → Direct co-op…). Starts the game connected straight to the host instead of through the game's co-op relay. The relay is overseas, so two players in Australia were seeing 500+ ms; a direct connection should be tens of ms. Nothing else needs installing.
   - **Host**: pick a port (27420 by default). The window asks your router for its internet address and shows it with the port and a Copy button, to send the others. Starting asks the router to forward that TCP port to this PC for 8 hours (UPnP), so there's no router setup by hand.

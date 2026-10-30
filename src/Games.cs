@@ -266,6 +266,29 @@ sealed class AzerothSurvivorsGame : GameDefinition
     public override bool HasDirectCoop => true;
 
     /// <summary>
+    /// The hero last played: the game keeps per-hero files named "&lt;Realm&gt;-&lt;Hero&gt;.txt" in benilla-config\chat,
+    /// layout and camera. Null when it hasn't been played yet.
+    /// </summary>
+    public static string? LastHero(string root)
+    {
+        try
+        {
+            return new[] { "chat", "layout", "camera" }
+                .Select(d => Path.Combine(root, ConfigFolder, d))
+                .Where(Directory.Exists)
+                .SelectMany(d => new DirectoryInfo(d).EnumerateFiles("*-*.txt"))
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .Select(f => Path.GetFileNameWithoutExtension(f.Name))
+                .Select(n => n[(n.LastIndexOf('-') + 1)..])
+                .FirstOrDefault(n => n.Length > 0);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Environment variables the exe reads at start for co-op without its relay (wss://wow.aethus.pl/coop/lobby/):
     /// the host's game listens on a TCP port ("rogue: hosting a party on port …"), a joiner's connects to host:port
     /// ("rogue: joining the party at …"). Found in the exe's strings, not documented by the game. Direct co-op points

@@ -42,6 +42,10 @@ public sealed class AppSettings
     public bool TrayTipShown { get; set; }
     /// <summary>Optional list columns shown, in order (ListColumn keys); null = the default set.</summary>
     public List<string>? Columns { get; set; }
+    /// <summary>Direct co-op: shown as online so friends can invite you (Azeroth Survivors players only).</summary>
+    public bool CoopOnline { get; set; } = true;
+    /// <summary>This install's id on the co-op service; made on first use.</summary>
+    public string? CoopId { get; set; }
 }
 
 public sealed class GameState

@@ -8,34 +8,58 @@
     <StackPanel Margin="24,20">
         <TextBlock Text="Direct co-op" FontSize="20" FontWeight="SemiBold"/>
         <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
-                   Text="Connects your game straight to the host's PC instead of through the game's co-op relay overseas. No ports to open and nothing else to install. Everyone starts the game from here: the host first, then the others with the host's code. Experimental."/>
+                   Text="Connects your game straight to the host's PC instead of through the game's co-op relay overseas. No ports to open and nothing else to install. Experimental."/>
 
-        <StackPanel x:Name="ModeTabs" Orientation="Horizontal" Margin="0,16,0,0">
+        <!-- Invites from friends: one click joins and starts the game. -->
+        <StackPanel x:Name="InviteList" Margin="0,14,0,0"/>
+
+        <StackPanel x:Name="ModeTabs" Orientation="Horizontal" Margin="0,14,0,0">
             <RadioButton x:Name="HostTab" GroupName="CoopMode" Style="{StaticResource TabButton}" Content="Host"
                          IsChecked="True" Checked="Mode_Checked"/>
-            <RadioButton x:Name="JoinTab" GroupName="CoopMode" Style="{StaticResource TabButton}" Content="Join"
+            <RadioButton x:Name="JoinTab" GroupName="CoopMode" Style="{StaticResource TabButton}" Content="Join with a code"
                          Checked="Mode_Checked"/>
         </StackPanel>
 
-        <!-- Host: the code to share appears once the lobby is open. -->
+        <!-- Host: invite friends who are online, or share the code. -->
         <StackPanel x:Name="HostPanel" Margin="0,12,0,0">
-            <TextBlock x:Name="HostHint" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                       Text="Starts the game hosting and gives you a code. Send it to the others; they join with it here."/>
-            <Border x:Name="CodePanel" Visibility="Collapsed" Padding="14,10" CornerRadius="6"
+            <Border x:Name="CodePanel" Visibility="Collapsed" Padding="14,10" CornerRadius="6" Margin="0,0,0,12"
                     Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
                 <DockPanel>
                     <Button x:Name="CopyButton" DockPanel.Dock="Right" Content="Copy" Style="{StaticResource GhostBtn}"
                             VerticalAlignment="Center" Click="Copy_Click"/>
                     <StackPanel>
-                        <TextBlock Text="Lobby code" Foreground="{StaticResource MutedBrush}"/>
+                        <TextBlock Text="Lobby code (for friends not in the list)" Foreground="{StaticResource MutedBrush}"/>
                         <TextBlock x:Name="CodeText" FontSize="26" FontWeight="SemiBold" FontFamily="Consolas"
                                    Foreground="{StaticResource AccentBrush}"/>
                     </StackPanel>
                 </DockPanel>
             </Border>
+
+            <DockPanel>
+                <TextBlock x:Name="OnlineHeader" Text="Friends online" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <Border DockPanel.Dock="Right" HorizontalAlignment="Right" Background="{StaticResource Panel2Brush}"
+                        BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="6" Padding="8,0"
+                        Height="28" Width="170">
+                    <Grid>
+                        <TextBlock x:Name="SearchHint" Text="Search" Foreground="{StaticResource MutedBrush}"
+                                   VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0" VerticalContentAlignment="Center"
+                                 Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource TextBrush}"
+                                 TextChanged="SearchBox_TextChanged"/>
+                    </Grid>
+                </Border>
+            </DockPanel>
+            <Border Margin="0,8,0,0" CornerRadius="6" Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="OnlineList" Margin="12,8"/>
+                </ScrollViewer>
+            </Border>
+            <TextBlock x:Name="HostHint" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12"
+                       Text="Invite starts the game hosting. Or click Host and start, then send the code."/>
         </StackPanel>
 
-        <!-- Join: the host's code. -->
+        <!-- Join with a code: for friends not online in the list. -->
         <StackPanel x:Name="JoinPanel" Margin="0,12,0,0" Visibility="Collapsed">
             <TextBlock Text="Host's lobby code" FontWeight="SemiBold" Margin="0,0,0,6"/>
             <Border Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
@@ -59,7 +83,12 @@
         <!-- What's happening: lobby opened, players connecting, the game closing. -->
         <StackPanel x:Name="StatusList" Margin="0,14,0,0"/>
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+        <CheckBox x:Name="OnlineCheck" Margin="0,16,0,0" Foreground="{StaticResource MutedBrush}"
+                  Click="OnlineCheck_Click">
+            <TextBlock x:Name="OnlineCheckText" TextWrapping="Wrap" Text="Show me as online so friends can invite me"/>
+        </CheckBox>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
             <Button x:Name="CloseButton" Content="Close" Style="{StaticResource Btn}" MinWidth="90" Margin="0,0,8,0"
                     Click="Close_Click"/>
             <Button x:Name="StartButton" Content="Host and start" Style="{StaticResource AccentBtn}" MinWidth="130"

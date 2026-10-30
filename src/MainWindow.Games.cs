@@ -63,6 +63,7 @@ public partial class MainWindow
         GameRail.ItemsSource = _rail;
         UpdateRailSelection();
         NoGamesPanel.Visibility = NoGames ? Visibility.Visible : Visibility.Collapsed;
+        UpdateCoopPresence(); // online for co-op invites only while Azeroth Survivors is in the side bar
     }
 
     /// <summary>

@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <!-- Only for the tray icon (NotifyIcon); WinForms names are used qualified so they don't clash with WPF. -->
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>0.28.1</Version>
+    <Version>0.28.2</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Regenerate with tools/make_icon.py -->
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -37,5 +37,16 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
   </PropertyGroup>
+
+  <!--
+    The runtime marks msquic.dll (QUIC, for Direct co-op) DropFromSingleFile, so a single-file exe has no QUIC.
+    Embed it instead; CoopTunnel writes it out and hands it to .NET on first use. Only builds with a runtime
+    identifier (Release) resolve runtime-pack files; Debug runs on the shared runtime, which has its own.
+  -->
+  <Target Name="EmbedMsQuic" AfterTargets="ResolveRuntimePackAssets">
+    <ItemGroup>
+      <EmbeddedResource Include="@(RuntimePackAsset)" Condition="'%(Filename)%(Extension)' == 'msquic.dll'" LogicalName="msquic.dll" />
+    </ItemGroup>
+  </Target>
 
 </Project>

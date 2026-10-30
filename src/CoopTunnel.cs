@@ -37,7 +37,53 @@ public static class CoopTunnel
         return code.Length == 6 && code.All(CodeLetters.Contains) ? code : null;
     }
 
-    public static bool IsSupported => QuicListener.IsSupported && QuicConnection.IsSupported;
+    public static bool IsSupported
+    {
+        get
+        {
+            UseEmbeddedMsQuic();
+            return QuicListener.IsSupported && QuicConnection.IsSupported;
+        }
+    }
+
+    static int _msQuicHooked;
+
+    /// <summary>
+    /// The single-file exe carries msquic.dll as a resource (see EmbedMsQuic in the .csproj), because .NET leaves it
+    /// out of single-file bundles and looks for it next to the exe. Writes it to %LocalAppData%\DrangedAddons\msquic
+    /// (once per version) and answers .NET's lookup with it. Must run before anything touches System.Net.Quic.
+    /// </summary>
+    static void UseEmbeddedMsQuic()
+    {
+        if (Interlocked.Exchange(ref _msQuicHooked, 1) == 1) return;
+        using var embedded = typeof(CoopTunnel).Assembly.GetManifestResourceStream("msquic.dll");
+        if (embedded is null) return; // Debug build: the shared runtime has it
+        string path;
+        try
+        {
+            var bytes = new byte[embedded.Length];
+            embedded.ReadExactly(bytes);
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DrangedAddons", "msquic",
+                Convert.ToHexString(SHA256.HashData(bytes))[..12]);
+            path = Path.Combine(dir, "msquic.dll");
+            if (!File.Exists(path) || new FileInfo(path).Length != bytes.Length)
+            {
+                Directory.CreateDirectory(dir);
+                var temp = path + "." + Environment.ProcessId + ".tmp";
+                File.WriteAllBytes(temp, bytes);
+                try { File.Move(temp, path, overwrite: true); }
+                catch (IOException) { File.Delete(temp); } // another copy of the app wrote it (and may have it loaded)
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return; // IsSupported then says QUIC isn't available
+        }
+        System.Runtime.Loader.AssemblyLoadContext.Default.ResolvingUnmanagedDll += (_, name) =>
+            Path.GetFileName(name).StartsWith("msquic", StringComparison.OrdinalIgnoreCase) && System.Runtime.InteropServices.NativeLibrary.TryLoad(path, out var handle)
+                ? handle
+                : IntPtr.Zero;
+    }
 
     /// <summary>A free TCP port on 127.0.0.1 (for the host's game to listen on).</summary>
     public static int FreeLocalPort()

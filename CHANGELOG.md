@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.28.2
+- **Fixed: Direct co-op said "needs Windows 11" on Windows 11.** The released app is a single exe, and .NET leaves the QUIC library (`msquic.dll`) out of single-exe builds. The co-op window then believed QUIC wasn't available, so Invite and Host were greyed out. The exe now carries `msquic.dll` itself and writes it to `%LocalAppData%\DrangedAddons\msquic` the first time co-op is used.
+
 ## 0.28.1
 - **Direct co-op moved to the Play button.** For Azeroth Survivors, ▶ now opens a small menu: **Play** starts the game as before, **Direct co-op…** opens the co-op window. It's no longer in the ⋯ menu. WoW's ▶ still starts the game straight away.
 

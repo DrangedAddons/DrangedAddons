@@ -26,13 +26,17 @@
                          Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource TextBrush}"
                          TextChanged="Input_Changed"/>
             </Border>
-            <TextBlock Text="Send the others one of these" FontWeight="SemiBold" Margin="0,14,0,6"/>
+            <TextBlock Text="Send the others this address" FontWeight="SemiBold" Margin="0,14,0,6"/>
             <Border Padding="12,10" CornerRadius="6" Background="{StaticResource PanelBrush}"
                     BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
-                <StackPanel x:Name="AddressList"/>
+                <StackPanel>
+                    <TextBlock x:Name="RouterText" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"
+                               Text="Asking your router for your internet address…"/>
+                    <StackPanel x:Name="AddressList" Margin="0,6,0,0"/>
+                </StackPanel>
             </Border>
             <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12"
-                       Text="Easiest: everyone installs Tailscale and signs in to the same network; then the 100.x address works with no router changes. Otherwise forward this TCP port on your router to this PC and send your public IP."/>
+                       Text="Starting asks your router to forward this port to this PC (UPnP), so nothing else needs installing. If Windows asks whether Azeroth Survivors may use the network, allow it."/>
         </StackPanel>
 
         <!-- Join: the host's address. -->

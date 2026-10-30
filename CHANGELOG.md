@@ -1,11 +1,11 @@
 # Changelog
 
 ## 0.27.0
-- **Direct co-op for Azeroth Survivors** (game menu ⋯ → Direct co-op…). Starts the game connected straight to the host instead of through the game's co-op relay. The relay is overseas, so two players in Australia were seeing 500+ ms; a direct connection should be tens of ms.
-  - **Host**: pick a port (27420 by default) and start. The window lists this PC's addresses with the port, Tailscale's 100.x address first, each with a Copy button to send the others.
+- **Direct co-op for Azeroth Survivors** (game menu ⋯ → Direct co-op…). Starts the game connected straight to the host instead of through the game's co-op relay. The relay is overseas, so two players in Australia were seeing 500+ ms; a direct connection should be tens of ms. Nothing else needs installing.
+  - **Host**: pick a port (27420 by default). The window asks your router for its internet address and shows it with the port and a Copy button, to send the others. Starting asks the router to forward that TCP port to this PC for 8 hours (UPnP), so there's no router setup by hand.
+  - When the router doesn't answer UPnP, or refuses, the window says so and offers **Start anyway**: then the port has to be forwarded in the router's settings. When the internet provider shares one address between customers (CGNAT), nobody can connect in at all, and the window says to let someone else host.
   - **Join**: paste the host's `ip:port` and start. The last port and address are remembered.
   - Optional password, the same for everyone.
-  - The easy setup is Tailscale on every PC in the party: no router changes. Without it, the host forwards the TCP port on their router and sends their public IP.
   - Experimental. It sets the environment variables the game reads at start (`WOW_ROGUE_COOP_HOST`, `WOW_ROGUE_COOP_JOIN`, `WOW_ROGUE_COOP_PASSWORD`). They're in the game's exe but not documented, so a game update can change or remove them.
 
 ## 0.26.0

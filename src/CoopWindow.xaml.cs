@@ -4,20 +4,30 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace DrangedAddons;
 
 /// <summary>
 /// Starts Azeroth Survivors hosting or joining co-op over a direct TCP connection instead of the game's relay.
 /// The relay sits overseas, so two players in the same country can see 500+ ms; directly they're tens of ms apart.
+/// Hosting asks the router to forward the port (UPnP), so nobody has to install anything or change router settings.
 /// </summary>
 public partial class CoopWindow : Window
 {
     /// <summary>Our pick: the game's switch has no default we know of.</summary>
     public const int DefaultPort = 27420;
 
+    /// <summary>How long the router keeps the port forwarded; long enough for an evening of runs.</summary>
+    const int LeaseHours = 8;
+
     readonly AppSettings _settings;
     readonly string _exe;
+
+    Task<Upnp?>? _router;
+    IPAddress? _external;
+    /// <summary>Set after the router couldn't forward the port: Start then starts the game anyway.</summary>
+    bool _startAnyway;
 
     /// <summary>A status line once the game was started (the caller then saves the settings); null if it wasn't.</summary>
     public string? Started { get; private set; }
@@ -31,11 +41,12 @@ public partial class CoopWindow : Window
         PortBox.Text = settings.CoopPort.ToString();
         AddressBox.Text = settings.CoopJoinAddress ?? "";
         if (!string.IsNullOrEmpty(settings.CoopJoinAddress)) JoinTab.IsChecked = true;
-        ShowAddresses();
         UpdateMode();
     }
 
     bool Hosting => HostTab.IsChecked == true;
+
+    int Port => int.TryParse(PortBox.Text.Trim(), out var p) ? p : _settings.CoopPort;
 
     void Mode_Checked(object sender, RoutedEventArgs e) => UpdateMode();
 
@@ -44,54 +55,74 @@ public partial class CoopWindow : Window
         if (HostPanel is null || JoinPanel is null || StartButton is null) return; // still in InitializeComponent
         HostPanel.Visibility = Hosting ? Visibility.Visible : Visibility.Collapsed;
         JoinPanel.Visibility = Hosting ? Visibility.Collapsed : Visibility.Visible;
+        _startAnyway = false;
         StartButton.Content = Hosting ? "Host and start" : "Join and start";
-        ShowAddresses();
         MessageText.Visibility = Visibility.Collapsed;
+        if (Hosting && _router is null) _ = CheckRouterAsync();
     }
 
     void Input_Changed(object sender, TextChangedEventArgs e)
     {
         if (MessageText is not null) MessageText.Visibility = Visibility.Collapsed;
-        if (sender == PortBox) ShowAddresses();
+        if (sender == PortBox && AddressList is not null) ShowAddresses();
     }
 
-    /// <summary>This PC's IPv4 addresses with the port, Tailscale's (100.64.0.0/10) first.</summary>
+    /// <summary>Finds the router and its internet address, and says whether the others can reach this PC through it.</summary>
+    async Task CheckRouterAsync()
+    {
+        _router = FindRouterAsync();
+        var router = await _router;
+        _external = router is null ? null : await router.GetExternalAddressAsync();
+        RouterText.Text = router is null
+            ? "Your router didn't answer (UPnP may be off). You'll need to forward the port in its settings, or let someone else host."
+            : _external is null
+                ? "Your router answered but wouldn't give its internet address. Starting will still try to open the port."
+                : Upnp.IsShared(_external)
+                    ? $"Your internet provider shares one address between customers (yours is {_external}), so nobody outside can connect in. Let someone else host, or ask your provider for a public IP address."
+                    : "Your router can forward the port. Send the others the address below once you've started.";
+        RouterText.Foreground = (Brush)FindResource(router is not null && _external is { } ip && !Upnp.IsShared(ip) ? "MutedBrush" : "DangerBrush");
+        ShowAddresses();
+    }
+
+    static async Task<Upnp?> FindRouterAsync()
+    {
+        try { return await Upnp.FindAsync(); }
+        catch (SocketException) { return null; }
+    }
+
+    /// <summary>The internet address with the port first (what the others need), then this PC's own addresses.</summary>
     void ShowAddresses()
     {
-        if (AddressList is null) return;
         AddressList.Children.Clear();
-        var port = int.TryParse(PortBox.Text.Trim(), out var p) ? p : _settings.CoopPort;
-        var found = LocalAddresses().OrderBy(a => a.Kind == "Tailscale" ? 0 : 1).ToList();
-        if (found.Count == 0)
-        {
-            AddressList.Children.Add(new TextBlock { Text = "No network addresses found.", Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush") });
-            return;
-        }
-        foreach (var (address, kind) in found)
-        {
-            var text = $"{address}:{port}";
-            var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
-            var copy = new Button { Content = "Copy", Style = (Style)FindResource("GhostBtn"), Padding = new Thickness(10, 2, 10, 2) };
-            copy.Click += (_, _) =>
-            {
-                try { Clipboard.SetText(text); copy.Content = "Copied"; }
-                catch (System.Runtime.InteropServices.ExternalException) { /* clipboard busy */ }
-            };
-            DockPanel.SetDock(copy, Dock.Right);
-            row.Children.Add(copy);
-            row.Children.Add(new TextBlock
-            {
-                VerticalAlignment = VerticalAlignment.Center,
-                Inlines =
-                {
-                    new System.Windows.Documents.Run(text) { FontWeight = FontWeights.SemiBold },
-                    new System.Windows.Documents.Run("  " + kind) { Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush") },
-                },
-            });
-            AddressList.Children.Add(row);
-        }
+        if (_external is { } external && !Upnp.IsShared(external)) AddAddress(external, "internet");
+        foreach (var (address, kind) in LocalAddresses()) AddAddress(address, kind);
     }
 
+    void AddAddress(IPAddress address, string kind)
+    {
+        var text = $"{address}:{Port}";
+        var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+        var copy = new Button { Content = "Copy", Style = (Style)FindResource("GhostBtn"), Padding = new Thickness(10, 2, 10, 2) };
+        copy.Click += (_, _) =>
+        {
+            try { Clipboard.SetText(text); copy.Content = "Copied"; }
+            catch (System.Runtime.InteropServices.ExternalException) { /* clipboard busy */ }
+        };
+        DockPanel.SetDock(copy, Dock.Right);
+        row.Children.Add(copy);
+        row.Children.Add(new TextBlock
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Inlines =
+            {
+                new System.Windows.Documents.Run(text) { FontWeight = FontWeights.SemiBold },
+                new System.Windows.Documents.Run("  " + kind) { Foreground = (Brush)FindResource("MutedBrush") },
+            },
+        });
+        AddressList.Children.Add(row);
+    }
+
+    /// <summary>This PC's IPv4 addresses: for players on the same home network, or a VPN someone already uses.</summary>
     static IEnumerable<(IPAddress Address, string Kind)> LocalAddresses()
     {
         NetworkInterface[] nics;
@@ -106,15 +137,12 @@ public partial class CoopWindow : Window
                 if (ip.AddressFamily != AddressFamily.InterNetwork) continue;
                 var b = ip.GetAddressBytes();
                 if (b[0] == 169 && b[1] == 254) continue; // link-local: no DHCP answer, unreachable
-                var kind = b[0] == 100 && b[1] is >= 64 and <= 127 ? "Tailscale"
-                    : b[0] == 10 || (b[0] == 172 && b[1] is >= 16 and <= 31) || (b[0] == 192 && b[1] == 168) ? "same home network only"
-                    : nic.Name;
-                yield return (ip, kind);
+                yield return (ip, Upnp.IsShared(ip) ? "same home network only" : nic.Name);
             }
         }
     }
 
-    void Start_Click(object sender, RoutedEventArgs e)
+    async void Start_Click(object sender, RoutedEventArgs e)
     {
         int? port = null;
         string? join = null;
@@ -126,6 +154,13 @@ public partial class CoopWindow : Window
                 return;
             }
             port = p;
+            if (!_startAnyway && await OpenPortAsync(p) is { } problem)
+            {
+                ShowMessage($"Couldn't open port {p} on your router: {problem}. Players outside your home network won't be able to join unless you forward TCP {p} to this PC in the router's settings.");
+                _startAnyway = true;
+                StartButton.Content = "Start anyway";
+                return;
+            }
         }
         else
         {
@@ -133,7 +168,7 @@ public partial class CoopWindow : Window
             var colon = join.LastIndexOf(':');
             if (colon <= 0 || !int.TryParse(join[(colon + 1)..], out var jp) || jp is < 1 or > 65535)
             {
-                ShowMessage("Enter the host's address with the port, like 100.101.102.103:" + DefaultPort + ".");
+                ShowMessage("Enter the host's address with the port, like 203.0.113.7:" + DefaultPort + ".");
                 return;
             }
         }
@@ -157,9 +192,32 @@ public partial class CoopWindow : Window
 
         if (port is { } hosted) _settings.CoopPort = hosted;
         if (join is not null) _settings.CoopJoinAddress = join;
-        Started = port is { } h ? $"Starting Azeroth Survivors hosting direct co-op on port {h}…"
+        Started = port is { } h
+            ? _external is { } ip && !Upnp.IsShared(ip)
+                ? $"Hosting direct co-op: send the others {ip}:{h}"
+                : $"Starting Azeroth Survivors hosting direct co-op on port {h}…"
             : $"Starting Azeroth Survivors joining {join} directly…";
         Close();
+    }
+
+    /// <summary>Asks the router to forward the port here; null when it did, else why not.</summary>
+    async Task<string?> OpenPortAsync(int port)
+    {
+        StartButton.IsEnabled = false;
+        StartButton.Content = "Opening port…";
+        try
+        {
+            if (_router is null) _ = CheckRouterAsync();
+            var router = await _router!;
+            if (router is null) return "the router didn't answer (UPnP may be off)";
+            if (_external is { } ip && Upnp.IsShared(ip)) return "your internet provider shares your address with other customers";
+            return await router.AddTcpMappingAsync(port, "Azeroth Survivors co-op", LeaseHours);
+        }
+        finally
+        {
+            StartButton.IsEnabled = true;
+            StartButton.Content = "Host and start";
+        }
     }
 
     void Close_Click(object sender, RoutedEventArgs e) => Close();

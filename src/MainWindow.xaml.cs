@@ -1707,7 +1707,9 @@ public partial class MainWindow : Window
     void About_Click(object sender, RoutedEventArgs e)
     {
         DarkDialog.Show(this, $"DrangedAddons {AppUpdater.CurrentVersion}",
-            "Installs and updates the World of Warcraft addons from github.com/DrangedAddons.\n\n" +
+            "Installs and updates the addons from github.com/DrangedAddons for World of Warcraft, Azeroth Survivors " +
+            "and other games, and lets you play together: pick a name and picture, add friends, and host or join game " +
+            "lobbies.\n\n" +
             $"Installed in {(AppInstaller.IsRunningInstalled ? AppInstaller.InstallDir : Path.GetDirectoryName(Environment.ProcessPath))}\n" +
             $"App settings are kept in {Storage.Dir}",
             primary: "Close", showLogo: true);

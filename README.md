@@ -1,7 +1,22 @@
 # DrangedAddons
 
-A small Windows app that installs and updates World of Warcraft addons published in the
-[DrangedAddons](https://github.com/DrangedAddons) GitHub organisation.
+A small Windows app that installs and updates the addons published in the
+[DrangedAddons](https://github.com/DrangedAddons) GitHub organisation, for World of Warcraft, Azeroth Survivors and
+other games, and lets you play those games together with friends.
+
+## Playing together
+
+- **Your account:** pick a name and, if you like, a profile picture the first time the app opens. Friends see your
+  status: Online, Away, In game (and which game), or Appear offline when you'd rather not be seen. No sign-up or
+  password.
+- **Friends:** search for other players by name, send and accept friend requests, and see who's online and what
+  they're playing from the friends button in the side bar.
+- **Lobbies:** host a lobby for a game and invite friends, or browse and join open lobbies, with friends' lobbies
+  listed first. A lobby can be locked with a password. Each player's slot shows their picture, whether they're ready
+  or in the game, and their ping to the host.
+- **Hosting:** the host's PC runs the game session and players connect straight to it, usually with no port
+  forwarding or server setup.
+- Games join this as they're set up for it. Azeroth Survivors is the first: its Play button opens the lobby.
 
 ## How it works
 

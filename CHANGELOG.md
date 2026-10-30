@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.36.1
+- About DrangedAddons and the README now describe playing together: your account, friends, and hosting or joining
+  game lobbies.
+- Re-release of 0.36.0 (the welcome prompt), which GitHub had listed behind 0.35.1 because both were published at
+  the same time.
+
 ## 0.36.0
 - **Welcome.** The first time the app opens it asks for the name friends see, filled in with your last Azeroth
   Survivors hero or Windows user name, and an optional profile picture, before you pick your first game. You can

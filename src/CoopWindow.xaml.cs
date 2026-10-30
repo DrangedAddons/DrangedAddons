@@ -66,6 +66,7 @@ public partial class CoopWindow : Window
         StartButton.IsEnabled = false;
         ModeTabs.IsEnabled = PasswordPanel.IsEnabled = CodeBox.IsEnabled = false;
         StatusList.Children.Clear();
+        AddStatus("If Windows asks whether DrangedAddons may use the network, click Allow: the connection to the other players goes through it.");
         try
         {
             using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(60));

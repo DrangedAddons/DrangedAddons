@@ -22,7 +22,7 @@ public static class CoopTunnel
 {
     /// <summary>The rendezvous Worker; DRANGEDADDONS_COOP_URL overrides it for testing.</summary>
     public static string RendezvousUrl =>
-        Environment.GetEnvironmentVariable("DRANGEDADDONS_COOP_URL") is { Length: > 0 } url ? url : "wss://drangedaddons-coop.dranged.workers.dev";
+        Environment.GetEnvironmentVariable("DRANGEDADDONS_COOP_URL") is { Length: > 0 } url ? url : "wss://drangedaddons-coop.coop-rendezvous.workers.dev";
 
     internal static readonly SslApplicationProtocol Alpn = new("azs-coop");
 
@@ -256,9 +256,10 @@ public sealed class CoopHost : IAsyncDisposable
                         var n = players.GetValueOrDefault(id);
                         _ = AcceptAsync(mine.Socket, mine.Me, peer, n, cancel);
                         break;
-                    case "leave":
-                        if (_pending.Remove(id, out var gone)) gone.Socket.Dispose();
-                        Status?.Invoke($"Player {players.GetValueOrDefault(id)} left.");
+                    // A joiner leaves the rendezvous once connected directly; only a leave before that is news.
+                    case "leave" when _pending.Remove(id, out var gone):
+                        gone.Socket.Dispose();
+                        Status?.Invoke($"Player {players.GetValueOrDefault(id)} gave up connecting.");
                         break;
                 }
             }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.27.0
+- **Direct co-op for Azeroth Survivors** (game menu ⋯ → Direct co-op…). Starts the game connected straight to the host instead of through the game's co-op relay. The relay is overseas, so two players in Australia were seeing 500+ ms; a direct connection should be tens of ms.
+  - **Host**: pick a port (27420 by default) and start. The window lists this PC's addresses with the port, Tailscale's 100.x address first, each with a Copy button to send the others.
+  - **Join**: paste the host's `ip:port` and start. The last port and address are remembered.
+  - Optional password, the same for everyone.
+  - The easy setup is Tailscale on every PC in the party: no router changes. Without it, the host forwards the TCP port on their router and sends their public IP.
+  - Experimental. It sets the environment variables the game reads at start (`WOW_ROGUE_COOP_HOST`, `WOW_ROGUE_COOP_JOIN`, `WOW_ROGUE_COOP_PASSWORD`). They're in the game's exe but not documented, so a game update can change or remove them.
+
 ## 0.26.0
 - **Checking for updates does much less when nothing changed.** After the app has loaded the addon list once, a later check asks GitHub only whether the organisation's repo list changed. A "nothing changed" answer stops there, instead of asking again about every addon's release and branch. A new release still shows up: for 15 minutes after any repo is pushed (a tag push included), every check still asks each addon, because the release workflow publishes the release a minute or two after the tag and that doesn't change the repo list. Editing a release's notes without pushing anything waits until the next real change; that's an accepted trade for not polling every repo every minute. Signed-in checks are still every minute, and unsigned ones every 15 minutes. An unsigned "nothing changed" still counts as one of the 60 anonymous requests an hour, which is why that interval stays slow. The first check after the app opens still looks at each addon, because the list isn't in memory yet.
 - **An addon's .toc is downloaded once.** Version, which game versions it's for, and the author all come from that one file. They used to be three separate downloads of the same file, one after another, every time a commit was new.

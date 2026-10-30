@@ -51,6 +51,9 @@ public abstract class GameDefinition
     /// <summary>How to start <paramref name="flavor"/> of the game (Play); null if its program isn't there.</summary>
     public abstract GameLaunch? GetLaunch(string root, GameFlavor flavor);
 
+    /// <summary>Whether the game can host or join co-op directly, without its relay (the Direct co-op window).</summary>
+    public virtual bool HasDirectCoop => false;
+
     /// <summary>A small icon for <paramref name="flavor"/> in the version picker; null for none.</summary>
     public virtual ImageSource? FlavorIcon(string root, GameFlavor flavor) => null;
 
@@ -259,4 +262,20 @@ sealed class AzerothSurvivorsGame : GameDefinition
 
     public override GameLaunch? GetLaunch(string root, GameFlavor flavor) =>
         File.Exists(Path.Combine(root, Exe)) ? new GameLaunch(Path.Combine(root, Exe), "", "with " + Exe) : null;
+
+    public override bool HasDirectCoop => true;
+
+    /// <summary>
+    /// Environment variables the exe reads at start to skip the co-op relay (wss://wow.aethus.pl/coop/lobby/) and talk
+    /// TCP between the players: the host listens on a port ("rogue: hosting a party on port …"), the others connect to
+    /// host:port ("rogue: joining the party at …"). Found in the exe's strings, not documented by the game.
+    /// </summary>
+    public static Dictionary<string, string> DirectCoopEnvironment(int? hostPort, string? joinAddress, string? password)
+    {
+        var env = new Dictionary<string, string>();
+        if (hostPort is { } port) env["WOW_ROGUE_COOP_HOST"] = port.ToString();
+        if (!string.IsNullOrWhiteSpace(joinAddress)) env["WOW_ROGUE_COOP_JOIN"] = joinAddress.Trim();
+        if (!string.IsNullOrEmpty(password)) env["WOW_ROGUE_COOP_PASSWORD"] = password;
+        return env;
+    }
 }

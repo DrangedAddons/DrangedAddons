@@ -42,6 +42,9 @@ public sealed class AppSettings
     public bool TrayTipShown { get; set; }
     /// <summary>Optional list columns shown, in order (ListColumn keys); null = the default set.</summary>
     public List<string>? Columns { get; set; }
+    /// <summary>Direct co-op (Azeroth Survivors): the port last hosted on and the address last joined.</summary>
+    public int CoopPort { get; set; } = CoopWindow.DefaultPort;
+    public string? CoopJoinAddress { get; set; }
 }
 
 public sealed class GameState

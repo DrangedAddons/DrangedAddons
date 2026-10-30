@@ -573,6 +573,7 @@ public partial class MainWindow : Window
         // Only WoW has versions to pick; for other games the picker would only ever hold the game itself.
         FlavorList.Visibility = _game.HasVersions ? Visibility.Visible : Visibility.Collapsed;
         ScanGamesItem.Visibility = ScanGamesMenu.Visibility = _game.HasVersions ? Visibility.Visible : Visibility.Collapsed;
+        DirectCoopItem.Visibility = _game.HasDirectCoop ? Visibility.Visible : Visibility.Collapsed;
         UpdateRailIcon(_game);
         if (_root is null)
         {
@@ -1503,6 +1504,20 @@ public partial class MainWindow : Window
         {
             DarkDialog.Show(this, $"Couldn't start {_game.Name}", ex.Message);
         }
+    }
+
+    void DirectCoop_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentLaunch is not { } launch)
+        {
+            DarkDialog.Show(this, $"Couldn't start {_game.Name}", $"{_game.Name} isn't installed in the game folder.");
+            return;
+        }
+        var window = new CoopWindow(_settings, launch.Exe) { Owner = this };
+        window.ShowDialog();
+        if (window.Started is not { } status) return;
+        Storage.Save(SettingsFile, _settings);
+        StatusText.Text = status;
     }
 
     void ChangeFolder_Click(object sender, RoutedEventArgs e) => PickGameFolder();

@@ -1487,18 +1487,16 @@ public partial class MainWindow : Window
         PlayButton.Visibility = NoGames ? Visibility.Collapsed : Visibility.Visible;
         PlayButton.IsEnabled = launch is not null;
         PlayButton.ToolTip = launch is null ? $"{what} isn't installed in the game folder"
-            : _game.HasDirectCoop ? $"Play {what}, or start direct co-op"
+            : _game.HasDirectCoop ? $"Play {what}, or host or join a co-op lobby"
             : $"Start {what} {launch.How}";
-        ContextMenuService.SetIsEnabled(PlayButton, _game.HasDirectCoop); // no right-click menu for plain Play
     }
 
     void Play_Click(object sender, RoutedEventArgs e)
     {
-        if (_game.HasDirectCoop) OpenMenuUnder(PlayButton);
+        // Games with direct co-op open its window, which offers Play beside Host and Join.
+        if (_game.HasDirectCoop) OpenCoopWindow();
         else PlayGame();
     }
-
-    void PlayItem_Click(object sender, RoutedEventArgs e) => PlayGame();
 
     void PlayGame()
     {

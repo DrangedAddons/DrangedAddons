@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.31.2
+- For Azeroth Survivors, ▶ opens one window with **Play**, **Host a lobby** and **Join a lobby**, instead of a dropdown with Play and Direct co-op…. Play starts the game the ordinary way and closes the window.
+
 ## 0.31.1
 - The co-op window has no "Show me online" box: hosting keeps you online while the lobby is open, whatever the setting (still in the settings menu).
 

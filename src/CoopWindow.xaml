@@ -1,7 +1,7 @@
 <Window x:Class="DrangedAddons.CoopWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Direct co-op" Width="560" SizeToContent="Height" ResizeMode="CanMinimize"
+        Title="Azeroth Survivors" Width="560" SizeToContent="Height" ResizeMode="CanMinimize"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI" FontSize="13">
@@ -34,20 +34,30 @@
     </Window.Resources>
 
     <StackPanel Margin="28,22">
-        <TextBlock x:Name="TitleText" Text="Direct co-op" FontSize="24" FontWeight="SemiBold"/>
+        <TextBlock x:Name="TitleText" Text="Azeroth Survivors" FontSize="24" FontWeight="SemiBold"/>
 
         <!-- Invites from members: shown on every screen until answered. -->
         <StackPanel x:Name="InviteList" Margin="0,14,0,0"/>
 
         <!-- Start: host or join. -->
-        <UniformGrid x:Name="StartPanel" Columns="2" Margin="0,6,0,0">
-            <Button x:Name="HostButton" Style="{StaticResource AccentBtn}" Height="72" Margin="0,0,6,0" Click="Host_Click">
-                <TextBlock Text="Host a lobby" FontSize="16" FontWeight="SemiBold"/>
+        <!-- Start: play alone, or host / join co-op. -->
+        <StackPanel x:Name="StartPanel" Margin="0,6,0,0">
+            <Button x:Name="SoloPlayButton" Style="{StaticResource AccentBtn}" Height="72" Click="Play_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xF5B0;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="18"
+                               VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <TextBlock Text="Play" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </StackPanel>
             </Button>
-            <Button x:Name="JoinButton" Style="{StaticResource Btn}" Height="72" Margin="6,0,0,0" Click="Join_Click">
-                <TextBlock Text="Join a lobby" FontSize="16" FontWeight="SemiBold"/>
-            </Button>
-        </UniformGrid>
+            <UniformGrid Columns="2" Margin="0,12,0,0">
+                <Button x:Name="HostButton" Style="{StaticResource Btn}" Height="64" Margin="0,0,6,0" Click="Host_Click">
+                    <TextBlock Text="Host a lobby" FontSize="15" FontWeight="SemiBold"/>
+                </Button>
+                <Button x:Name="JoinButton" Style="{StaticResource Btn}" Height="64" Margin="6,0,0,0" Click="Join_Click">
+                    <TextBlock Text="Join a lobby" FontSize="15" FontWeight="SemiBold"/>
+                </Button>
+            </UniformGrid>
+        </StackPanel>
 
         <!-- Join: a code, or a member's open lobby. -->
         <StackPanel x:Name="JoinPanel" Visibility="Collapsed" Margin="0,6,0,0">

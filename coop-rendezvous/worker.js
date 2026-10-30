@@ -25,15 +25,19 @@
 // A signal's data.local (an address on the sender's home network) is only passed on when both sides connect from
 // the same internet address: nobody else can use it, so it isn't theirs to see.
 //
-// /presence?key=<install secret>&name=<hero name> keeps one socket per running manager, so members can see who's
-// online and who's hosting (one global Durable Object; fine for a friends-sized group). Others only ever see a hash
-// of the key as the member's id, so nobody can copy an id from the list and connect as that member. Older managers
-// sent their key as ?id=, which still works.
-//   to a member:  {t:"online", players:[{id,name,lobby}]}   {t:"here", player:{id,name,lobby}}   {t:"gone", id}
+// /presence?key=<install secret>&name=<account name>&state=<state> keeps one socket per running manager, so members
+// can see who's online and who's hosting (one global Durable Object; fine for a friends-sized group). Others only
+// ever see a hash of the key as the member's id, so nobody can copy an id from the list and connect as that member.
+// Older managers sent their key as ?id=, which still works, and no state (online).
+//   state:        online, away, ingame, or offline ("appear offline": still connected and sees the others, but
+//                 nobody sees it, and invites to it are dropped)
+//   to a member:  {t:"online", players:[{id,name,lobby,state,avatar}]}   {t:"here", player:{…}}   {t:"gone", id}
 //                 {t:"invite", from:{id,name}, code}  {t:"declined", from:{id,name}}
 //   from anyone:  {t:"invite", to, code}  {t:"decline", to}
-//                 {t:"status", lobby}   lobby: null, or {code, locked, password, count} while hosting; the code is
-//                                       only listed while the lobby is unlocked
+//                 {t:"status", lobby, state}   lobby: null, or {code, locked, password, count} while hosting; the
+//                                              code is only listed while the lobby is unlocked. state: optional.
+// avatar is a short hash of the member's picture, or null. PUT /avatar?key=<install secret> (a PNG or JPEG of at most
+// 64 KB) sets it and DELETE /avatar?key=… removes it; GET /avatar/<id> returns it.
 
 const CODE = /^[A-HJ-NP-Z2-9]{6}$/;
 const KEY = /^[A-Za-z0-9-]{16,64}$/;
@@ -45,12 +49,17 @@ const CHAT_LENGTH = 300;
 const CHATS_PER_5S = 5;
 const INVITE_GAP_MS = 5000; // the same member, at most once per 5 seconds
 const INVITES_PER_MINUTE = 20;
+const AVATAR_BYTES = 64 * 1024;
+const AVATAR_GAP_MS = 5000; // one picture change per 5 seconds per member
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/presence") {
       if (request.headers.get("Upgrade") !== "websocket") return new Response("expected a WebSocket", { status: 426 });
+      return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
+    }
+    if (url.pathname === "/avatar" || /^\/avatar\/[0-9a-f]{16}$/.test(url.pathname)) {
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
     }
     const match = url.pathname.match(/^\/lobby\/([A-Za-z0-9]+)$/);
@@ -250,6 +259,24 @@ export class Lobby {
 }
 
 /** A hosting member's lobby as listed to others: only open (unlocked) lobbies list their code. */
+const STATES = ["online", "away", "ingame", "offline"];
+
+/** A member's chosen or automatic state; anything unknown (older managers send none) is online. */
+function cleanState(state) {
+  return STATES.includes(state) ? state : "online";
+}
+
+function visible(player) {
+  return player.state !== "offline";
+}
+
+/** "image/png" or "image/jpeg" by the file's first bytes, else null. */
+function imageType(bytes) {
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  return null;
+}
+
 function cleanLobby(lobby) {
   if (!lobby || typeof lobby !== "object" || typeof lobby.code !== "string" || !CODE.test(lobby.code)) return null;
   const locked = lobby.locked === true;
@@ -265,33 +292,84 @@ export class Presence {
   constructor(state) {
     this.state = state;
     this.sent = new Map(); // sender id -> recent invite times and last invite per target; lost on hibernation, fine
+    this.avatarAt = new Map(); // member id -> last picture change, same
   }
 
+  /** Everyone others may see: connected and not appearing offline. */
   players() {
-    return this.state.getWebSockets().map((ws) => ws.deserializeAttachment()).filter(Boolean);
+    return this.state.getWebSockets().map((ws) => ws.deserializeAttachment()).filter((p) => p && visible(p));
   }
 
   async fetch(request) {
-    const params = new URL(request.url).searchParams;
+    const url = new URL(request.url);
+    if (url.pathname.startsWith("/avatar")) return this.avatar(request, url);
+    const params = url.searchParams;
     const key = params.get("key") ?? params.get("id") ?? "";
     const name = cleanName(params.get("name"));
     if (!KEY.test(key) || !name) return new Response("key and name required", { status: 400 });
     const id = await publicId(key);
 
-    // The same manager reconnecting replaces its old socket.
+    // The same manager reconnecting replaces its old socket (without a "gone": it's still here).
+    let wasVisible = false;
     for (const old of this.state.getWebSockets()) {
-      if (old.deserializeAttachment()?.id === id) {
+      const who = old.deserializeAttachment();
+      if (who?.id === id) {
+        wasVisible ||= visible(who);
         old.serializeAttachment(null);
         old.close(1000, "replaced");
       }
     }
     const [client, server] = Object.values(new WebSocketPair());
     this.state.acceptWebSocket(server);
-    const me = { id, name, lobby: null };
+    const stored = await this.state.storage.get("avatar:" + id);
+    const me = { id, name, lobby: null, state: cleanState(params.get("state")), avatar: stored?.hash ?? null };
     server.serializeAttachment(me);
     server.send(JSON.stringify({ t: "online", players: this.players().filter((p) => p.id !== id) }));
-    this.broadcast({ t: "here", player: me }, id);
+    if (visible(me)) this.broadcast({ t: "here", player: me }, id);
+    else if (wasVisible) this.broadcast({ t: "gone", id }, id);
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** PUT/DELETE /avatar?key=… (the member's own picture), GET /avatar/<id> (anyone's). */
+  async avatar(request, url) {
+    if (request.method === "GET") {
+      const id = url.pathname.slice("/avatar/".length);
+      const stored = await this.state.storage.get("avatar:" + id);
+      if (!stored) return new Response("no picture", { status: 404 });
+      return new Response(stored.data, {
+        headers: { "Content-Type": stored.type, "Cache-Control": "public, max-age=300", ETag: `"${stored.hash}"` },
+      });
+    }
+    const key = url.searchParams.get("key") ?? "";
+    if (url.pathname !== "/avatar" || !KEY.test(key)) return new Response("key required", { status: 400 });
+    const id = await publicId(key);
+    const now = Date.now();
+    if (now - (this.avatarAt.get(id) ?? 0) < AVATAR_GAP_MS) return new Response("slow down", { status: 429 });
+    this.avatarAt.set(id, now);
+
+    let hash = null;
+    if (request.method === "PUT") {
+      const data = await request.arrayBuffer();
+      const type = imageType(new Uint8Array(data));
+      if (!type || data.byteLength > AVATAR_BYTES) return new Response("a PNG or JPEG of at most 64 KB", { status: 400 });
+      const digest = await crypto.subtle.digest("SHA-256", data);
+      hash = [...new Uint8Array(digest).slice(0, 6)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      await this.state.storage.put("avatar:" + id, { hash, type, data });
+    } else if (request.method === "DELETE") {
+      await this.state.storage.delete("avatar:" + id);
+    } else {
+      return new Response("PUT, DELETE or GET", { status: 405 });
+    }
+
+    // Show the new picture straight away to everyone who can see this member.
+    for (const ws of this.state.getWebSockets()) {
+      const who = ws.deserializeAttachment();
+      if (who?.id !== id) continue;
+      const updated = { ...who, avatar: hash };
+      ws.serializeAttachment(updated);
+      if (visible(updated)) this.broadcast({ t: "here", player: updated }, id);
+    }
+    return new Response(JSON.stringify({ avatar: hash }), { headers: { "Content-Type": "application/json" } });
   }
 
   broadcast(message, except) {
@@ -307,13 +385,22 @@ export class Presence {
     const me = ws.deserializeAttachment();
     if (!message || !me) return;
     if (message.t === "status") {
-      const updated = { ...me, lobby: cleanLobby(message.lobby) };
+      const updated = {
+        ...me,
+        lobby: cleanLobby(message.lobby),
+        state: message.state === undefined ? me.state : cleanState(message.state),
+      };
       ws.serializeAttachment(updated);
-      this.broadcast({ t: "here", player: updated }, me.id);
+      if (visible(updated)) this.broadcast({ t: "here", player: updated }, me.id);
+      else if (visible(me)) this.broadcast({ t: "gone", id: me.id }, me.id); // just chose to appear offline
       return;
     }
     if (typeof message.to !== "string") return;
-    const target = this.state.getWebSockets().find((s) => s.deserializeAttachment()?.id === message.to);
+    // Someone appearing offline can't be reached: an invite to them would show they're there.
+    const target = this.state.getWebSockets().find((s) => {
+      const who = s.deserializeAttachment();
+      return who?.id === message.to && visible(who);
+    });
     if (!target) return;
     const from = { id: me.id, name: me.name };
     if (message.t === "invite" && typeof message.code === "string" && CODE.test(message.code)) {
@@ -348,6 +435,6 @@ export class Presence {
     const me = ws.deserializeAttachment();
     if (!me) return; // replaced by a newer socket from the same manager
     ws.serializeAttachment(null);
-    this.broadcast({ t: "gone", id: me.id }, me.id);
+    if (visible(me)) this.broadcast({ t: "gone", id: me.id }, me.id);
   }
 }

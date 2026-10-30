@@ -66,8 +66,6 @@ public partial class MainWindow
         else _tray?.Notify($"{from.Name} invites you to co-op", "Click here to join their Azeroth Survivors party.", () => OpenCoopWindow());
     }
 
-    void DirectCoop_Click(object sender, RoutedEventArgs e) => OpenCoopWindow();
-
     /// <summary>One co-op window at a time; it stays open (not modal) while the game runs, since it carries the connection.</summary>
     void OpenCoopWindow()
     {
@@ -89,7 +87,7 @@ public partial class MainWindow
         {
             _coopHosting = hosting;
             UpdateCoopPresence();
-        });
+        }, PlayGame);
         if (IsVisible) _coopWindow.Owner = this;
         _coopWindow.UsePresence(_coopPresence);
         _coopInvites.RemoveAll(i => DateTime.UtcNow - i.At > TimeSpan.FromMinutes(15));

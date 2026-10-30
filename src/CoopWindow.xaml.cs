@@ -23,6 +23,8 @@ public partial class CoopWindow : Window
     readonly string _key;
     /// <summary>Hosting started (true) or ended (false): the manager keeps this player online while hosting.</summary>
     readonly Action<bool> _hosting;
+    /// <summary>Starts the game the ordinary way (Play), as the main window's ▶ does for other games.</summary>
+    readonly Action _play;
     readonly DispatcherTimer _passwordDelay = new() { Interval = TimeSpan.FromMilliseconds(600) };
     Screen _screen = Screen.Start;
     CoopPresence? _presence;
@@ -37,7 +39,7 @@ public partial class CoopWindow : Window
     /// <summary>Raised when the player answers someone's invite, so it stops being offered.</summary>
     public event Action<CoopPlayer>? Answered;
 
-    public CoopWindow(string exe, string name, string key, Action<bool> hosting)
+    public CoopWindow(string exe, string name, string key, Action<bool> hosting, Action play)
     {
         InitializeComponent();
         DarkTitleBar.Apply(this);
@@ -45,6 +47,7 @@ public partial class CoopWindow : Window
         _name = name;
         _key = key;
         _hosting = hosting;
+        _play = play;
         _passwordDelay.Tick += async (_, _) =>
         {
             _passwordDelay.Stop();
@@ -79,7 +82,7 @@ public partial class CoopWindow : Window
             Screen.Host => "Your lobby",
             Screen.Join => "Join a lobby",
             Screen.Joined => "In a lobby",
-            _ => "Direct co-op",
+            _ => "Azeroth Survivors",
         };
         BackButton.Content = screen switch
         {
@@ -107,6 +110,12 @@ public partial class CoopWindow : Window
         ShowSlots();
         ShowInviteList();
         ShowLobbies();
+    }
+
+    void Play_Click(object sender, RoutedEventArgs e)
+    {
+        _play();
+        Close();
     }
 
     void Host_Click(object sender, RoutedEventArgs e) => _ = HostAsync();

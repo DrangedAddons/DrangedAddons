@@ -43,6 +43,7 @@ public partial class MainWindow : Window
         UninstallAppMenu.Visibility = AppInstaller.IsRunningInstalled ? Visibility.Visible : Visibility.Collapsed;
         CloseToTrayMenu.IsChecked = _settings.CloseToTray;
         NotificationsMenu.IsChecked = _settings.UpdateNotifications;
+        CoopOnlineMenu.IsChecked = _settings.CoopOnline;
 
         GitHubClient.UseSavedToken(TokenStore.Load());
         _tray = new TrayIcon(ShowFromTray, CheckFromTray, App.ExitApp);

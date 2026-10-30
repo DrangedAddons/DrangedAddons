@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.30.0
+- **Direct co-op is split into Host and Join.** ▶ → Direct co-op… opens on two buttons, **Host a lobby** and **Join a lobby**. Invites show above them on every screen.
+  - **Host a lobby**: the lobby code with Copy; **Locked** (nobody new joins except members you invite); **Password**; who's in the lobby, with **Remove**; **Invite members** with search; **Start game** and **Close lobby**.
+  - **Join a lobby**: enter a code, or pick from **Open lobbies** (members online who are hosting, with player count and whether there's a password). A password box appears when the lobby needs one. Once in, the screen shows the lobby's member list and **Leave lobby**.
+  - Online users are called members for now.
+  - Most explanation text is gone; labels and short errors only.
+- **Show me online for co-op** is also in the settings menu now, as well as at the bottom of the co-op window. Both change the same setting.
+- Lock, password and Remove are enforced by the co-op service, not just the host's app, so a modified client can't get past them.
+  - The password never leaves the players' PCs: the host and joiner each send a hash of it salted with the lobby code. Five wrong passwords a minute from one address and it stops checking for a minute.
+  - Inviting a member lets them in even when the lobby is locked or has a password.
+  - A removed member can't rejoin that lobby, with the code, the password or an old invite.
+  - The host sees which member actually joined (the co-op service checks it), not just the name they sent.
+  - A locked lobby shows in Open lobbies without its code.
+- Everyone needs 0.30.0: joining now sends the install's key, and older managers are told to update.
+
 ## 0.29.0
 - **Party lobby for Direct co-op.** Inviting a friend (or clicking Create party) opens your party instead of starting your game straight away.
   - The party list shows you as host, each player as Connecting…, Ready or Couldn't connect, and friends you've invited who haven't joined yet. Everyone in the party sees the same list.

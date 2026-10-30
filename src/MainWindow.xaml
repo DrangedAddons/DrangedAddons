@@ -17,6 +17,9 @@
                       Click="CloseToTray_Click"/>
             <MenuItem x:Name="NotificationsMenu" Header="Show update notifications" IsCheckable="True"
                       Click="Notifications_Click"/>
+            <MenuItem x:Name="CoopOnlineMenu" Header="Show me online for co-op" IsCheckable="True"
+                      Click="CoopOnline_Click"
+                      ToolTip="Members see you're online and can invite you (Azeroth Survivors direct co-op)."/>
             <Separator Style="{StaticResource MenuSeparator}"/>
             <MenuItem x:Name="BetaMenu" Header="Show beta versions" IsCheckable="True" Click="Beta_Click"
                       ToolTip="Also offer untagged versions from each addon's main branch, not just tagged releases."/>

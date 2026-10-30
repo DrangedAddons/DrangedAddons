@@ -196,7 +196,7 @@ public static class CoopTunnel
         if (mapped is null)
         {
             socket.Dispose();
-            throw new CoopException("couldn't find this PC's internet address (a STUN server didn't answer)");
+            throw new CoopException("Couldn't find this PC's internet address.");
         }
         return (socket, new Candidates(mapped, new IPEndPoint(LanAddress(), port), thumbprint));
     }
@@ -246,6 +246,10 @@ public static class CoopTunnel
         return X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx), null);
     }
 
+    /// <summary>What a lobby password is checked by: salted with the code, so it isn't the same hash in every lobby.</summary>
+    internal static string PasswordHash(string code, string password) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"drangedaddons-lobby:{code}:{password}")));
+
     internal static string Thumbprint(X509Certificate cert) => Convert.ToHexString(cert.GetCertHash(HashAlgorithmName.SHA256));
 
     /// <summary>True only for the certificate whose fingerprint came through the rendezvous.</summary>
@@ -265,11 +269,16 @@ public static class CoopTunnel
     }
 }
 
-public sealed class CoopException(string message) : Exception(message);
+/// <summary>A co-op step failed; <see cref="Reason"/> is the co-op service's refusal (password, locked …) when there was one.</summary>
+public sealed class CoopException(string message, string? reason = null) : Exception(message)
+{
+    public string? Reason { get; } = reason;
+}
 
 public enum MemberState { Connecting, Connected, Failed }
 
-public sealed record PartyMember(string Id, string Name, MemberState State);
+/// <summary>A player in a lobby: Id within this lobby; Member their hashed member id, as checked by the co-op service.</summary>
+public sealed record PartyMember(string Id, string Name, MemberState State, string? Member = null);
 
 /// <summary>What everyone in a party sees: the host's name, who's in it, and whether the host has started the game.</summary>
 public sealed record PartyInfo(string Host, IReadOnlyList<PartyMember> Members, bool Started);
@@ -293,6 +302,9 @@ public sealed class CoopHost : IAsyncDisposable
 
     public string Code { get; }
     public bool Started { get; private set; }
+    /// <summary>Locked: nobody new gets in except members invited from then on.</summary>
+    public bool Locked { get; private set; }
+    public bool HasPassword { get; private set; }
 
     /// <summary>A line for the window ("Lexible connected" …). Raised on a thread-pool thread.</summary>
     public event Action<string>? Status;
@@ -326,9 +338,27 @@ public sealed class CoopHost : IAsyncDisposable
             }
             await host.DisposeAsync();
             if ((string?)first?["why"] != "taken" || attempt >= 3)
-                throw new CoopException("the co-op service refused: " + ((string?)first?["why"] ?? "no answer"));
+                throw new CoopException("Couldn't open a lobby.");
         }
     }
+
+    /// <summary>
+    /// Lock and password, enforced by the co-op service. Only a hash of the password (salted with the code) is sent;
+    /// joiners send the same hash, so the password itself never leaves the players' PCs. Invited members get in
+    /// regardless (<see cref="AllowAsync"/>).
+    /// </summary>
+    public async Task SetSettingsAsync(bool locked, string? password)
+    {
+        Locked = locked;
+        HasPassword = !string.IsNullOrEmpty(password);
+        await _rendezvous!.TrySendAsync(new JsonObject
+        {
+            ["t"] = "settings", ["locked"] = locked, ["pw"] = HasPassword ? CoopTunnel.PasswordHash(Code, password!) : null,
+        });
+    }
+
+    /// <summary>Lets an invited member in even while the lobby is locked or has a password.</summary>
+    public Task AllowAsync(string member) => _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "allow", ["member"] = member });
 
     /// <summary>Tells everyone's manager to start their game (the host's own is started by the window).</summary>
     public async Task StartGameAsync()
@@ -355,8 +385,7 @@ public sealed class CoopHost : IAsyncDisposable
             try { await connection.CloseAsync(0); await connection.DisposeAsync(); }
             catch (QuicException) { }
         }
-        if (member is not null) Status?.Invoke($"Removed {member.Name} from the party.");
-        await SendPartyAsync();
+                await SendPartyAsync();
     }
 
     void SetMember(string id, Func<PartyMember?, PartyMember?> change)
@@ -376,7 +405,7 @@ public sealed class CoopHost : IAsyncDisposable
         PartyChanged?.Invoke(party);
         var members = new JsonArray();
         foreach (var m in party.Members)
-            members.Add(new JsonObject { ["id"] = m.Id, ["name"] = m.Name, ["state"] = m.State.ToString() });
+            members.Add(new JsonObject { ["id"] = m.Id, ["name"] = m.Name, ["state"] = m.State.ToString(), ["member"] = m.Member });
         await _rendezvous!.TrySendAsync(new JsonObject
         {
             ["t"] = "party",
@@ -396,9 +425,9 @@ public sealed class CoopHost : IAsyncDisposable
                 {
                     case "join":
                         var name = (string?)message["name"] ?? "A player";
-                        SetMember(id, _ => new PartyMember(id, name, MemberState.Connecting));
-                        Status?.Invoke($"{name} is connecting…");
-                        var opened = await CoopTunnel.OpenAsync(CoopTunnel.Thumbprint(_cert), cancel);
+                        var member = (string?)message["member"];
+                        SetMember(id, _ => new PartyMember(id, name, MemberState.Connecting, member));
+                                                var opened = await CoopTunnel.OpenAsync(CoopTunnel.Thumbprint(_cert), cancel);
                         lock (_lock) _pending[id] = opened;
                         await _rendezvous.SendAsync(new JsonObject { ["t"] = "signal", ["to"] = id, ["data"] = opened.Me.ToJson() }, cancel);
                         break;
@@ -419,12 +448,11 @@ public sealed class CoopHost : IAsyncDisposable
                             _members.Remove(id, out who);
                         }
                         if (gone is not null) _ = gone.DisposeAsync().AsTask();
-                        if (who is not null) Status?.Invoke($"{who.Name} left the party.");
-                        await SendPartyAsync();
+                                                await SendPartyAsync();
                         break;
                 }
             }
-            if (!cancel.IsCancellationRequested) Status?.Invoke("Lost the co-op service: new players can't join, and the party list may be out of date. Players already in stay connected.");
+            if (!cancel.IsCancellationRequested) Status?.Invoke("Lost the co-op service. Players already in stay connected.");
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) when (ex is CoopException or SocketException or WebSocketException)
@@ -474,8 +502,7 @@ public sealed class CoopHost : IAsyncDisposable
                 _connections[id] = connection;
             }
             SetMember(id, m => m is null ? null : m with { State = MemberState.Connected });
-            Status?.Invoke($"{name} connected directly.");
-            if (Started) await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "start" });
+                        if (Started) await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "start" });
             while (!cancel.IsCancellationRequested)
             {
                 var stream = await connection.AcceptInboundStreamAsync(cancel);
@@ -485,7 +512,7 @@ public sealed class CoopHost : IAsyncDisposable
         catch (OperationCanceledException) when (!cancel.IsCancellationRequested)
         {
             SetMember(id, m => m is null ? null : m with { State = MemberState.Failed });
-            Status?.Invoke($"{name} couldn't connect directly: one of your networks blocks it. They can use the game's own co-op instead.");
+            Status?.Invoke($"{name} couldn't connect: one of your networks blocks direct connections.");
         }
         catch (Exception ex) when (ex is QuicException or AuthenticationException or ObjectDisposedException)
         {
@@ -580,12 +607,13 @@ public sealed class CoopJoin : IAsyncDisposable
     /// <summary>The party is over for us (removed, the host left, or the connection dropped), with why.</summary>
     public event Action<string>? Ended;
 
-    public static async Task<CoopJoin> ConnectAsync(string code, string name, Action<string> progress, CancellationToken cancel)
+    /// <param name="key">This install's secret key: the co-op service hashes it so the host sees which member joined.</param>
+    public static async Task<CoopJoin> ConnectAsync(string code, string name, string key, string? password, Action<string> progress, CancellationToken cancel)
     {
         var join = new CoopJoin();
         try
         {
-            await join.ConnectCoreAsync(code, name, progress, cancel);
+            await join.ConnectCoreAsync(code, name, key, password, progress, cancel);
             return join;
         }
         catch
@@ -595,18 +623,29 @@ public sealed class CoopJoin : IAsyncDisposable
         }
     }
 
-    async Task ConnectCoreAsync(string code, string name, Action<string> progress, CancellationToken cancel)
+    async Task ConnectCoreAsync(string code, string name, string key, string? password, Action<string> progress, CancellationToken cancel)
     {
-        progress("Finding the party…");
-        _rendezvous = await CoopTunnel.Rendezvous.ConnectAsync($"lobby/{code}?role=join&name={Uri.EscapeDataString(name)}", cancel);
+        progress("Finding the lobby…");
+        var query = $"lobby/{code}?role=join&name={Uri.EscapeDataString(name)}&key={Uri.EscapeDataString(key)}";
+        if (!string.IsNullOrEmpty(password)) query += "&pw=" + CoopTunnel.PasswordHash(code, password);
+        _rendezvous = await CoopTunnel.Rendezvous.ConnectAsync(query, cancel);
         var first = await _rendezvous.ReceiveAsync(cancel);
         if ((string?)first?["t"] != "joined")
-            throw new CoopException((string?)first?["why"] switch
+        {
+            var why = (string?)first?["why"];
+            throw new CoopException(why switch
             {
-                "no lobby" => "no party with that code (the host may have closed it)",
-                "full" => "the party is full",
-                var why => "the co-op service refused: " + (why ?? "no answer"),
-            });
+                "no lobby" => "No lobby with that code.",
+                "full" => "The lobby is full.",
+                "locked" => "The lobby is locked.",
+                "password" => "This lobby needs a password.",
+                "wrong password" => "Wrong password.",
+                "removed" => "The host removed you from this lobby.",
+                "slow down" => "Too many wrong passwords. Try again in a minute.",
+                "update" => "Update DrangedAddons to join this lobby.",
+                _ => "The co-op service refused: " + (why ?? "no answer") + ".",
+            }, why);
+        }
         Id = (string?)first["id"] ?? "";
 
         var (socket, me) = await CoopTunnel.OpenAsync(CoopTunnel.Thumbprint(_cert), cancel);
@@ -620,11 +659,11 @@ public sealed class CoopJoin : IAsyncDisposable
             wait.CancelAfter(TimeSpan.FromSeconds(20));
             while (host is null)
             {
-                var message = await _rendezvous.ReceiveAsync(wait.Token) ?? throw new CoopException("the host left");
+                var message = await _rendezvous.ReceiveAsync(wait.Token) ?? throw new CoopException("The host closed the lobby.");
                 switch ((string?)message["t"])
                 {
-                    case "closed": throw new CoopException((string?)message["why"] ?? "the host left");
-                    case "kicked": throw new CoopException("the host removed you from the party");
+                    case "closed": throw new CoopException("The host closed the lobby.");
+                    case "kicked": throw new CoopException("The host removed you from this lobby.");
                     case "party": Party = ParseParty(message["data"]); break;
                     case "signal": host = CoopTunnel.Candidates.FromJson(message["data"]); break;
                 }
@@ -660,7 +699,7 @@ public sealed class CoopJoin : IAsyncDisposable
             catch (Exception ex) when (ex is QuicException or AuthenticationException or OperationCanceledException && !cancel.IsCancellationRequested)
             {
                 if (DateTime.UtcNow > deadline)
-                    throw new CoopException("couldn't connect directly to the host: one of your networks blocks it. Use the game's own co-op instead");
+                    throw new CoopException("Couldn't connect to the host: one of your networks blocks direct connections.");
             }
         }
 
@@ -676,7 +715,7 @@ public sealed class CoopJoin : IAsyncDisposable
         if (data is null) return null;
         var members = data["members"]?.AsArray()
             .Select(m => (string?)m?["id"] is { } id && (string?)m?["name"] is { } name
-                ? new PartyMember(id, name, Enum.TryParse<MemberState>((string?)m["state"], out var s) ? s : MemberState.Connecting)
+                ? new PartyMember(id, name, Enum.TryParse<MemberState>((string?)m["state"], out var s) ? s : MemberState.Connecting, (string?)m["member"])
                 : null)
             .OfType<PartyMember>().ToList() ?? [];
         return new PartyInfo((string?)data["host"] ?? "Host", members, (bool?)data["started"] == true);
@@ -703,15 +742,15 @@ public sealed class CoopJoin : IAsyncDisposable
                         StartRequested?.Invoke();
                         break;
                     case "kicked":
-                        Ended?.Invoke("The host removed you from the party.");
+                        Ended?.Invoke("The host removed you from the lobby.");
                         return;
                     case "closed":
-                        Ended?.Invoke("The host closed the party.");
+                        Ended?.Invoke("The host closed the lobby.");
                         return;
                 }
             }
             if (!cancel.IsCancellationRequested)
-                Status?.Invoke("Lost the co-op service: the party list may be out of date. Your connection to the host is unaffected.");
+                Status?.Invoke("Lost the co-op service. You're still connected to the host.");
         }
         catch (OperationCanceledException) { }
     }

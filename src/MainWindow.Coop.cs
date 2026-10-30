@@ -24,15 +24,36 @@ public partial class MainWindow
         _coopPresence = null;
         if (name is not null)
         {
-            if (_settings.CoopId is null)
-            {
-                _settings.CoopId = Guid.NewGuid().ToString("N");
-                Storage.Save(SettingsFile, _settings);
-            }
-            _coopPresence = new CoopPresence(_settings.CoopId, name);
+            _coopPresence = new CoopPresence(CoopKey, name);
             _coopPresence.Invited += (from, code) => Dispatcher.BeginInvoke(() => OnCoopInvite(from, code));
         }
         _coopWindow?.UsePresence(_coopPresence);
+    }
+
+    /// <summary>This install's secret key on the co-op service; made on first use.</summary>
+    string CoopKey
+    {
+        get
+        {
+            if (_settings.CoopId is null)
+            {
+                _settings.CoopId = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
+                Storage.Save(SettingsFile, _settings);
+            }
+            return _settings.CoopId;
+        }
+    }
+
+    void CoopOnline_Click(object sender, RoutedEventArgs e) => SetCoopOnline(CoopOnlineMenu.IsChecked);
+
+    /// <summary>From the settings menu or the co-op window: both show the same setting.</summary>
+    void SetCoopOnline(bool online)
+    {
+        _settings.CoopOnline = online;
+        Storage.Save(SettingsFile, _settings);
+        CoopOnlineMenu.IsChecked = online;
+        _coopWindow?.SetOnlineCheck(online);
+        UpdateCoopPresence();
     }
 
     /// <summary>Doesn't open anything over the game: a tray notification, or a line in the co-op window if it's open.</summary>
@@ -63,17 +84,12 @@ public partial class MainWindow
             return;
         }
         var name = _coopPresence?.Name ?? AzerothSurvivorsGame.LastHero(root) ?? Environment.UserName;
-        _coopWindow = new CoopWindow(launch.Exe, name, _settings.CoopOnline, online =>
-        {
-            _settings.CoopOnline = online;
-            Storage.Save(SettingsFile, _settings);
-            UpdateCoopPresence();
-        });
+        _coopWindow = new CoopWindow(launch.Exe, name, CoopKey, _settings.CoopOnline, SetCoopOnline);
         if (IsVisible) _coopWindow.Owner = this;
         _coopWindow.UsePresence(_coopPresence);
         _coopInvites.RemoveAll(i => DateTime.UtcNow - i.At > TimeSpan.FromMinutes(15));
         foreach (var (from, code, _) in _coopInvites) _coopWindow.ShowInvite(from, code);
-        _coopWindow.Joined += from => _coopInvites.RemoveAll(i => i.From.Id == from.Id);
+        _coopWindow.Answered += from => _coopInvites.RemoveAll(i => i.From.Id == from.Id);
         _coopWindow.Closed += (_, _) => _coopWindow = null;
         _coopWindow.Show();
     }

@@ -4,12 +4,15 @@ using System.Text.Json.Nodes;
 
 namespace DrangedAddons;
 
-public sealed record CoopPlayer(string Id, string Name);
+/// <summary>A member's open lobby as listed to others; Code is null while it's locked.</summary>
+public sealed record CoopLobby(string? Code, bool Locked, bool Password, int Count);
+
+public sealed record CoopPlayer(string Id, string Name, CoopLobby? Lobby = null);
 
 /// <summary>
-/// Keeps this manager listed as online on the co-op rendezvous (/presence) while it runs, so friends can see it and
-/// invite it to co-op; reconnects on its own when the connection drops. An invite carries a lobby code, which the
-/// invited side joins exactly like a typed one (<see cref="CoopJoin"/>).
+/// Keeps this manager listed as online on the co-op rendezvous (/presence) while it runs, so members can see it,
+/// invite it, and see the lobby it's hosting; reconnects on its own when the connection drops. An invite carries a
+/// lobby code, which the invited side joins exactly like a typed one (<see cref="CoopJoin"/>).
 /// </summary>
 public sealed class CoopPresence : IDisposable
 {
@@ -19,6 +22,7 @@ public sealed class CoopPresence : IDisposable
     readonly Dictionary<string, CoopPlayer> _players = new();
     readonly SemaphoreSlim _send = new(1, 1);
     ClientWebSocket? _ws;
+    CoopLobby? _lobby;
 
     public string Name { get; }
 
@@ -54,6 +58,7 @@ public sealed class CoopPresence : IDisposable
                 await ws.ConnectAsync(new Uri(url), _stop.Token);
                 _ws = ws;
                 wait = TimeSpan.FromSeconds(5);
+                if (_lobby is not null) await SendStatusAsync();
                 await ReceiveAsync(ws);
             }
             catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or HttpRequestException) { }
@@ -85,7 +90,10 @@ public sealed class CoopPresence : IDisposable
     }
 
     static CoopPlayer? Player(JsonNode? node) =>
-        (string?)node?["id"] is { } id && (string?)node?["name"] is { } name ? new CoopPlayer(id, name) : null;
+        (string?)node?["id"] is { } id && (string?)node?["name"] is { } name ? new CoopPlayer(id, name, Lobby(node["lobby"])) : null;
+
+    static CoopLobby? Lobby(JsonNode? node) =>
+        node is JsonObject ? new CoopLobby((string?)node["code"], (bool?)node["locked"] == true, (bool?)node["password"] == true, (int?)node["count"] ?? 1) : null;
 
     void Handle(JsonNode message)
     {
@@ -115,6 +123,22 @@ public sealed class CoopPresence : IDisposable
                 break;
         }
     }
+
+    /// <summary>Lists (or, with null, unlists) the lobby this member is hosting; kept across reconnects.</summary>
+    public async Task SetLobbyAsync(CoopLobby? lobby)
+    {
+        _lobby = lobby;
+        try { await SendStatusAsync(); }
+        catch (Exception ex) when (ex is CoopException or WebSocketException or OperationCanceledException) { } // sent on reconnect
+    }
+
+    Task SendStatusAsync() => SendAsync(new JsonObject
+    {
+        ["t"] = "status",
+        ["lobby"] = _lobby is { } l
+            ? new JsonObject { ["code"] = l.Code, ["locked"] = l.Locked, ["password"] = l.Password, ["count"] = l.Count }
+            : null,
+    });
 
     public Task InviteAsync(CoopPlayer to, string code) => SendAsync(new JsonObject { ["t"] = "invite", ["to"] = to.Id, ["code"] = code });
 

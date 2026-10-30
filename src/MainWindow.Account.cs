@@ -80,8 +80,32 @@ public partial class MainWindow
     void Account_Click(object sender, RoutedEventArgs e)
     {
         var window = new AccountWindow(AccountInfo, DefaultAccountName, Account.LoadOwnPicture()) { Owner = this };
-        if (window.ShowDialog() != true) return;
+        if (window.ShowDialog() == true) SaveAccount(window);
+    }
 
+    /// <summary>
+    /// First open: asks for a name and (optionally) a picture before anything else, including picking a game. Also
+    /// asked once of anyone who never set either. Closing it keeps the default name and doesn't ask again.
+    /// </summary>
+    void Welcome()
+    {
+        if (AccountInfo.Welcomed) return;
+        if (AccountInfo.Name is null && AccountInfo.Picture is null)
+        {
+            var window = new AccountWindow(AccountInfo, DefaultAccountName, null, welcome: true) { Owner = this };
+            if (window.ShowDialog() == true)
+            {
+                AccountInfo.Welcomed = true;
+                SaveAccount(window);
+                return;
+            }
+        }
+        AccountInfo.Welcomed = true;
+        Storage.Save(SettingsFile, _settings);
+    }
+
+    void SaveAccount(AccountWindow window)
+    {
         AccountInfo.Name = Clean(window.ChosenName);
         AccountInfo.Status = window.ChosenStatus;
         if (window.PictureChanged)
@@ -106,6 +130,7 @@ public partial class MainWindow
             }
         }
         Storage.Save(SettingsFile, _settings);
+        UpdateAccountChip();
         UpdateCoopPresence(); // a new name reconnects; a new status is just sent
         _ = SyncPictureAsync();
     }

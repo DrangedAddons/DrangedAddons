@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.36.0
+- **Welcome.** The first time the app opens it asks for the name friends see, filled in with your last Azeroth
+  Survivors hero or Windows user name, and an optional profile picture, before you pick your first game. You can
+  change both later from the account button. Anyone who never set a name or picture sees it once too.
+
 ## 0.35.1
 - The co-op lobby shows each player's profile picture in their slot (the host's too), falling back to the letter tile
   for players without one.

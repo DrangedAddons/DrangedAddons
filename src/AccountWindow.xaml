@@ -6,7 +6,10 @@
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI" FontSize="13">
     <StackPanel Margin="24,20">
-        <TextBlock Text="Account" FontSize="20" FontWeight="SemiBold"/>
+        <TextBlock x:Name="HeadingText" Text="Account" FontSize="20" FontWeight="SemiBold"/>
+        <TextBlock x:Name="WelcomeText" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0"
+                   Visibility="Collapsed"
+                   Text="Pick the name friends see when you play together. A picture is optional. You can change both later from the account button at the bottom of the side bar."/>
 
         <!-- Picture: a circle with the picture, or the name's initials. -->
         <DockPanel Margin="0,18,0,0">
@@ -43,23 +46,27 @@
             </Grid>
         </Border>
 
-        <TextBlock Text="Status" FontWeight="SemiBold" Margin="0,18,0,6"/>
-        <ComboBox x:Name="StatusList" Style="{StaticResource DarkCombo}" Height="34" HorizontalAlignment="Left" Width="200">
-            <ComboBox.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Orientation="Horizontal">
-                        <Ellipse Width="10" Height="10" Fill="{Binding Brush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </DataTemplate>
-            </ComboBox.ItemTemplate>
-        </ComboBox>
-        <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12"
-                   Text="Shows In game while you play, and Away after 10 minutes idle."/>
+        <StackPanel x:Name="StatusPanel">
+            <TextBlock Text="Status" FontWeight="SemiBold" Margin="0,18,0,6"/>
+            <ComboBox x:Name="StatusList" Style="{StaticResource DarkCombo}" Height="34" HorizontalAlignment="Left" Width="200">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="10" Height="10" Fill="{Binding Brush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12"
+                       Text="Shows In game while you play, and Away after 10 minutes idle."/>
+        </StackPanel>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
-            <Button Content="Cancel" Style="{StaticResource Btn}" MinWidth="90" IsCancel="True" Margin="0,0,8,0"/>
-            <Button Content="Save" Style="{StaticResource AccentBtn}" MinWidth="90" IsDefault="True" Click="Save_Click"/>
+            <Button x:Name="CancelButton" Content="Cancel" Style="{StaticResource Btn}" MinWidth="90" IsCancel="True"
+                    Margin="0,0,8,0"/>
+            <Button x:Name="SaveButton" Content="Save" Style="{StaticResource AccentBtn}" MinWidth="90" IsDefault="True"
+                    Click="Save_Click"/>
         </StackPanel>
     </StackPanel>
 </Window>

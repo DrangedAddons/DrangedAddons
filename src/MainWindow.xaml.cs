@@ -54,7 +54,11 @@ public partial class MainWindow : Window
 
         AutoUpdateAddonsMenu.IsChecked = _settings.AutoUpdateAddons;
         AutoUpdateAppMenu.IsChecked = _settings.AutoUpdateApp;
-        Loaded += async (_, _) => await InitializeAsync();
+        Loaded += async (_, _) =>
+        {
+            Welcome();
+            await InitializeAsync();
+        };
         Closed += (_, _) => _coopPresence?.Dispose();
     }
 

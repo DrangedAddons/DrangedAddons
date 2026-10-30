@@ -25,6 +25,9 @@ public sealed class AccountSettings
     /// <summary>Hash of the picture in avatar.jpg (null: no picture), and of the one last uploaded to the co-op service.</summary>
     public string? Picture { get; set; }
     public string? PictureUploaded { get; set; }
+
+    /// <summary>The first-run welcome (pick a name and picture) has been shown.</summary>
+    public bool Welcomed { get; set; }
 }
 
 /// <summary>What others see: "online", "away", "ingame" or "offline" (the wire values on the co-op service).</summary>

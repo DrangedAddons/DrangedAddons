@@ -17,12 +17,25 @@ public partial class AccountWindow : Window
     public bool PictureChanged { get; private set; }
     public byte[]? ChosenPicture { get; private set; }
 
+    readonly bool _welcome;
+
     /// <param name="defaultName">The name used when none is typed (the hero last played, or the Windows user name).</param>
-    public AccountWindow(AccountSettings account, string defaultName, ImageSource? picture)
+    /// <param name="welcome">First run: asks for a name (filled in with the default) and a picture, without status.</param>
+    public AccountWindow(AccountSettings account, string defaultName, ImageSource? picture, bool welcome = false)
     {
         InitializeComponent();
         DarkTitleBar.Apply(this);
-        NameBox.Text = account.Name ?? "";
+        _welcome = welcome;
+        NameBox.Text = welcome ? account.Name ?? defaultName : account.Name ?? "";
+        if (welcome)
+        {
+            Title = "Welcome";
+            HeadingText.Text = "Welcome to DrangedAddons";
+            WelcomeText.Visibility = Visibility.Visible;
+            StatusPanel.Visibility = Visibility.Collapsed;
+            CancelButton.Visibility = Visibility.Collapsed;
+            SaveButton.Content = "Continue";
+        }
         NamePlaceholder.Text = defaultName;
         StatusList.ItemsSource = new[]
         {
@@ -32,7 +45,11 @@ public partial class AccountWindow : Window
         };
         StatusList.SelectedIndex = (int)account.Status;
         ShowPicture(picture);
-        Loaded += (_, _) => NameBox.Focus();
+        Loaded += (_, _) =>
+        {
+            NameBox.Focus();
+            NameBox.SelectAll();
+        };
     }
 
     void ShowPicture(ImageSource? picture)
@@ -53,6 +70,7 @@ public partial class AccountWindow : Window
     void NameBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
         NamePlaceholder.Visibility = NameBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (_welcome) SaveButton.IsEnabled = NameBox.Text.Trim().Length > 0; // the welcome asks for a name
         UpdateInitials();
     }
 

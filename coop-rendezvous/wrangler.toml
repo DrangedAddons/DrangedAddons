@@ -1,0 +1,13 @@
+# Deploy: npx wrangler deploy (from this folder, after npx wrangler login)
+name = "drangedaddons-coop"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "Lobby"
+
+# SQLite-backed Durable Objects are on Cloudflare's free plan.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Lobby"]

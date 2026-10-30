@@ -266,9 +266,10 @@ sealed class AzerothSurvivorsGame : GameDefinition
     public override bool HasDirectCoop => true;
 
     /// <summary>
-    /// Environment variables the exe reads at start to skip the co-op relay (wss://wow.aethus.pl/coop/lobby/) and talk
-    /// TCP between the players: the host listens on a port ("rogue: hosting a party on port …"), the others connect to
-    /// host:port ("rogue: joining the party at …"). Found in the exe's strings, not documented by the game.
+    /// Environment variables the exe reads at start for co-op without its relay (wss://wow.aethus.pl/coop/lobby/):
+    /// the host's game listens on a TCP port ("rogue: hosting a party on port …"), a joiner's connects to host:port
+    /// ("rogue: joining the party at …"). Found in the exe's strings, not documented by the game. Direct co-op points
+    /// both at this app on 127.0.0.1, which carries the connection between the PCs (<see cref="CoopTunnel"/>).
     /// </summary>
     public static Dictionary<string, string> DirectCoopEnvironment(int? hostPort, string? joinAddress, string? password)
     {

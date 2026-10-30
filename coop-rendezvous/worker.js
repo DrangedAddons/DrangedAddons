@@ -47,6 +47,9 @@
 //                 {t:"unfriend", to}   removes a friend, or declines / cancels a request
 //   to a member:  {t:"friends", friends:[{id,name,avatar}], incoming:[…], outgoing:[…]} on connect and whenever
 //                 that changes. Which friends are online comes from the online / here / gone messages.
+// GET /stats with "Authorization: Bearer <STATS_TOKEN>" (a Worker secret) returns totals for the platform dashboard:
+// how many are connected, by status and game, open lobbies per game, members, friendships. Counts only: no names,
+// ids or lobby codes.
 // avatar is a short hash of the member's picture, or null. PUT /avatar?key=<install secret> (a PNG or JPEG of at most
 // 64 KB) sets it and DELETE /avatar?key=… removes it; GET /avatar/<id> returns it.
 
@@ -77,6 +80,13 @@ export default {
     if (url.pathname === "/avatar" || /^\/avatar\/[0-9a-f]{16}$/.test(url.pathname)) {
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
     }
+    if (url.pathname === "/stats") {
+      if (!(await sameSecret(request.headers.get("Authorization") ?? "", "Bearer " + (env.STATS_TOKEN ?? "")))
+          || !env.STATS_TOKEN) {
+        return new Response("not allowed", { status: 401 });
+      }
+      return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
+    }
     const match = url.pathname.match(/^\/lobby\/([A-Za-z0-9]+)$/);
     if (!match) return new Response("DrangedAddons co-op rendezvous", { status: url.pathname === "/" ? 200 : 404 });
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected a WebSocket", { status: 426 });
@@ -85,6 +95,15 @@ export default {
     return env.LOBBY.get(env.LOBBY.idFromName(code)).fetch(request);
   },
 };
+
+/** Compares two secrets without the time taken saying how much of one matched. */
+async function sameSecret(a, b) {
+  const hash = async (s) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+  const [x, y] = await Promise.all([hash(a), hash(b)]);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
 
 /** The id others see: a hash of the secret key, so seeing it doesn't let anyone connect as that member. */
 async function publicId(key) {
@@ -325,6 +344,7 @@ export class Presence {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/avatar")) return this.avatar(request, url);
+    if (url.pathname === "/stats") return this.stats(); // the token was checked before it got here
     const params = url.searchParams;
     const key = params.get("key") ?? params.get("id") ?? "";
     const name = cleanName(params.get("name"));
@@ -450,6 +470,52 @@ export class Presence {
 
   async webSocketError(ws) {
     this.gone(ws);
+  }
+
+  /** Totals for the platform dashboard (see /stats at the top). */
+  async stats() {
+    const connected = this.state.getWebSockets().map((ws) => ws.deserializeAttachment()).filter(Boolean);
+    const byState = { online: 0, away: 0, ingame: 0, offline: 0 };
+    const inGame = {};
+    const lobbies = {};
+    for (const p of connected) {
+      byState[p.state ?? "online"] = (byState[p.state ?? "online"] ?? 0) + 1;
+      if (p.state === "ingame" && p.game) inGame[p.game] = (inGame[p.game] ?? 0) + 1;
+      if (p.lobby) {
+        // Lobbies listed before games were tagged came from Azeroth Survivors, the only game with lobbies then.
+        const game = p.lobby.game ?? "azeroth-survivors";
+        const l = (lobbies[game] ??= { lobbies: 0, players: 0, locked: 0, password: 0 });
+        l.lobbies++;
+        l.players += p.lobby.count;
+        if (p.lobby.locked) l.locked++;
+        if (p.lobby.password) l.password++;
+      }
+    }
+    const now = Date.now();
+    let known = 0, seenDay = 0, seenWeek = 0;
+    for (const [, m] of await this.state.storage.list({ prefix: "member:" })) {
+      known++;
+      if (now - m.seen < 86400000) seenDay++;
+      if (now - m.seen < 7 * 86400000) seenWeek++;
+    }
+    let friendLinks = 0, pending = 0;
+    for (const [, l] of await this.state.storage.list({ prefix: "links:" })) {
+      friendLinks += l.friends.length;
+      pending += l.incoming.length;
+    }
+    const pictures = (await this.state.storage.list({ prefix: "avatar:" })).size;
+    const body = {
+      at: new Date(now).toISOString(),
+      connected: connected.length,
+      visible: connected.filter(visible).length,
+      byState,
+      inGame,
+      lobbies,
+      members: { known, seenDay, seenWeek, pictures },
+      friendships: friendLinks / 2, // each friendship is stored on both members
+      pendingRequests: pending,
+    };
+    return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
   // ---- Friends ----

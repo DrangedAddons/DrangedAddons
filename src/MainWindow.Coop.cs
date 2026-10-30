@@ -7,6 +7,7 @@ public partial class MainWindow
 {
     CoopWindow? _coopWindow;
     CoopPresence? _coopPresence;
+    bool _coopHosting;
     readonly List<(CoopPlayer From, string Code, DateTime At)> _coopInvites = new();
 
     static readonly GameDefinition CoopGame = GameDefinition.All.First(g => g.HasDirectCoop);
@@ -17,7 +18,8 @@ public partial class MainWindow
     /// </summary>
     void UpdateCoopPresence()
     {
-        var root = _settings.CoopOnline && _settings.Games.Contains(CoopGame.Id) ? RootOf(CoopGame) : null;
+        // Hosting a lobby means being online: it's listed to members and invites go out through it.
+        var root = (_settings.CoopOnline || _coopHosting) && _settings.Games.Contains(CoopGame.Id) ? RootOf(CoopGame) : null;
         var name = root is null ? null : AzerothSurvivorsGame.LastHero(root) ?? Environment.UserName;
         if (_coopPresence?.Name == name) return;
         _coopPresence?.Dispose();
@@ -52,7 +54,6 @@ public partial class MainWindow
         _settings.CoopOnline = online;
         Storage.Save(SettingsFile, _settings);
         CoopOnlineMenu.IsChecked = online;
-        _coopWindow?.SetOnlineCheck(online);
         UpdateCoopPresence();
     }
 
@@ -84,13 +85,23 @@ public partial class MainWindow
             return;
         }
         var name = _coopPresence?.Name ?? AzerothSurvivorsGame.LastHero(root) ?? Environment.UserName;
-        _coopWindow = new CoopWindow(launch.Exe, name, CoopKey, _settings.CoopOnline, SetCoopOnline);
+        _coopWindow = new CoopWindow(launch.Exe, name, CoopKey, hosting =>
+        {
+            _coopHosting = hosting;
+            UpdateCoopPresence();
+        });
         if (IsVisible) _coopWindow.Owner = this;
         _coopWindow.UsePresence(_coopPresence);
         _coopInvites.RemoveAll(i => DateTime.UtcNow - i.At > TimeSpan.FromMinutes(15));
         foreach (var (from, code, _) in _coopInvites) _coopWindow.ShowInvite(from, code);
         _coopWindow.Answered += from => _coopInvites.RemoveAll(i => i.From.Id == from.Id);
-        _coopWindow.Closed += (_, _) => _coopWindow = null;
+        _coopWindow.Closed += (_, _) =>
+        {
+            _coopWindow = null;
+            if (!_coopHosting) return;
+            _coopHosting = false;
+            UpdateCoopPresence();
+        };
         _coopWindow.Show();
     }
 }

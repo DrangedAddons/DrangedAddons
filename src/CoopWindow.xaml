@@ -204,8 +204,6 @@
         <StackPanel x:Name="StatusList" Margin="0,14,0,0"/>
 
         <DockPanel Margin="0,18,0,0">
-            <CheckBox x:Name="OnlineCheck" Content="Show me online" VerticalAlignment="Center"
-                      Foreground="{StaticResource MutedBrush}" Click="OnlineCheck_Click"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="BackButton" Content="Close" Style="{StaticResource Btn}" MinWidth="110" Height="38" Click="Back_Click"/>
                 <Button x:Name="StartButton" Content="Start game" Style="{StaticResource AccentBtn}" MinWidth="140" Height="38"

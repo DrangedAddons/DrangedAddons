@@ -21,7 +21,8 @@ public partial class CoopWindow : Window
     readonly string _exe;
     readonly string _name;
     readonly string _key;
-    readonly Action<bool> _setOnline;
+    /// <summary>Hosting started (true) or ended (false): the manager keeps this player online while hosting.</summary>
+    readonly Action<bool> _hosting;
     readonly DispatcherTimer _passwordDelay = new() { Interval = TimeSpan.FromMilliseconds(600) };
     Screen _screen = Screen.Start;
     CoopPresence? _presence;
@@ -36,15 +37,14 @@ public partial class CoopWindow : Window
     /// <summary>Raised when the player answers someone's invite, so it stops being offered.</summary>
     public event Action<CoopPlayer>? Answered;
 
-    public CoopWindow(string exe, string name, string key, bool online, Action<bool> setOnline)
+    public CoopWindow(string exe, string name, string key, Action<bool> hosting)
     {
         InitializeComponent();
         DarkTitleBar.Apply(this);
         _exe = exe;
         _name = name;
         _key = key;
-        _setOnline = setOnline;
-        OnlineCheck.IsChecked = online;
+        _hosting = hosting;
         _passwordDelay.Tick += async (_, _) =>
         {
             _passwordDelay.Stop();
@@ -168,6 +168,7 @@ public partial class CoopWindow : Window
             _ = ListLobbyAsync();
             Show(Screen.Host);
             AddLog("You opened the lobby.");
+            _hosting(true);
         }
         catch (Exception ex) when (IsCoopFailure(ex))
         {
@@ -502,7 +503,6 @@ public partial class CoopWindow : Window
             presence.Declined += PresenceDeclined;
             _ = ListLobbyAsync();
         }
-        OnlineCheck.ToolTip = presence is null ? null : $"Members see you as {presence.Name}";
         Refresh();
     }
 
@@ -524,7 +524,7 @@ public partial class CoopWindow : Window
     /// <summary>A row's message when there's nothing to list: offline, connecting, or nobody.</summary>
     bool ShowPresenceState(Panel list)
     {
-        if (_presence is null) list.Children.Add(Line("Turn on Show me online to see members.", Muted));
+        if (_presence is null) list.Children.Add(Line("You're offline (Settings → Show me online for co-op).", Muted));
         else if (!_presence.Connected) list.Children.Add(Line("Connecting…", Muted));
         else return false;
         return true;
@@ -743,10 +743,7 @@ public partial class CoopWindow : Window
         InviteList.Children.Add(card);
     }
 
-    void OnlineCheck_Click(object sender, RoutedEventArgs e) => _setOnline(OnlineCheck.IsChecked == true);
 
-    /// <summary>The same setting changed from the manager's settings menu.</summary>
-    public void SetOnlineCheck(bool online) => OnlineCheck.IsChecked = online;
 
     // ---- Shared ----
 
@@ -832,6 +829,7 @@ public partial class CoopWindow : Window
         {
             if (_presence is not null) await _presence.SetLobbyAsync(null);
             await host.DisposeAsync();
+            _hosting(false);
         }
         if (join is not null) await join.DisposeAsync();
     }

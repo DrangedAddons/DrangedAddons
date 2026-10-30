@@ -301,6 +301,9 @@ public sealed class CoopException(string message, string? reason = null) : Excep
 
 public enum MemberState { Connecting, Connected, Failed }
 
+/// <summary>A lobby chat message. From is the name the co-op service has for the sender, not one the sender chose per message.</summary>
+public sealed record ChatLine(string From, bool FromHost, string Text);
+
 /// <summary>A player in a lobby: Id within this lobby; Member their hashed member id, as checked by the co-op service.</summary>
 public sealed record PartyMember(string Id, string Name, MemberState State, string? Member = null);
 
@@ -334,6 +337,7 @@ public sealed class CoopHost : IAsyncDisposable
     public event Action<string>? Status;
     /// <summary>The party changed. Raised on a thread-pool thread.</summary>
     public event Action<PartyInfo>? PartyChanged;
+    public event Action<ChatLine>? Chat;
 
     CoopHost(string code, int gamePort, string name)
     {
@@ -353,7 +357,7 @@ public sealed class CoopHost : IAsyncDisposable
         for (var attempt = 0; ; attempt++)
         {
             var host = new CoopHost(CoopTunnel.NewCode(), gamePort, name);
-            host._rendezvous = await CoopTunnel.Rendezvous.ConnectAsync($"lobby/{host.Code}?role=host", cancel);
+            host._rendezvous = await CoopTunnel.Rendezvous.ConnectAsync($"lobby/{host.Code}?role=host&name={Uri.EscapeDataString(name)}", cancel);
             var first = await host._rendezvous.ReceiveAsync(cancel);
             if ((string?)first?["t"] == "hosting")
             {
@@ -380,6 +384,9 @@ public sealed class CoopHost : IAsyncDisposable
             ["t"] = "settings", ["locked"] = locked, ["pw"] = HasPassword ? CoopTunnel.PasswordHash(Code, password!) : null,
         });
     }
+
+    /// <summary>Lobby chat: goes to everyone through the co-op service, which echoes it back (so order matches everyone's).</summary>
+    public Task SendChatAsync(string text) => _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "chat", ["text"] = text });
 
     /// <summary>Lets an invited member in even while the lobby is locked or has a password.</summary>
     public Task AllowAsync(string member) => _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "allow", ["member"] = member });
@@ -462,6 +469,9 @@ public sealed class CoopHost : IAsyncDisposable
                         if (CoopTunnel.Candidates.FromJson(message["data"]) is { } peer) _ = AcceptAsync(id, mine.Socket, mine.Me, peer, cancel);
                         else mine.Socket.Dispose();
                         break;
+                    case "chat" when (string?)message["text"] is { } text:
+                        Chat?.Invoke(new ChatLine((string?)message["from"] ?? "?", (bool?)message["host"] == true, text));
+                        break;
                     case "leave":
                         QuicConnection? gone;
                         PartyMember? who;
@@ -542,11 +552,8 @@ public sealed class CoopHost : IAsyncDisposable
         {
             bool stillHere;
             lock (_lock) stillHere = _connections.Remove(id) | _members.ContainsKey(id);
-            if (!cancel.IsCancellationRequested && stillHere)
-            {
-                SetMember(id, m => m is null ? null : m with { State = MemberState.Failed });
-                Status?.Invoke($"{name} left.");
-            }
+            // Their connection ended: they left (or dropped). Free the slot; the lobby chat logs who left.
+            if (!cancel.IsCancellationRequested && stillHere) SetMember(id, _ => null);
         }
         catch (OperationCanceledException) { }
     }
@@ -630,6 +637,10 @@ public sealed class CoopJoin : IAsyncDisposable
     public event Action? StartRequested;
     /// <summary>The party is over for us (removed, the host left, or the connection dropped), with why.</summary>
     public event Action<string>? Ended;
+    public event Action<ChatLine>? Chat;
+
+    /// <summary>Lobby chat: goes to everyone through the co-op service, which echoes it back.</summary>
+    public Task SendChatAsync(string text) => _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "chat", ["text"] = text });
 
     /// <param name="key">This install's secret key: the co-op service hashes it so the host sees which member joined.</param>
     public static async Task<CoopJoin> ConnectAsync(string code, string name, string key, string? password, Action<string> progress, CancellationToken cancel)
@@ -768,6 +779,9 @@ public sealed class CoopJoin : IAsyncDisposable
                         Party = party;
                         PartyChanged?.Invoke(party);
                         if (startedNow) StartRequested?.Invoke();
+                        break;
+                    case "chat" when (string?)message["text"] is { } text:
+                        Chat?.Invoke(new ChatLine((string?)message["from"] ?? "?", (bool?)message["host"] == true, text));
                         break;
                     case "start":
                         if (Party is { Started: false } p) Party = p with { Started = true };

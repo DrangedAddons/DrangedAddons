@@ -1,10 +1,10 @@
 # Changelog
 
 ## 0.31.0
-- **The lobby shows its five slots.** Hosting (and being in someone's lobby) opens a wider window laid out like a game lobby:
+- **The lobby is laid out like a game lobby.** Hosting, and being in someone's lobby, opens a wider window:
   - A **Lobby code** card with Copy, and beside it **Who can join** for the host (Locked, Password, and a line saying who that lets in) or the host's name and whether the game has started for everyone else.
-  - **Players ●●○○○ 2/5**: five slots in join order. Each filled slot has a coloured letter tile, the name with **Host** / **You** badges, and its state: Connecting…, Ready, In game or Couldn't connect. The host gets **Remove** on each player. Invited members hold a slot, dimmed, as Invited. Empty slots say Open slot, with **Invite** for the host.
-  - **Invite members** beside the slots, with search.
+  - **Players ●●○○○ 2/5**: five slots in join order. Each filled slot has a coloured letter tile, the name with **Host** / **You** badges, and its state: Connecting…, Ready, In game or Couldn't connect. The host gets **Remove** on each player. Invited members hold a slot, dimmed, as Invited. Empty slots say Open slot; the host's **Invite** on one opens a pop-up of members online, with search.
+  - **Lobby chat** beside the slots, for everyone in the lobby: what happens (who opened it, joined, left, was invited, declined or removed; lock and password changes; the game starting) and what players say. Messages go through the co-op service, under the name each player joined with; at most 300 characters, and 5 messages per 5 seconds each.
   - **Start game** / **Close lobby** for the host, **Leave lobby** for everyone else.
 - Fixed: joining sometimes failed with "Couldn't connect" (about one in three on one PC). The joiner's first attempt could reach the host's port a moment before it was listening; Windows answered "unreachable" and that one answer ended the join. It now keeps trying, as it already did for other early failures. A connection that fails its security check now stops straight away instead of retrying.
 - Co-op failures are written to `%LocalAppData%\DrangedAddons\coop.log` with their full details, so a "Couldn't connect" can be explained. It holds no keys or passwords and stays under 256 KB.

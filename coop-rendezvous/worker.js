@@ -12,6 +12,9 @@
 //   to the host:   {t:"hosting"}  {t:"join", id, name, member}  {t:"signal", from:<id>, data}  {t:"leave", id}
 //   from a joiner: {t:"signal", data}           (always to the host)
 //   from the host: {t:"signal", to, data}  {t:"party", data}  {t:"start"}  {t:"kick", to}
+//   from anyone:   {t:"chat", text}  ->  to everyone, sender included: {t:"chat", from, host, text}. The sender's
+//                  name is the one it joined (or hosted) under, not anything in the message; at most 300 characters,
+//                  5 messages per 5 seconds per player.
 //                  {t:"settings", locked, pw}   (pw: the password's hash, or null for none)
 //                  {t:"allow", member}          (an invited member gets in even when locked or passworded)
 //   errors:        {t:"error", why} then the socket closes. why: taken, no lobby, full, locked, password,
@@ -38,6 +41,8 @@ const HASH = /^[0-9a-f]{64}$/;
 const MAX_JOINERS = 4; // the game's party is 5
 const MAX_MESSAGE = 4096;
 const WRONG_PASSWORDS_PER_MINUTE = 5;
+const CHAT_LENGTH = 300;
+const CHATS_PER_5S = 5;
 const INVITE_GAP_MS = 5000; // the same member, at most once per 5 seconds
 const INVITES_PER_MINUTE = 20;
 
@@ -94,6 +99,7 @@ export class Lobby {
   constructor(state) {
     this.state = state;
     this.wrong = new Map(); // ip -> times of wrong passwords this minute; lost on hibernation, fine
+    this.chats = new Map(); // player id -> times of recent chat messages; same
   }
 
   sockets(role) {
@@ -117,7 +123,7 @@ export class Lobby {
     if (role === "host") {
       if (host) return refuse("taken");
       this.state.acceptWebSocket(server);
-      server.serializeAttachment({ role: "host", ip, locked: false, pw: null, allow: [], banned: [] });
+      server.serializeAttachment({ role: "host", id: "host", name: cleanName(params.get("name")) || "Host", ip, locked: false, pw: null, allow: [], banned: [] });
       server.send(JSON.stringify({ t: "hosting" }));
     } else if (role === "join") {
       if (!host) return refuse("no lobby");
@@ -143,9 +149,10 @@ export class Lobby {
       }
       const id = "p" + crypto.randomUUID().slice(0, 8);
       this.state.acceptWebSocket(server);
-      server.serializeAttachment({ role: "join", id, ip, member });
+      const name = cleanName(params.get("name")) || "A player";
+      server.serializeAttachment({ role: "join", id, ip, member, name });
       server.send(JSON.stringify({ t: "joined", id }));
-      host.send(JSON.stringify({ t: "join", id, member, name: cleanName(params.get("name")) || "A player" }));
+      host.send(JSON.stringify({ t: "join", id, member, name }));
     } else {
       return new Response("role must be host or join", { status: 400 });
     }
@@ -156,11 +163,27 @@ export class Lobby {
     const message = parse(raw);
     const me = ws.deserializeAttachment();
     if (!message || !me) return;
+    if (message.t === "chat" && (me.role === "host" || me.role === "join")) return this.chat(me, message.text);
     if (me.role === "host") this.fromHost(ws, me, message);
     else if (me.role === "join" && message.t === "signal") {
       const host = this.sockets("host")[0];
       const data = withoutLocal(message.data, me.ip, host?.deserializeAttachment()?.ip);
       host?.send(JSON.stringify({ t: "signal", from: me.id, data }));
+    }
+  }
+
+  chat(me, text) {
+    if (typeof text !== "string") return;
+    text = text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, CHAT_LENGTH);
+    if (!text) return;
+    const now = Date.now();
+    const recent = (this.chats.get(me.id) ?? []).filter((t) => now - t < 5000);
+    if (recent.length >= CHATS_PER_5S) return;
+    this.chats.set(me.id, [...recent, now]);
+    const out = JSON.stringify({ t: "chat", from: me.name ?? "A player", host: me.role === "host", text });
+    for (const ws of this.state.getWebSockets()) {
+      const role = ws.deserializeAttachment()?.role;
+      if (role === "host" || role === "join") ws.send(out);
     }
   }
 

@@ -66,15 +66,13 @@ public partial class CoopWindow : Window
     void Show(Screen screen)
     {
         _screen = screen;
-        // Start and Join are small; the lobby is wide enough for the slots beside the members to invite.
-        Width = screen switch { Screen.Host => 980, Screen.Joined => 660, _ => 560 };
+        // Start and Join are small; the lobby is wide enough for the slots beside the lobby chat.
+        Width = screen is Screen.Host or Screen.Joined ? 1000 : 560;
         StartPanel.Visibility = Visible(screen == Screen.Start);
         JoinPanel.Visibility = Visible(screen == Screen.Join);
         LobbyPanel.Visibility = Visible(screen is Screen.Host or Screen.Joined);
         HostSettings.Visibility = Visible(screen == Screen.Host);
         JoinedInfo.Visibility = Visible(screen == Screen.Joined);
-        InvitePanel.Visibility = Visible(screen == Screen.Host);
-        InviteColumn.Width = screen == Screen.Host ? new GridLength(320) : new GridLength(0);
         StartButton.Visibility = Visible(screen == Screen.Host);
         TitleText.Text = screen switch
         {
@@ -104,6 +102,7 @@ public partial class CoopWindow : Window
             StartButton.IsEnabled = !_host.Started;
         }
         JoinCodeButton.IsEnabled = !_busy;
+        LogRosterChanges();
         ShowLobbyInfo();
         ShowSlots();
         ShowInviteList();
@@ -151,7 +150,11 @@ public partial class CoopWindow : Window
             using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             _hostGamePort = CoopTunnel.FreeLocalPort();
             _host = await CoopHost.StartAsync(_hostGamePort, _name, cancel.Token);
+            LogList.Children.Clear();
+            _roster.Clear();
+            _started = false;
             _host.Status += line => Dispatcher.BeginInvoke(() => AddStatus(line));
+            _host.Chat += line => Dispatcher.BeginInvoke(() => AddChat(line));
             _host.PartyChanged += party => Dispatcher.BeginInvoke(() =>
             {
                 Refresh();
@@ -164,6 +167,7 @@ public partial class CoopWindow : Window
             HostPasswordBox.Clear();
             _ = ListLobbyAsync();
             Show(Screen.Host);
+            AddLog("You opened the lobby.");
         }
         catch (Exception ex) when (IsCoopFailure(ex))
         {
@@ -190,7 +194,11 @@ public partial class CoopWindow : Window
     async Task ApplySettingsAsync()
     {
         if (_host is null) return;
+        var (wasLocked, hadPassword) = (_host.Locked, _host.HasPassword);
         await _host.SetSettingsAsync(LockedCheck.IsChecked == true, HostPasswordBox.Password);
+        if (_host.Locked != wasLocked) AddLog(_host.Locked ? "You locked the lobby." : "You unlocked the lobby.");
+        if (_host.HasPassword != hadPassword) AddLog(_host.HasPassword ? "You set a password." : "You removed the password.");
+        else if (_host.HasPassword) AddLog("You changed the password.");
         ShowLobbyInfo();
         await ListLobbyAsync();
     }
@@ -223,7 +231,9 @@ public partial class CoopWindow : Window
         if (!DarkDialog.Show(this, $"Remove {member.Name}?", $"{member.Name} can't rejoin this lobby.", "Remove", "Cancel", danger: true))
             return;
         if (member.Member is { } id) _invited.Remove(id);
+        _removed.Add(member.Id);
         await _host.KickAsync(member.Id);
+        AddLog($"You removed {member.Name}.");
     }
 
     void Copy_Click(object sender, RoutedEventArgs e)
@@ -234,6 +244,91 @@ public partial class CoopWindow : Window
             CopyButton.Content = "Copied";
         }
         catch (System.Runtime.InteropServices.ExternalException) { /* clipboard busy */ }
+    }
+
+    // ---- Lobby chat: the log and messages ----
+
+    /// <summary>Players last seen in the lobby, to log who joined and who left.</summary>
+    readonly Dictionary<string, (string Name, MemberState State)> _roster = new();
+    readonly HashSet<string> _removed = new();
+    bool _started;
+
+    void LogRosterChanges()
+    {
+        var party = _host?.Party ?? _join?.Party;
+        if (party is null) return;
+        foreach (var member in party.Members)
+        {
+            var seen = _roster.TryGetValue(member.Id, out var before);
+            var you = _join is not null && member.Id == _join.Id;
+            if (member.State == MemberState.Connected && (!seen || before.State != MemberState.Connected) && !you)
+                AddLog($"{member.Name} joined.");
+            _roster[member.Id] = (member.Name, member.State);
+        }
+        foreach (var gone in _roster.Keys.Except(party.Members.Select(m => m.Id)).ToList())
+        {
+            if (!_removed.Remove(gone) && _roster[gone].State == MemberState.Connected) AddLog($"{_roster[gone].Name} left.");
+            _roster.Remove(gone);
+        }
+        if (party.Started && !_started)
+        {
+            _started = true;
+            AddLog(_host is not null ? "You started the game." : $"{party.Host} started the game.");
+        }
+    }
+
+    void AddLog(string text, bool danger = false) => AddLogLine(new TextBlock
+    {
+        Text = text, TextWrapping = TextWrapping.Wrap, Foreground = danger ? Danger : Muted, FontStyle = FontStyles.Italic,
+    });
+
+    void AddChat(ChatLine line)
+    {
+        var block = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        block.Inlines.Add(new System.Windows.Documents.Run(line.From)
+        {
+            FontWeight = FontWeights.SemiBold, Foreground = line.FromHost ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("TextBrush"),
+        });
+        block.Inlines.Add(new System.Windows.Documents.Run(": " + line.Text));
+        AddLogLine(block);
+    }
+
+    void AddLogLine(TextBlock block)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+        var time = new TextBlock { Text = DateTime.Now.ToString("HH:mm"), Foreground = Muted, FontSize = 11, Margin = new Thickness(0, 2, 8, 0), VerticalAlignment = VerticalAlignment.Top };
+        DockPanel.SetDock(time, Dock.Left);
+        row.Children.Add(time);
+        row.Children.Add(block);
+        LogList.Children.Add(row);
+        while (LogList.Children.Count > 300) LogList.Children.RemoveAt(0);
+        LogScroll.ScrollToEnd();
+    }
+
+    void ChatBox_TextChanged(object sender, TextChangedEventArgs e) => ChatHint.Visibility = Visible(ChatBox.Text.Length == 0);
+
+    void ChatBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        e.Handled = true;
+        Send_Click(sender, e);
+    }
+
+    async void Send_Click(object sender, RoutedEventArgs e)
+    {
+        var text = ChatBox.Text.Trim();
+        if (text.Length == 0) return;
+        ChatBox.Clear();
+        if (_host is not null) await _host.SendChatAsync(text);
+        else if (_join is not null) await _join.SendChatAsync(text);
+    }
+
+    void OpenInvitePopup(UIElement from)
+    {
+        InvitePopup.PlacementTarget = from;
+        InvitePopup.IsOpen = true;
+        ShowInviteList();
+        SearchBox.Focus();
     }
 
     // ---- The lobby: header and slots ----
@@ -347,7 +442,7 @@ public partial class CoopWindow : Window
         if (_host is not null)
         {
             var invite = new Button { Content = "Invite", Style = (Style)FindResource("GhostBtn"), Padding = new Thickness(14, 5, 14, 5), VerticalAlignment = VerticalAlignment.Center };
-            invite.Click += (_, _) => SearchBox.Focus();
+            invite.Click += (_, _) => OpenInvitePopup(invite);
             DockPanel.SetDock(invite, Dock.Right);
             row.Children.Add(invite);
         }
@@ -416,7 +511,7 @@ public partial class CoopWindow : Window
     void PresenceDeclined(CoopPlayer from) => Dispatcher.BeginInvoke(() =>
     {
         if (!_invited.Remove(from.Id)) return;
-        AddStatus($"{from.Name} declined.");
+        AddLog($"{from.Name} declined your invite.");
         Refresh();
     });
 
@@ -468,6 +563,7 @@ public partial class CoopWindow : Window
             await _host.AllowAsync(player.Id); // gets in even if the lobby is locked or has a password
             await _presence.InviteAsync(player, _host.Code);
             _invited[player.Id] = player;
+            AddLog($"You invited {player.Name}.");
         }
         catch (Exception ex) when (ex is CoopException or System.Net.WebSockets.WebSocketException)
         {
@@ -545,7 +641,11 @@ public partial class CoopWindow : Window
             using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             _join = await CoopJoin.ConnectAsync(code, _name, _key, JoinPasswordBox.Password,
                 line => Dispatcher.BeginInvoke(() => { StatusList.Children.Clear(); AddStatus(line); }), cancel.Token);
+            LogList.Children.Clear();
+            _roster.Clear();
+            _started = false;
             _join.Status += line => Dispatcher.BeginInvoke(() => AddStatus(line, danger: true));
+            _join.Chat += line => Dispatcher.BeginInvoke(() => AddChat(line));
             _join.PartyChanged += _ => Dispatcher.BeginInvoke(() =>
             {
                 Refresh();
@@ -563,6 +663,7 @@ public partial class CoopWindow : Window
             _joinCode = code;
             CopyButton.Content = "Copy";
             Show(Screen.Joined);
+            AddLog(_join.Party is { } joinedParty ? $"You joined {joinedParty.Host}'s lobby." : "You joined the lobby.");
             if (_join.Started) StartJoinGame();
         }
         catch (Exception ex) when (IsCoopFailure(ex))
@@ -758,7 +859,13 @@ public partial class CoopWindow : Window
         UsePresence(null);
     }
 
-    void AddStatus(string text, bool danger = false) =>
+    void AddStatus(string text, bool danger = false)
+    {
+        if (_screen is Screen.Host or Screen.Joined)
+        {
+            AddLog(text, danger);
+            return;
+        }
         StatusList.Children.Add(new TextBlock
         {
             Text = text,
@@ -766,4 +873,5 @@ public partial class CoopWindow : Window
             Margin = new Thickness(0, 2, 0, 2),
             Foreground = danger ? Danger : Muted,
         });
+    }
 }

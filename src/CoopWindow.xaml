@@ -85,7 +85,7 @@
         <Grid x:Name="LobbyPanel" Visibility="Collapsed" Margin="0,6,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition x:Name="InviteColumn" Width="300"/>
+                <ColumnDefinition Width="340"/>
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -148,26 +148,56 @@
                 <StackPanel x:Name="SlotList"/>
             </StackPanel>
 
-            <!-- Host: members online to invite. -->
-            <DockPanel x:Name="InvitePanel" Grid.Row="1" Grid.Column="1" Margin="16,18,0,0">
-                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                    <Border DockPanel.Dock="Right" Style="{StaticResource Field}" Height="28" Width="130">
-                        <Grid>
-                            <TextBlock x:Name="SearchHint" Text="Search" Foreground="{StaticResource MutedBrush}"
-                                       VerticalAlignment="Center" IsHitTestVisible="False"/>
-                            <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0" VerticalContentAlignment="Center"
-                                     Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource TextBrush}"
-                                     TextChanged="SearchBox_TextChanged"/>
-                        </Grid>
-                    </Border>
-                    <TextBlock Text="Invite members" Style="{StaticResource Heading}"/>
-                </DockPanel>
-                <Border Style="{StaticResource Card}" Padding="12,8">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <StackPanel x:Name="OnlineList"/>
-                    </ScrollViewer>
+            <!-- Lobby chat: what happens in the lobby (joins, invites, settings, start) and what players say. -->
+            <DockPanel Grid.Row="1" Grid.Column="1" Margin="16,18,0,8">
+                <TextBlock DockPanel.Dock="Top" Text="Lobby chat" Style="{StaticResource Heading}" Margin="0,0,0,10"/>
+                <Border Style="{StaticResource Card}" Padding="0">
+                    <DockPanel>
+                        <DockPanel DockPanel.Dock="Bottom" Margin="10">
+                            <Button x:Name="SendButton" DockPanel.Dock="Right" Content="Send" Style="{StaticResource Btn}"
+                                    Margin="8,0,0,0" Click="Send_Click"/>
+                            <Border Style="{StaticResource Field}">
+                                <Grid>
+                                    <TextBlock x:Name="ChatHint" Text="Say something…" Foreground="{StaticResource MutedBrush}"
+                                               VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                    <TextBox x:Name="ChatBox" Background="Transparent" BorderThickness="0" VerticalContentAlignment="Center"
+                                             Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource TextBrush}"
+                                             MaxLength="300" TextChanged="ChatBox_TextChanged" KeyDown="ChatBox_KeyDown"/>
+                                </Grid>
+                            </Border>
+                        </DockPanel>
+                        <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource LineBrush}"/>
+                        <ScrollViewer x:Name="LogScroll" VerticalScrollBarVisibility="Auto" Padding="14,10">
+                            <StackPanel x:Name="LogList"/>
+                        </ScrollViewer>
+                    </DockPanel>
                 </Border>
             </DockPanel>
+
+            <!-- Invite: opens from an open slot's Invite button. -->
+            <Popup x:Name="InvitePopup" StaysOpen="False" Placement="Bottom" AllowsTransparency="True" PopupAnimation="Fade"
+                   VerticalOffset="6">
+                <Border Width="320" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource AccentBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="12">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,10">
+                            <TextBlock Text="Invite members" Style="{StaticResource Heading}"/>
+                        </DockPanel>
+                        <Border Style="{StaticResource Field}">
+                            <Grid>
+                                <TextBlock x:Name="SearchHint" Text="Search" Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0" VerticalContentAlignment="Center"
+                                         Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource TextBrush}"
+                                         TextChanged="SearchBox_TextChanged"/>
+                            </Grid>
+                        </Border>
+                        <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                            <StackPanel x:Name="OnlineList"/>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+            </Popup>
         </Grid>
 
         <!-- Errors and what's happening; short. -->

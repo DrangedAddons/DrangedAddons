@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.35.0
+- **Games from the platform.** Add a game (+) now also lists the games set up as Live profiles in DrangedAddons
+  Platform, even when they have no addons yet. Adding one finds its install (in the folders its profile names, or
+  the one you pick), and Play starts it with the profile's launch arguments. Its addons go in the profile's addons
+  folder, and their saved settings are offered for deleting with them.
+- The list is read at start, every 15 minutes and when Add a game opens, and kept for when the service can't be
+  reached. A game already in your side bar keeps working if its profile is withdrawn.
+- Addons tagged with a platform game's topic are filed under that game.
+- A profile's name, description and icon also show for World of Warcraft and Azeroth Survivors when the platform sets
+  them.
+
 ## 0.34.0
 - **Pings in co-op lobbies.** While you host, your manager times each player's round trip to you every 2 seconds over
   their direct link, and every slot shows it beside Ready or In game ("In game · 34 ms"), for everyone in the lobby.

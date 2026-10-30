@@ -68,6 +68,7 @@ public partial class MainWindow : Window
         _initialized = true;
         LoadFlavors();
         _ = CheckForAppUpdateAsync();
+        await RefreshProfilesAsync(); // first, so addons tagged for a platform game are filed under it
         await RefreshAsync();
         // First run: start on My Addons if anything is installed here, otherwise on Browse.
         if (_settings.Tab is null && !_rows.Any(r => r.State != AddonState.NotInstalled))
@@ -494,6 +495,7 @@ public partial class MainWindow : Window
     async Task BackgroundCheckAsync()
     {
         if (_working) return;
+        await RefreshProfilesAsync();
         await RefreshAsync(quiet: true);
         await CheckForAppUpdateAsync();
         NotifyNewUpdates();

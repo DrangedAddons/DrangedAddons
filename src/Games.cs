@@ -17,10 +17,14 @@ public abstract class GameDefinition
 {
     /// <summary>"wow", "azeroth-survivors": also the GitHub topic that marks a repo as this game's.</summary>
     public abstract string Id { get; }
-    public abstract string Name { get; }
 
-    /// <summary>A line or two about the game and its addons, for the "Add a game" window.</summary>
-    public abstract string Description { get; }
+    /// <summary>The platform profile's name when it has one, else the game's own.</summary>
+    public string Name => GameProfiles.Find(Id)?.Name is { Length: > 0 } name ? name : DefaultName;
+    protected abstract string DefaultName { get; }
+
+    /// <summary>A line or two about the game and its addons, for the "Add a game" window (the profile's when it has one).</summary>
+    public string Description => GameProfiles.Find(Id)?.Description is { Length: > 0 } text ? text : DefaultDescription;
+    protected abstract string DefaultDescription { get; }
 
     /// <summary>Whether it has versions to pick between (WoW); otherwise the version picker is hidden.</summary>
     public virtual bool HasVersions => false;
@@ -62,21 +66,46 @@ public abstract class GameDefinition
     public virtual ImageSource? FlavorIcon(string root, GameFlavor flavor) => null;
 
     public static readonly GameDefinition Wow = new WowGame();
-    public static readonly GameDefinition[] All = [Wow, new AzerothSurvivorsGame()];
 
-    public static GameDefinition? Find(string? id) => All.FirstOrDefault(g => g.Id == id);
+    /// <summary>The games this app has code for.</summary>
+    static readonly GameDefinition[] Coded = [Wow, new AzerothSurvivorsGame()];
+
+    /// <summary>
+    /// A game for every platform profile the app has no code for, kept across refreshes so the side bar's references
+    /// stay the same objects. Includes withdrawn profiles, so a game already added keeps working.
+    /// </summary>
+    static readonly Dictionary<string, ProfileGame> FromProfiles = new();
+
+    static IEnumerable<GameDefinition> Everything()
+    {
+        foreach (var profile in GameProfiles.Known.Where(p => !p.Builtin && Coded.All(c => c.Id != p.Id)
+                                                            && p.Install.Exe is not null && p.Install.Addons is not null))
+        {
+            if (FromProfiles.TryGetValue(profile.Id, out var game)) game.Profile = profile;
+            else FromProfiles[profile.Id] = new ProfileGame(profile);
+        }
+        return Coded.Concat(FromProfiles.Values);
+    }
+
+    /// <summary>What Add a game offers: the games with code, then the platform's Live profiles in its order.</summary>
+    public static IReadOnlyList<GameDefinition> All =>
+        Coded.Concat(Everything().OfType<ProfileGame>().Where(g => GameProfiles.IsListed(g.Id)).OrderBy(g => g.Profile.Order).ThenBy(g => g.Name))
+            .ToList();
+
+    public static GameDefinition? Find(string? id) => Everything().FirstOrDefault(g => g.Id == id);
 
     /// <summary>The game a repo is for, from its GitHub topics; WoW when it has none of the games' topics.</summary>
     public static string ForTopics(IEnumerable<string> topics) =>
-        All.FirstOrDefault(g => topics.Contains(g.Id, StringComparer.OrdinalIgnoreCase))?.Id ?? Wow.Id;
+        Everything().FirstOrDefault(g => topics.Contains(g.Id, StringComparer.OrdinalIgnoreCase))?.Id ?? Wow.Id;
 
     /// <summary>
     /// The game's icon: the one bundled with the app (gameicons\&lt;Id&gt;.png, taken from the game's program), else
-    /// read from the game's program file; null if neither is there.
+    /// its platform profile's, else read from the game's program file; null if none is there.
     /// </summary>
     public ImageSource? LoadIcon(string? root)
     {
         if (Bundled($"gameicons/{Id}.png") is { } bundled) return bundled;
+        if (GameProfiles.IconFor(Id) is { } profileIcon) return profileIcon;
         return root is not null && IconExe(root) is { } exe ? ExeIcon(exe, 64) : null;
     }
 
@@ -134,8 +163,8 @@ public abstract class GameDefinition
 sealed class WowGame : GameDefinition
 {
     public override string Id => "wow";
-    public override string Name => "World of Warcraft";
-    public override string Description =>
+    protected override string DefaultName => "World of Warcraft";
+    protected override string DefaultDescription =>
         "Retail, Classic, Anniversary, Forever and the rest. Each game version has its own addons, picked at the top.";
     public override bool HasVersions => true;
     public override string? FindRoot() => WowLocator.FindRoot();
@@ -221,8 +250,8 @@ sealed class AzerothSurvivorsGame : GameDefinition
     const string ConfigFolder = "benilla-config";
 
     public override string Id => "azeroth-survivors";
-    public override string Name => "Azeroth Survivors";
-    public override string Description =>
+    protected override string DefaultName => "Azeroth Survivors";
+    protected override string DefaultDescription =>
         "Its addons work like WoW's: folders with a .toc, in benilla-config\\AddOns inside the game folder.";
 
     public override string TypicalRoot => @"C:\Games\AzerothSurvivors";

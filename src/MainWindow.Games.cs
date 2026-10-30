@@ -150,11 +150,13 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// + opens the "Add a game" window: every game the app supports, with its addons in the org and where it's
-    /// installed. Games already in the side bar show as added; any other game can be added, addons or not.
+    /// + opens the "Add a game" window: every game the app supports (its own and the platform's Live profiles), with
+    /// its addons in the org and where it's installed. Games already in the side bar show as added; any other game can
+    /// be added, addons or not.
     /// </summary>
-    void AddGame_Click(object sender, RoutedEventArgs e)
+    async void AddGame_Click(object sender, RoutedEventArgs e)
     {
+        await RefreshProfilesAsync(); // a game just made Live on the platform shows straight away
         var cards = GameDefinition.All.Select(game =>
         {
             var root = RootOf(game);
@@ -163,6 +165,21 @@ public partial class MainWindow
         });
         var window = new AddGameWindow(cards) { Owner = this };
         if (window.ShowDialog() == true && window is { Chosen: { } chosen, ChosenRoot: { } root }) AddGame(chosen, root);
+    }
+
+    /// <summary>
+    /// Reads the platform's game profiles (new games for Add a game, names, descriptions, icons). Waits at most
+    /// <paramref name="waitMs"/>; a slower answer is applied when it comes. The side bar follows any change.
+    /// </summary>
+    async Task RefreshProfilesAsync(int waitMs = 3000)
+    {
+        var refresh = GameProfiles.RefreshAsync();
+        if (await Task.WhenAny(refresh, Task.Delay(waitMs)) == refresh)
+        {
+            if (refresh.Result) LoadRail();
+            return;
+        }
+        _ = refresh.ContinueWith(t => { if (t.Result) LoadRail(); }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     void AddGame(GameDefinition game, string root)

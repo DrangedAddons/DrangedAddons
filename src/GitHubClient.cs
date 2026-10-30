@@ -183,6 +183,7 @@ public sealed class GitHubClient
     // every repo. Null until a check has succeeded, so the first check of a run still walks the repos.
     List<RemoteAddon>? _addonSnapshot;
     string? _snapshotETag;
+    int _snapshotProfiles; // GameProfiles.Version when it was made: a new game profile can claim repos by topic
 
     static readonly JsonSerializerOptions CompactJson = new();
 
@@ -200,6 +201,7 @@ public sealed class GitHubClient
         var fetched = await FetchJsonAsync($"https://api.github.com/orgs/{Org}/repos?type=public&per_page=100", ct);
         // Test game overrides are applied while building the list, so a dev run always rebuilds.
         if (fetched.NotModified && _addonSnapshot is not null && fetched.ETag == _snapshotETag && TestGames.Count == 0
+            && _snapshotProfiles == GameProfiles.Version
             && !PushedRecently(fetched.Body))
             return _addonSnapshot;
         var reposJson = fetched.Body
@@ -229,6 +231,7 @@ public sealed class GitHubClient
         var list = addons.OfType<RemoteAddon>().OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
         _addonSnapshot = list;
         _snapshotETag = fetched.ETag;
+        _snapshotProfiles = GameProfiles.Version;
         await Task.Run(SaveCaches);
         return list;
     }

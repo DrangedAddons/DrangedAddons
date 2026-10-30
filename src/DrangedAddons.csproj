@@ -8,12 +8,17 @@
     <UseWPF>true</UseWPF>
     <!-- Only for the tray icon (NotifyIcon); WinForms names are used qualified so they don't clash with WPF. -->
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>0.30.0</Version>
+    <Version>0.31.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Regenerate with tools/make_icon.py -->
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Product>DrangedAddons</Product>
     <AssemblyTitle>DrangedAddons</AssemblyTitle>
+    <Company>DrangedAddons</Company>
+    <Copyright>© 2026 DrangedAddons</Copyright>
+    <!-- Windows shows FileDescription (AssemblyTitle) as the program's name, e.g. on the firewall rule it creates when
+         the user allows network access: "DrangedAddons", the way Steam's is "Steam". Plain version, no commit hash. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>

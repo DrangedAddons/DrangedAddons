@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.31.0
+- **The lobby shows its five slots.** Hosting (and being in someone's lobby) opens a wider window laid out like a game lobby:
+  - A **Lobby code** card with Copy, and beside it **Who can join** for the host (Locked, Password, and a line saying who that lets in) or the host's name and whether the game has started for everyone else.
+  - **Players ●●○○○ 2/5**: five slots in join order. Each filled slot has a coloured letter tile, the name with **Host** / **You** badges, and its state: Connecting…, Ready, In game or Couldn't connect. The host gets **Remove** on each player. Invited members hold a slot, dimmed, as Invited. Empty slots say Open slot, with **Invite** for the host.
+  - **Invite members** beside the slots, with search.
+  - **Start game** / **Close lobby** for the host, **Leave lobby** for everyone else.
+- Fixed: joining sometimes failed with "Couldn't connect" (about one in three on one PC). The joiner's first attempt could reach the host's port a moment before it was listening; Windows answered "unreachable" and that one answer ended the join. It now keeps trying, as it already did for other early failures. A connection that fails its security check now stops straight away instead of retrying.
+- Co-op failures are written to `%LocalAppData%\DrangedAddons\coop.log` with their full details, so a "Couldn't connect" can be explained. It holds no keys or passwords and stays under 256 KB.
+- DrangedAddons.exe now carries a copyright line and a plain version number (0.31.0, not 0.31.0+commit) in its file properties. Windows names the firewall rule it creates from the program's name, so it reads "DrangedAddons", the way Steam's reads "Steam".
+
 ## 0.30.0
 - **Direct co-op is split into Host and Join.** ▶ → Direct co-op… opens on two buttons, **Host a lobby** and **Join a lobby**. Invites show above them on every screen.
   - **Host a lobby**: the lobby code with Copy; **Locked** (nobody new joins except members you invite); **Password**; who's in the lobby, with **Remove**; **Invite members** with search; **Start game** and **Close lobby**.

@@ -270,6 +270,30 @@ public static class CoopTunnel
 }
 
 /// <summary>A co-op step failed; <see cref="Reason"/> is the co-op service's refusal (password, locked …) when there was one.</summary>
+/// <summary>
+/// Co-op failures with their full details, for when "Couldn't connect" needs explaining: %LocalAppData%\DrangedAddons\coop.log,
+/// kept under 256 KB. Holds no keys or passwords (exception text and the lobby code only).
+/// </summary>
+public static class CoopLog
+{
+    static readonly object Lock = new();
+
+    public static void Write(string what, Exception ex)
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DrangedAddons", "coop.log");
+            lock (Lock)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                if (File.Exists(path) && new FileInfo(path).Length > 256 * 1024) File.Delete(path);
+                File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {what}: {ex}{Environment.NewLine}{Environment.NewLine}");
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+}
+
 public sealed class CoopException(string message, string? reason = null) : Exception(message)
 {
     public string? Reason { get; } = reason;
@@ -521,7 +545,7 @@ public sealed class CoopHost : IAsyncDisposable
             if (!cancel.IsCancellationRequested && stillHere)
             {
                 SetMember(id, m => m is null ? null : m with { State = MemberState.Failed });
-                Status?.Invoke($"{name} disconnected.");
+                Status?.Invoke($"{name} left.");
             }
         }
         catch (OperationCanceledException) { }
@@ -696,10 +720,18 @@ public sealed class CoopJoin : IAsyncDisposable
                 }), attempt.Token);
                 break;
             }
-            catch (Exception ex) when (ex is QuicException or AuthenticationException or OperationCanceledException && !cancel.IsCancellationRequested)
+            catch (AuthenticationException)
+            {
+                // The certificate wasn't the one the host announced: not the host, so don't keep trying it.
+                throw new CoopException("The host's connection failed its security check.");
+            }
+            // SocketException: an early attempt can reach the host's port a moment before its listener is up, and
+            // Windows answers "unreachable". Keep trying until the deadline.
+            catch (Exception ex) when (ex is QuicException or SocketException or OperationCanceledException && !cancel.IsCancellationRequested)
             {
                 if (DateTime.UtcNow > deadline)
                     throw new CoopException("Couldn't connect to the host: one of your networks blocks direct connections.");
+                await Task.Delay(300, cancel);
             }
         }
 

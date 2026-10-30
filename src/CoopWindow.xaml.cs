@@ -66,17 +66,21 @@ public partial class CoopWindow : Window
     void Show(Screen screen)
     {
         _screen = screen;
+        // Start and Join are small; the lobby is wide enough for the slots beside the members to invite.
+        Width = screen switch { Screen.Host => 980, Screen.Joined => 660, _ => 560 };
         StartPanel.Visibility = Visible(screen == Screen.Start);
-        HostPanel.Visibility = Visible(screen == Screen.Host);
         JoinPanel.Visibility = Visible(screen == Screen.Join);
-        MembersPanel.Visibility = Visible(screen is Screen.Host or Screen.Joined);
+        LobbyPanel.Visibility = Visible(screen is Screen.Host or Screen.Joined);
+        HostSettings.Visibility = Visible(screen == Screen.Host);
+        JoinedInfo.Visibility = Visible(screen == Screen.Joined);
         InvitePanel.Visibility = Visible(screen == Screen.Host);
+        InviteColumn.Width = screen == Screen.Host ? new GridLength(320) : new GridLength(0);
         StartButton.Visibility = Visible(screen == Screen.Host);
         TitleText.Text = screen switch
         {
             Screen.Host => "Your lobby",
             Screen.Join => "Join a lobby",
-            Screen.Joined => _join?.Party is { } p ? $"{p.Host}'s lobby" : "Lobby",
+            Screen.Joined => "In a lobby",
             _ => "Direct co-op",
         };
         BackButton.Content = screen switch
@@ -100,7 +104,8 @@ public partial class CoopWindow : Window
             StartButton.IsEnabled = !_host.Started;
         }
         JoinCodeButton.IsEnabled = !_busy;
-        ShowMembers();
+        ShowLobbyInfo();
+        ShowSlots();
         ShowInviteList();
         ShowLobbies();
     }
@@ -153,6 +158,7 @@ public partial class CoopWindow : Window
                 _ = ListLobbyAsync();
             });
             CodeText.Text = _host.Code;
+            AccessText.Text = "";
             CopyButton.Content = "Copy";
             LockedCheck.IsChecked = false;
             HostPasswordBox.Clear();
@@ -161,6 +167,7 @@ public partial class CoopWindow : Window
         }
         catch (Exception ex) when (IsCoopFailure(ex))
         {
+            CoopLog.Write("host", ex);
             AddStatus(Describe(ex), danger: true);
             await EndAsync();
         }
@@ -184,6 +191,7 @@ public partial class CoopWindow : Window
     {
         if (_host is null) return;
         await _host.SetSettingsAsync(LockedCheck.IsChecked == true, HostPasswordBox.Password);
+        ShowLobbyInfo();
         await ListLobbyAsync();
     }
 
@@ -228,35 +236,158 @@ public partial class CoopWindow : Window
         catch (System.Runtime.InteropServices.ExternalException) { /* clipboard busy */ }
     }
 
-    // ---- Members in the lobby ----
+    // ---- The lobby: header and slots ----
 
-    void ShowMembers()
+    const int Slots = 5; // the game's party size
+
+    void ShowLobbyInfo()
     {
-        MemberList.Children.Clear();
+        if (_host is not null)
+        {
+            AccessText.Text = _host.Locked ? "Only members you invite can join."
+                : _host.HasPassword ? "Anyone with the code and password can join. Invited members skip the password."
+                : "Anyone with the code can join.";
+        }
+        else if (_join?.Party is { } party)
+        {
+            HostNameText.Text = party.Host;
+            GameStateText.Text = party.Started ? "Game started" : "Waiting for the host to start the game";
+            CodeText.Text = _joinCode;
+        }
+    }
+
+    /// <summary>
+    /// Five slots, filled in join order: the host, then each player (Connecting, Ready, In game or Couldn't connect),
+    /// then members invited but not in yet, then open slots. The host's actions sit on each slot.
+    /// </summary>
+    void ShowSlots()
+    {
+        SlotList.Children.Clear();
+        SlotDots.Children.Clear();
         var party = _host?.Party ?? _join?.Party;
         if (party is null)
         {
-            if (_join is not null) MemberList.Children.Add(Line("Loading…", Muted));
+            SlotList.Children.Add(Line("Loading…", Muted));
             return;
         }
-        MembersHeader.Text = $"In the lobby ({party.Members.Count + 1}/5)";
-        if (_join is not null && !party.Started) MembersHeader.Text += " · waiting for the host to start";
-        MemberList.Children.Add(Row(party.Host + (_host is not null ? " (you)" : ""), "Host", Muted, null));
+        var invited = _host is null ? [] : _invited.Values.Where(i => !party.Members.Any(m => m.Member == i.Id)).ToList();
+        var filled = 1 + party.Members.Count;
+        SlotCount.Text = $"{filled}/{Slots}";
+        for (var i = 0; i < Slots; i++)
+            SlotDots.Children.Add(new System.Windows.Shapes.Ellipse
+            {
+                Width = 9, Height = 9, Margin = new Thickness(0, 0, 5, 0),
+                Fill = i < filled ? (Brush)FindResource("AccentBrush") : Brushes.Transparent,
+                Stroke = (Brush)FindResource(i < filled ? "AccentBrush" : "LineBrush"), StrokeThickness = 1.5,
+            });
+
+        var ready = (Brush)FindResource("ReadyBrush");
+        SlotList.Children.Add(Slot(party.Host, _host is not null ? ["Host", "You"] : ["Host"],
+            party.Started ? ("In game", ready) : ("Ready", ready), null, highlight: _host is not null));
         foreach (var member in party.Members)
         {
             var you = _join is not null && member.Id == _join.Id;
-            var (state, brush) = member.State switch
+            var state = member.State switch
             {
-                MemberState.Connected => (party.Started ? "In game" : "Ready", Muted),
+                MemberState.Connected => party.Started ? ("In game", ready) : ("Ready", ready),
                 MemberState.Failed => ("Couldn't connect", Danger),
                 _ => ("Connecting…", Muted),
             };
-            MemberList.Children.Add(Row(member.Name + (you ? " (you)" : ""), state, brush,
-                _host is not null ? ("Remove", () => _ = KickAsync(member)) : null));
+            SlotList.Children.Add(Slot(member.Name, you ? ["You"] : [], state,
+                _host is not null ? ("Remove", () => _ = KickAsync(member)) : null, highlight: you));
         }
+        foreach (var player in invited.Take(Slots - filled))
+            SlotList.Children.Add(Slot(player.Name, [], ("Invited", Muted), null, pending: true));
+        for (var i = filled + Math.Min(invited.Count, Slots - filled); i < Slots; i++)
+            SlotList.Children.Add(OpenSlot());
+    }
+
+    /// <summary>A filled slot: a letter tile, the name with badges, the state, and the host's action.</summary>
+    UIElement Slot(string name, string[] badges, (string Text, Brush Brush) state, (string Label, Action Click)? action,
+        bool highlight = false, bool pending = false)
+    {
+        var row = new DockPanel();
+        if (action is { } a)
+        {
+            var button = new Button { Content = a.Label, Style = (Style)FindResource("GhostBtn"), Padding = new Thickness(14, 5, 14, 5), Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            button.Click += (_, _) => a.Click();
+            DockPanel.SetDock(button, Dock.Right);
+            row.Children.Add(button);
+        }
+        var stateText = new TextBlock { Text = state.Text, Foreground = state.Brush, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold };
+        DockPanel.SetDock(stateText, Dock.Right);
+        row.Children.Add(stateText);
+
+        var tile = Tile(name, pending);
+        DockPanel.SetDock(tile, Dock.Left);
+        row.Children.Add(tile);
+
+        var title = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
+        title.Children.Add(new TextBlock { Text = name, FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Opacity = pending ? 0.6 : 1 });
+        foreach (var badge in badges)
+            title.Children.Add(new Border
+            {
+                BorderBrush = (Brush)FindResource("AccentBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock { Text = badge, FontSize = 11, Foreground = (Brush)FindResource("AccentBrush") },
+            });
+        row.Children.Add(title);
+
+        return new Border
+        {
+            Child = row, Height = 64, Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 0, 14, 0), CornerRadius = new CornerRadius(8),
+            Background = (Brush)FindResource(pending ? "PanelBrush" : "Panel2Brush"),
+            BorderBrush = (Brush)FindResource(highlight ? "AccentBrush" : "LineBrush"), BorderThickness = new Thickness(1),
+        };
+    }
+
+    UIElement OpenSlot()
+    {
+        var row = new DockPanel();
         if (_host is not null)
-            foreach (var invited in _invited.Values.Where(i => !party.Members.Any(m => m.Member == i.Id)))
-                MemberList.Children.Add(Row(invited.Name, "Invited", Muted, null));
+        {
+            var invite = new Button { Content = "Invite", Style = (Style)FindResource("GhostBtn"), Padding = new Thickness(14, 5, 14, 5), VerticalAlignment = VerticalAlignment.Center };
+            invite.Click += (_, _) => SearchBox.Focus();
+            DockPanel.SetDock(invite, Dock.Right);
+            row.Children.Add(invite);
+        }
+        var tile = new Border
+        {
+            Width = 40, Height = 40, CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1),
+            BorderBrush = (Brush)FindResource("LineBrush"), VerticalAlignment = VerticalAlignment.Center,
+        };
+        DockPanel.SetDock(tile, Dock.Left);
+        row.Children.Add(tile);
+        row.Children.Add(new TextBlock { Text = "Open slot", Foreground = Muted, FontSize = 15, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) });
+        return new Border
+        {
+            Child = row, Height = 64, Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 0, 14, 0), CornerRadius = new CornerRadius(8),
+            BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(1), Background = Brushes.Transparent,
+        };
+    }
+
+    /// <summary>A rounded tile with the name's first letter, coloured from the name so each player keeps one colour.</summary>
+    static UIElement Tile(string name, bool pending)
+    {
+        var hue = (uint)name.ToUpperInvariant().Aggregate(17, (h, c) => h * 31 + c) % 360;
+        var color = FromHsl(hue, 0.45, 0.38);
+        return new Border
+        {
+            Width = 40, Height = 40, CornerRadius = new CornerRadius(6), VerticalAlignment = VerticalAlignment.Center,
+            Background = new SolidColorBrush(color), Opacity = pending ? 0.5 : 1,
+            Child = new TextBlock
+            {
+                Text = name.Length > 0 ? char.ToUpperInvariant(name[0]).ToString() : "?", FontSize = 18, FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+    }
+
+    static Color FromHsl(double h, double s, double l)
+    {
+        double c = (1 - Math.Abs(2 * l - 1)) * s, x = c * (1 - Math.Abs(h / 60 % 2 - 1)), m = l - c / 2;
+        var (r, g, b) = h switch { < 60 => (c, x, 0d), < 120 => (x, c, 0d), < 180 => (0d, c, x), < 240 => (0d, x, c), < 300 => (x, 0d, c), _ => (c, 0d, x) };
+        return Color.FromRgb((byte)((r + m) * 255), (byte)((g + m) * 255), (byte)((b + m) * 255));
     }
 
     // ---- Invite members (host) ----
@@ -399,6 +530,8 @@ public partial class CoopWindow : Window
         }
     }
 
+    string _joinCode = "";
+
     async Task JoinAsync(string code, CoopPlayer? invitedBy = null)
     {
         if (_busy || _host is not null || _join is not null) return;
@@ -415,7 +548,6 @@ public partial class CoopWindow : Window
             _join.Status += line => Dispatcher.BeginInvoke(() => AddStatus(line, danger: true));
             _join.PartyChanged += _ => Dispatcher.BeginInvoke(() =>
             {
-                if (_screen == Screen.Joined) TitleText.Text = $"{_join?.Party?.Host}'s lobby";
                 Refresh();
             });
             _join.StartRequested += () => Dispatcher.BeginInvoke(StartJoinGame);
@@ -428,11 +560,14 @@ public partial class CoopWindow : Window
             StatusList.Children.Clear();
             JoinPasswordBox.Clear();
             JoinPasswordRow.Visibility = Visibility.Collapsed;
+            _joinCode = code;
+            CopyButton.Content = "Copy";
             Show(Screen.Joined);
             if (_join.Started) StartJoinGame();
         }
         catch (Exception ex) when (IsCoopFailure(ex))
         {
+            CoopLog.Write("join " + code, ex);
             StatusList.Children.Clear();
             AddStatus(Describe(ex), danger: true);
             if (ex is CoopException { Reason: "password" or "wrong password" })

@@ -67,11 +67,10 @@ Addon icons come from an `icon.ico` (or `icon.png`) at the root of each addon re
 
 ## Platform dashboard
 
-`platform/` is a separate admin app, **DrangedAddons Platform** (`dotnet publish platform -c Release -o platform/publish`).
-It shows the co-op platform: whether the rendezvous Worker and Cloudflare STUN answer, live counts from the Worker's
-`/stats` (counts only; needs the admin token in `%AppData%\DrangedAddons\platform-stats-token.txt`, matching the
-Worker's `STATS_TOKEN` secret), each game's profile, the connectivity types, what runs where, and the security
-controls. It installs per-user like DrangedAddons, without self-update. The fixed parts come from `platform/data/*.json`.
+The admin dashboard for the co-op platform (services, live counts from the Worker's `/stats`, game profiles,
+connectivity, security) is its own app in the private repo
+[DrangedAddons/Platform](https://github.com/DrangedAddons/Platform). The Worker it reads stays here in
+`coop-rendezvous/`.
 
 ## Build
 

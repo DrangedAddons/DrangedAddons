@@ -34,6 +34,7 @@ public partial class MainWindow : Window
         _settings.Migrate();
         _game = GameDefinition.Find(_settings.Game) ?? GameDefinition.Wow;
         LoadRail();
+        StartAccount();
         LoadColumns();
         AddonList.ItemsSource = _rows;
         _view = System.Windows.Data.CollectionViewSource.GetDefaultView(_rows);
@@ -43,7 +44,6 @@ public partial class MainWindow : Window
         UninstallAppMenu.Visibility = AppInstaller.IsRunningInstalled ? Visibility.Visible : Visibility.Collapsed;
         CloseToTrayMenu.IsChecked = _settings.CloseToTray;
         NotificationsMenu.IsChecked = _settings.UpdateNotifications;
-        CoopOnlineMenu.IsChecked = _settings.CoopOnline;
 
         GitHubClient.UseSavedToken(TokenStore.Load());
         _tray = new TrayIcon(ShowFromTray, CheckFromTray, App.ExitApp);

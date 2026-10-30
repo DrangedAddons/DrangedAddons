@@ -17,9 +17,8 @@
                       Click="CloseToTray_Click"/>
             <MenuItem x:Name="NotificationsMenu" Header="Show update notifications" IsCheckable="True"
                       Click="Notifications_Click"/>
-            <MenuItem x:Name="CoopOnlineMenu" Header="Show me online for co-op" IsCheckable="True"
-                      Click="CoopOnline_Click"
-                      ToolTip="Members see you're online and can invite you (Azeroth Survivors direct co-op)."/>
+            <MenuItem Header="Account…" Click="Account_Click"
+                      ToolTip="Your name, picture and status, as members see them (Azeroth Survivors co-op)."/>
             <Separator Style="{StaticResource MenuSeparator}"/>
             <MenuItem x:Name="BetaMenu" Header="Show beta versions" IsCheckable="True" Click="Beta_Click"
                       ToolTip="Also offer untagged versions from each addon's main branch, not just tagged releases."/>
@@ -42,6 +41,24 @@
     </Menu>
     <!-- Game side bar: a button per game added; + adds another game that has addons in the org. -->
     <Border DockPanel.Dock="Left" Width="64" Background="#111317" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0">
+        <DockPanel>
+        <!-- The account: picture (or initials) with a status dot; opens Account settings. -->
+        <Button x:Name="AccountButton" DockPanel.Dock="Bottom" Style="{StaticResource RailButton}" Margin="0,0,0,10"
+                Click="Account_Click">
+            <Grid Width="36" Height="36">
+                <Ellipse Fill="{StaticResource Panel2Brush}" Stroke="{StaticResource LineBrush}" StrokeThickness="1"/>
+                <TextBlock x:Name="AccountInitials" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Ellipse x:Name="AccountPictureCircle" Visibility="Collapsed">
+                    <Ellipse.Fill>
+                        <ImageBrush x:Name="AccountPicture" Stretch="UniformToFill"/>
+                    </Ellipse.Fill>
+                </Ellipse>
+                <!-- Ringed in the side bar's colour so it reads as a separate dot. -->
+                <Ellipse x:Name="AccountDot" Width="13" Height="13" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                         Margin="0,0,-2,-2" Stroke="#111317" StrokeThickness="2.5" Fill="#747F8D"/>
+            </Grid>
+        </Button>
         <StackPanel Margin="0,10,0,0">
             <ItemsControl x:Name="GameRail" Focusable="False">
                 <ItemsControl.ItemTemplate>
@@ -71,6 +88,7 @@
                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
             </Button>
         </StackPanel>
+        </DockPanel>
     </Border>
     <Grid Margin="20,16,20,20">
         <Grid.RowDefinitions>

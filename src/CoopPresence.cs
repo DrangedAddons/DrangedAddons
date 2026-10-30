@@ -7,7 +7,9 @@ namespace DrangedAddons;
 /// <summary>A member's open lobby as listed to others; Code is null while it's locked.</summary>
 public sealed record CoopLobby(string? Code, bool Locked, bool Password, int Count);
 
-public sealed record CoopPlayer(string Id, string Name, CoopLobby? Lobby = null);
+/// <param name="State">"online", "away" or "ingame" (members appearing offline aren't listed).</param>
+/// <param name="Avatar">Hash of the member's picture (see <see cref="Avatars"/>), or null for none.</param>
+public sealed record CoopPlayer(string Id, string Name, CoopLobby? Lobby = null, string State = "online", string? Avatar = null);
 
 /// <summary>
 /// Keeps this manager listed as online on the co-op rendezvous (/presence) while it runs, so members can see it,
@@ -23,8 +25,12 @@ public sealed class CoopPresence : IDisposable
     readonly SemaphoreSlim _send = new(1, 1);
     ClientWebSocket? _ws;
     CoopLobby? _lobby;
+    string _state;
 
     public string Name { get; }
+
+    /// <summary>What others see of this member: "online", "away", "ingame", or "offline" (appear offline).</summary>
+    public string State => _state;
 
     /// <summary>The others online, by name. Events below fire on thread-pool threads.</summary>
     public List<CoopPlayer> Players
@@ -38,10 +44,11 @@ public sealed class CoopPresence : IDisposable
     public event Action<CoopPlayer, string>? Invited;
     public event Action<CoopPlayer>? Declined;
 
-    public CoopPresence(string key, string name)
+    public CoopPresence(string key, string name, string state)
     {
         _key = key;
         Name = name;
+        _state = state;
         _ = RunAsync();
     }
 
@@ -54,7 +61,9 @@ public sealed class CoopPresence : IDisposable
             {
                 using var ws = new ClientWebSocket();
                 ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
-                var url = $"{CoopTunnel.RendezvousUrl.TrimEnd('/')}/presence?key={Uri.EscapeDataString(_key)}&name={Uri.EscapeDataString(Name)}";
+                // The state goes with the connection, so appearing offline never shows for a moment.
+                var url = $"{CoopTunnel.RendezvousUrl.TrimEnd('/')}/presence?key={Uri.EscapeDataString(_key)}"
+                          + $"&name={Uri.EscapeDataString(Name)}&state={_state}";
                 await ws.ConnectAsync(new Uri(url), _stop.Token);
                 _ws = ws;
                 wait = TimeSpan.FromSeconds(5);
@@ -90,7 +99,9 @@ public sealed class CoopPresence : IDisposable
     }
 
     static CoopPlayer? Player(JsonNode? node) =>
-        (string?)node?["id"] is { } id && (string?)node?["name"] is { } name ? new CoopPlayer(id, name, Lobby(node["lobby"])) : null;
+        (string?)node?["id"] is { } id && (string?)node?["name"] is { } name
+            ? new CoopPlayer(id, name, Lobby(node["lobby"]), (string?)node["state"] ?? "online", (string?)node["avatar"])
+            : null;
 
     static CoopLobby? Lobby(JsonNode? node) =>
         node is JsonObject ? new CoopLobby((string?)node["code"], (bool?)node["locked"] == true, (bool?)node["password"] == true, (int?)node["count"] ?? 1) : null;
@@ -132,9 +143,19 @@ public sealed class CoopPresence : IDisposable
         catch (Exception ex) when (ex is CoopException or WebSocketException or OperationCanceledException) { } // sent on reconnect
     }
 
+    /// <summary>Changes what others see (online, away, in game, appear offline); kept across reconnects.</summary>
+    public async Task SetStateAsync(string state)
+    {
+        if (_state == state) return;
+        _state = state;
+        try { await SendStatusAsync(); }
+        catch (Exception ex) when (ex is CoopException or WebSocketException or OperationCanceledException) { } // sent on reconnect
+    }
+
     Task SendStatusAsync() => SendAsync(new JsonObject
     {
         ["t"] = "status",
+        ["state"] = _state,
         ["lobby"] = _lobby is { } l
             ? new JsonObject { ["code"] = l.Code, ["locked"] = l.Locked, ["password"] = l.Password, ["count"] = l.Count }
             : null,

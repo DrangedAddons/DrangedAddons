@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Ellipse = System.Windows.Shapes.Ellipse;
 using System.Windows.Threading;
 
 namespace DrangedAddons;
@@ -517,6 +518,13 @@ public partial class CoopWindow : Window
 
     void PresenceChanged() => Dispatcher.BeginInvoke(Refresh);
 
+    /// <summary>Redraws the member lists (e.g. when a member's picture has arrived).</summary>
+    public void RefreshLists()
+    {
+        ShowInviteList();
+        ShowLobbies();
+    }
+
     void PresenceDeclined(CoopPlayer from) => Dispatcher.BeginInvoke(() =>
     {
         if (!_invited.Remove(from.Id)) return;
@@ -533,7 +541,7 @@ public partial class CoopWindow : Window
     /// <summary>A row's message when there's nothing to list: offline, connecting, or nobody.</summary>
     bool ShowPresenceState(Panel list)
     {
-        if (_presence is null) list.Children.Add(Line("You're offline (Settings → Show me online for co-op).", Muted));
+        if (_presence is null) list.Children.Add(Line("You're offline.", Muted));
         else if (!_presence.Connected) list.Children.Add(Line("Connecting…", Muted));
         else return false;
         return true;
@@ -549,6 +557,7 @@ public partial class CoopWindow : Window
         var sameName = SameNames(all);
         var inLobby = _host.Party.Members.Select(m => m.Member).OfType<string>().ToHashSet();
         var full = _host.Party.Members.Count + 1 >= 5;
+        if (_presence.State == "offline") OnlineList.Children.Add(Line("You appear offline: members can't see you.", Muted));
         if (shown.Count == 0)
         {
             OnlineList.Children.Add(Line(all.Count == 0 ? "Nobody else is online." : "No matches.", Muted));
@@ -559,8 +568,8 @@ public partial class CoopWindow : Window
             var joined = inLobby.Contains(player.Id);
             var invited = _invited.ContainsKey(player.Id);
             var label = joined ? "In lobby" : invited ? "Invited" : "Invite";
-            OnlineList.Children.Add(Row(Display(player, sameName), null, Muted,
-                (label, () => _ = InviteAsync(player)), enabled: !joined && !invited && !full));
+            OnlineList.Children.Add(Row(Display(player, sameName), Account.Label(player.State), Account.StateBrush(player.State),
+                (label, () => _ = InviteAsync(player)), enabled: !joined && !invited && !full, player: player));
         }
     }
 
@@ -631,7 +640,7 @@ public partial class CoopWindow : Window
                     return;
                 }
                 _ = JoinAsync(lobby.Code!);
-            }), enabled: canJoin));
+            }), enabled: canJoin, player: player));
         }
     }
 
@@ -764,9 +773,16 @@ public partial class CoopWindow : Window
     static string Display(CoopPlayer player, HashSet<string> sameName) =>
         sameName.Contains(player.Name) ? $"{player.Name}  #{player.Id[..Math.Min(4, player.Id.Length)]}" : player.Name;
 
-    UIElement Row(string name, string? state, Brush stateBrush, (string Label, Action Click)? button, bool enabled = true)
+    UIElement Row(string name, string? state, Brush stateBrush, (string Label, Action Click)? button, bool enabled = true,
+        CoopPlayer? player = null)
     {
         var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
+        if (player is not null)
+        {
+            var avatar = Avatar(player);
+            DockPanel.SetDock(avatar, Dock.Left);
+            row.Children.Add(avatar);
+        }
         if (button is { } b)
         {
             var control = new Button
@@ -789,6 +805,37 @@ public partial class CoopWindow : Window
         }
         row.Children.Add(new TextBlock { Text = name, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
         return row;
+    }
+
+    /// <summary>A member's picture (or initials) with their status dot.</summary>
+    UIElement Avatar(CoopPlayer player)
+    {
+        var grid = new Grid { Width = 28, Height = 28, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+        grid.Children.Add(new Ellipse { Fill = (Brush)FindResource("Panel2Brush"), Stroke = (Brush)FindResource("LineBrush"), StrokeThickness = 1 });
+        if (Avatars.Get(player.Id, player.Avatar) is { } picture)
+            grid.Children.Add(new Ellipse { Fill = new ImageBrush(picture) { Stretch = Stretch.UniformToFill } });
+        else
+            grid.Children.Add(new TextBlock
+            {
+                Text = Account.Initials(player.Name),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (Brush)FindResource("AccentBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        grid.Children.Add(new Ellipse
+        {
+            Width = 10,
+            Height = 10,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, -2, -2),
+            Fill = Account.StateBrush(player.State),
+            Stroke = (Brush)FindResource("BgBrush"),
+            StrokeThickness = 2,
+        });
+        return grid;
     }
 
     static TextBlock Line(string text, Brush brush) => new() { Text = text, Foreground = brush, TextWrapping = TextWrapping.Wrap };

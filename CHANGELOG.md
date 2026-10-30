@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.32.0
+- **Account.** Your picture sits at the bottom of the side bar, with a dot for your status; click it (or File → Account…)
+  to set what other members see. Nothing to sign up for: it's kept on this PC, and the app's own install key is who
+  you are.
+  - **Picture**: any image, cut to the middle square. **Remove** goes back to your initials.
+  - **Name**: left empty, it's the hero you last played in Azeroth Survivors, as before.
+  - **Status**: Online, Away or Appear offline. **In game** shows on its own while Azeroth Survivors runs, and Away
+    after 10 minutes without mouse or keyboard.
+  - **Appear offline** keeps you connected, so you still see who's online and their lobbies, but nobody sees you
+    and invites to you don't arrive. You can still invite others.
+- Members' pictures and status dots show in the co-op window's lists, with their status beside their name when
+  inviting.
+- "Show me online for co-op" is gone from the menu: if it was off, you start on Appear offline.
+
 ## 0.31.2
 - For Azeroth Survivors, ▶ opens one window with **Play**, **Host a lobby** and **Join a lobby**, instead of a dropdown with Play and Direct co-op…. Play starts the game the ordinary way and closes the window.
 

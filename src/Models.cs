@@ -25,6 +25,8 @@ public sealed class AppSettings
     /// <summary>Moves settings saved before games existed into WoW's entry, with WoW in the side bar.</summary>
     public void Migrate()
     {
+        // Before accounts, "Show me online for co-op" off meant hidden: that's Appear offline now.
+        Account ??= new AccountSettings { Status = CoopOnline ? AccountStatus.Online : AccountStatus.AppearOffline };
         if (WowRoot is null && Flavor is null) return;
         var wow = StateFor("wow");
         wow.Root ??= WowRoot;
@@ -42,8 +44,10 @@ public sealed class AppSettings
     public bool TrayTipShown { get; set; }
     /// <summary>Optional list columns shown, in order (ListColumn keys); null = the default set.</summary>
     public List<string>? Columns { get; set; }
-    /// <summary>Direct co-op: shown as online so friends can invite you (Azeroth Survivors players only).</summary>
+    /// <summary>Before accounts: shown as online for co-op. Only read once, to set <see cref="Account"/>'s status.</summary>
     public bool CoopOnline { get; set; } = true;
+    /// <summary>Name, picture and status members see; set by <see cref="Migrate"/> when missing.</summary>
+    public AccountSettings? Account { get; set; }
     /// <summary>This install's secret key on the co-op service (others see only a hash of it); made on first use.</summary>
     public string? CoopId { get; set; }
 }

@@ -13,23 +13,34 @@ public partial class MainWindow
     static readonly GameDefinition CoopGame = GameDefinition.All.First(g => g.HasDirectCoop);
 
     /// <summary>
-    /// Online while Azeroth Survivors is in the side bar and "Show me as online" is on, under the hero last played.
-    /// Called on start and whenever one of those changes.
+    /// Connected to the co-op service while Azeroth Survivors is in the side bar, under the account's name and status
+    /// (appearing offline stays connected, so the member list still shows, but nobody sees you). Called on start and
+    /// whenever one of those changes; a status change alone is sent without reconnecting.
     /// </summary>
     void UpdateCoopPresence()
     {
-        // Hosting a lobby means being online: it's listed to members and invites go out through it.
-        var root = (_settings.CoopOnline || _coopHosting) && _settings.Games.Contains(CoopGame.Id) ? RootOf(CoopGame) : null;
-        var name = root is null ? null : AzerothSurvivorsGame.LastHero(root) ?? Environment.UserName;
-        if (_coopPresence?.Name == name) return;
+        var name = _settings.Games.Contains(CoopGame.Id) && RootOf(CoopGame) is not null ? AccountName : null;
+        var state = AccountState;
+        if (_coopPresence?.Name == name)
+        {
+            if (_coopPresence is not null) _ = _coopPresence.SetStateAsync(state);
+            UpdateAccountChip();
+            return;
+        }
         _coopPresence?.Dispose();
         _coopPresence = null;
         if (name is not null)
         {
-            _coopPresence = new CoopPresence(CoopKey, name);
+            _coopPresence = new CoopPresence(CoopKey, name, state);
             _coopPresence.Invited += (from, code) => Dispatcher.BeginInvoke(() => OnCoopInvite(from, code));
+            _coopPresence.Changed += () => Dispatcher.BeginInvoke(() =>
+            {
+                UpdateAccountChip();
+                _ = SyncPictureAsync();
+            });
         }
         _coopWindow?.UsePresence(_coopPresence);
+        UpdateAccountChip();
     }
 
     /// <summary>This install's secret key on the co-op service; made on first use.</summary>
@@ -44,17 +55,6 @@ public partial class MainWindow
             }
             return _settings.CoopId;
         }
-    }
-
-    void CoopOnline_Click(object sender, RoutedEventArgs e) => SetCoopOnline(CoopOnlineMenu.IsChecked);
-
-    /// <summary>From the settings menu or the co-op window: both show the same setting.</summary>
-    void SetCoopOnline(bool online)
-    {
-        _settings.CoopOnline = online;
-        Storage.Save(SettingsFile, _settings);
-        CoopOnlineMenu.IsChecked = online;
-        UpdateCoopPresence();
     }
 
     /// <summary>Doesn't open anything over the game: a tray notification, or a line in the co-op window if it's open.</summary>
@@ -82,8 +82,7 @@ public partial class MainWindow
             DarkDialog.Show(this, $"Couldn't start {CoopGame.Name}", $"Pick your {CoopGame.Name} folder first.");
             return;
         }
-        var name = _coopPresence?.Name ?? AzerothSurvivorsGame.LastHero(root) ?? Environment.UserName;
-        _coopWindow = new CoopWindow(launch.Exe, name, CoopKey, hosting =>
+        _coopWindow = new CoopWindow(launch.Exe, AccountName, CoopKey, hosting =>
         {
             _coopHosting = hosting;
             UpdateCoopPresence();

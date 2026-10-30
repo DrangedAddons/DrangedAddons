@@ -390,7 +390,11 @@ public partial class CoopWindow : Window
             });
 
         var ready = (Brush)FindResource("ReadyBrush");
-        SlotList.Children.Add(Slot(party.Host, _host is not null ? ["Host", "You"] : ["Host"],
+        var own = Account.LoadOwnPicture();
+        // A joiner knows the host only by name; the host's presence shows the lobby by its code.
+        var hostPicture = _host is not null ? own
+            : PictureOf(_presence?.Players.FirstOrDefault(p => p.Lobby?.Code is { } code && code == _joinCode));
+        SlotList.Children.Add(Slot(party.Host, hostPicture, _host is not null ? ["Host", "You"] : ["Host"],
             party.Started ? ("In game", ready) : ("Ready", ready), null, highlight: _host is not null));
         foreach (var member in party.Members)
         {
@@ -402,17 +406,28 @@ public partial class CoopWindow : Window
                 MemberState.Failed => ("Couldn't connect", Danger),
                 _ => ("Connecting…", Muted),
             };
-            SlotList.Children.Add(Slot(member.Name, you ? ["You"] : [], state,
+            SlotList.Children.Add(Slot(member.Name, you ? own : PictureOf(member.Member), you ? ["You"] : [], state,
                 _host is not null ? ("Remove", () => _ = KickAsync(member)) : null, highlight: you));
         }
         foreach (var player in invited.Take(Slots - filled))
-            SlotList.Children.Add(Slot(player.Name, [], ("Invited", Muted), null, pending: true));
+            SlotList.Children.Add(Slot(player.Name, PictureOf(player), [], ("Invited", Muted), null, pending: true));
         for (var i = filled + Math.Min(invited.Count, Slots - filled); i < Slots; i++)
             SlotList.Children.Add(OpenSlot());
     }
 
-    /// <summary>A filled slot: a letter tile, the name with badges, the state, and the host's action.</summary>
-    UIElement Slot(string name, string[] badges, (string Text, Brush Brush) state, (string Label, Action Click)? action,
+    /// <summary>A member's picture from what presence knows of them (online players, then friends and requests); null for none.</summary>
+    ImageSource? PictureOf(string? member)
+    {
+        if (member is null || _presence is null) return null;
+        var friends = _presence.Friends;
+        return PictureOf(_presence.Players.Concat(friends.Friends).Concat(friends.Incoming).Concat(friends.Outgoing)
+            .FirstOrDefault(p => p.Id == member && p.Avatar is not null));
+    }
+
+    static ImageSource? PictureOf(CoopPlayer? player) => player is null ? null : Avatars.Get(player.Id, player.Avatar);
+
+    /// <summary>A filled slot: the player's picture (or a letter tile), the name with badges, the state, and the host's action.</summary>
+    UIElement Slot(string name, ImageSource? picture, string[] badges, (string Text, Brush Brush) state, (string Label, Action Click)? action,
         bool highlight = false, bool pending = false)
     {
         var row = new DockPanel();
@@ -427,7 +442,7 @@ public partial class CoopWindow : Window
         DockPanel.SetDock(stateText, Dock.Right);
         row.Children.Add(stateText);
 
-        var tile = Tile(name, pending);
+        var tile = Tile(name, picture, pending);
         DockPanel.SetDock(tile, Dock.Left);
         row.Children.Add(tile);
 
@@ -475,9 +490,15 @@ public partial class CoopWindow : Window
         };
     }
 
-    /// <summary>A rounded tile with the name's first letter, coloured from the name so each player keeps one colour.</summary>
-    static UIElement Tile(string name, bool pending)
+    /// <summary>A rounded tile with the player's picture, or the name's first letter coloured from the name so each player keeps one colour.</summary>
+    static UIElement Tile(string name, ImageSource? picture, bool pending)
     {
+        if (picture is not null)
+            return new Border
+            {
+                Width = 40, Height = 40, CornerRadius = new CornerRadius(6), VerticalAlignment = VerticalAlignment.Center,
+                Background = new ImageBrush(picture) { Stretch = Stretch.UniformToFill }, Opacity = pending ? 0.5 : 1,
+            };
         var hue = (uint)name.ToUpperInvariant().Aggregate(17, (h, c) => h * 31 + c) % 360;
         var color = FromHsl(hue, 0.45, 0.38);
         return new Border
@@ -524,6 +545,7 @@ public partial class CoopWindow : Window
     /// <summary>Redraws the member lists (e.g. when a member's picture has arrived).</summary>
     public void RefreshLists()
     {
+        ShowSlots();
         ShowInviteList();
         ShowLobbies();
     }

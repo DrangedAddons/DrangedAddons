@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.1
+- The co-op lobby shows each player's profile picture in their slot (the host's too), falling back to the letter tile
+  for players without one.
+
 ## 0.35.0
 - **Games from the platform.** Add a game (+) now also lists the games set up as Live profiles in DrangedAddons
   Platform, even when they have no addons yet. Adding one finds its install (in the folders its profile names, or

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.29.0
+- **Party lobby for Direct co-op.** Inviting a friend (or clicking Create party) opens your party instead of starting your game straight away.
+  - The party list shows you as host, each player as Connecting…, Ready or Couldn't connect, and friends you've invited who haven't joined yet. Everyone in the party sees the same list.
+  - **Remove** takes a player out: their connection to your game closes and they're told they were removed.
+  - **Start game** starts your game and everyone else's together. Anyone who joins after that starts straight away.
+  - **Disband party** (host) and **Leave party** (others) end it; the others are told.
+  - The party code is in the lobby, with Copy, for friends not in the online list.
+  - The game password box is gone: only players in your party can reach your game now (below), so it wasn't protecting anything.
+- **Security**
+  - Players can't be impersonated. The online list used to show the same id a manager signs in with, so anyone could copy a friend's id, sign in as them, knock them offline and receive their invites. Each install now has a secret key; others only ever see a hash of it. Copying an id from the list gets you a different player.
+  - Both ends of a co-op connection check each other. The joiner already only accepted the host's announced certificate; now the host also only accepts the certificate each joiner announced, and closes its listening port as soon as that player is in. Nobody else can connect to your game, even if they learn your address.
+  - Invites are rate-limited (the same player at most once every 5 seconds, 20 a minute), so nobody can flood you with notifications.
+  - Your address on your home network is only passed to players behind the same router (the only ones who could use it).
+  - Names in the online list can't use invisible or right-to-left characters to look like someone else's. If two players online share a name, the list shows part of each one's id to tell them apart.
+  - `msquic.dll` is checked byte-for-byte against the copy inside the exe before it's loaded, since the folder it's written to can be written by other programs.
+  - When Windows asks about network access: allow DrangedAddons; Azeroth Survivors can be refused, as the game only talks to DrangedAddons on your PC.
+
 ## 0.28.2
 - **Fixed: Direct co-op said "needs Windows 11" on Windows 11.** The released app is a single exe, and .NET leaves the QUIC library (`msquic.dll`) out of single-exe builds. The co-op window then believed QUIC wasn't available, so Invite and Host were greyed out. The exe now carries `msquic.dll` itself and writes it to `%LocalAppData%\DrangedAddons\msquic` the first time co-op is used.
 

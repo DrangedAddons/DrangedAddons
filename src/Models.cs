@@ -44,7 +44,7 @@ public sealed class AppSettings
     public List<string>? Columns { get; set; }
     /// <summary>Direct co-op: shown as online so friends can invite you (Azeroth Survivors players only).</summary>
     public bool CoopOnline { get; set; } = true;
-    /// <summary>This install's id on the co-op service; made on first use.</summary>
+    /// <summary>This install's secret key on the co-op service (others see only a hash of it); made on first use.</summary>
     public string? CoopId { get; set; }
 }
 

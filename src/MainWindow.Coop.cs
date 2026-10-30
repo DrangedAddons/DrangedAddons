@@ -62,7 +62,8 @@ public partial class MainWindow
             DarkDialog.Show(this, $"Couldn't start {CoopGame.Name}", $"Pick your {CoopGame.Name} folder first.");
             return;
         }
-        _coopWindow = new CoopWindow(launch.Exe, _settings.CoopOnline, online =>
+        var name = _coopPresence?.Name ?? AzerothSurvivorsGame.LastHero(root) ?? Environment.UserName;
+        _coopWindow = new CoopWindow(launch.Exe, name, _settings.CoopOnline, online =>
         {
             _settings.CoopOnline = online;
             Storage.Save(SettingsFile, _settings);

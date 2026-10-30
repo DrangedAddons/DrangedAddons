@@ -3,6 +3,7 @@ using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Net.WebSockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -12,11 +13,15 @@ using System.Text.Json.Nodes;
 namespace DrangedAddons;
 
 /// <summary>
-/// Direct co-op between two players' PCs without opening ports on either router. Both managers learn their public UDP
-/// address from a STUN server, swap it through the rendezvous Worker (coop-rendezvous/), and fire UDP packets at each
-/// other at the same time so each router sees an outgoing packet and lets the other's in (hole punching). A QUIC
-/// connection then runs over that path, and the game's TCP connection rides inside it: the joiner's game connects to
-/// this app on 127.0.0.1, the host's app connects on to the host's game on 127.0.0.1.
+/// Direct co-op between players' PCs without opening ports on any router. Each manager learns its public UDP address
+/// from a STUN server, swaps it through the rendezvous Worker (coop-rendezvous/), and fires UDP packets at the other
+/// at the same time so each router sees an outgoing packet and lets the other's in (hole punching). A QUIC connection
+/// then runs over that path, and the game's TCP connection rides inside it: the joiner's game connects to this app on
+/// 127.0.0.1, the host's app connects on to the host's game on 127.0.0.1.
+///
+/// Both ends make a throwaway certificate per party and swap its fingerprint through the rendezvous; each QUIC side
+/// only accepts the certificate it was told about, so nobody else can connect in, or pose as the host, even if they
+/// learn the address. The rendezvous never carries game traffic.
 /// </summary>
 public static class CoopTunnel
 {
@@ -50,39 +55,43 @@ public static class CoopTunnel
 
     /// <summary>
     /// The single-file exe carries msquic.dll as a resource (see EmbedMsQuic in the .csproj), because .NET leaves it
-    /// out of single-file bundles and looks for it next to the exe. Writes it to %LocalAppData%\DrangedAddons\msquic
-    /// (once per version) and answers .NET's lookup with it. Must run before anything touches System.Net.Quic.
+    /// out of single-file bundles and looks for it next to the exe. Writes it to %LocalAppData%\DrangedAddons\msquic,
+    /// checks the copy on disk is byte-for-byte the embedded one (that folder is writable by other programs), loads it,
+    /// and answers .NET's lookup with it. Must run before anything touches System.Net.Quic.
     /// </summary>
     static void UseEmbeddedMsQuic()
     {
         if (Interlocked.Exchange(ref _msQuicHooked, 1) == 1) return;
         using var embedded = typeof(CoopTunnel).Assembly.GetManifestResourceStream("msquic.dll");
         if (embedded is null) return; // Debug build: the shared runtime has it
-        string path;
+        IntPtr handle;
         try
         {
             var bytes = new byte[embedded.Length];
             embedded.ReadExactly(bytes);
+            var hash = SHA256.HashData(bytes);
             var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DrangedAddons", "msquic",
-                Convert.ToHexString(SHA256.HashData(bytes))[..12]);
-            path = Path.Combine(dir, "msquic.dll");
-            if (!File.Exists(path) || new FileInfo(path).Length != bytes.Length)
+                Convert.ToHexString(hash)[..12]);
+            var path = Path.Combine(dir, "msquic.dll");
+            bool Intact() => File.Exists(path) && SHA256.HashData(File.ReadAllBytes(path)).AsSpan().SequenceEqual(hash);
+            if (!Intact())
             {
                 Directory.CreateDirectory(dir);
                 var temp = path + "." + Environment.ProcessId + ".tmp";
                 File.WriteAllBytes(temp, bytes);
                 try { File.Move(temp, path, overwrite: true); }
-                catch (IOException) { File.Delete(temp); } // another copy of the app wrote it (and may have it loaded)
+                catch (IOException) { File.Delete(temp); } // another copy of the app has it loaded
+                if (!Intact()) return; // IsSupported then says QUIC isn't available
             }
+            // Load now, straight after the check, so the file can't be swapped between checking and loading.
+            handle = System.Runtime.InteropServices.NativeLibrary.Load(path);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DllNotFoundException or BadImageFormatException)
         {
-            return; // IsSupported then says QUIC isn't available
+            return;
         }
         System.Runtime.Loader.AssemblyLoadContext.Default.ResolvingUnmanagedDll += (_, name) =>
-            Path.GetFileName(name).StartsWith("msquic", StringComparison.OrdinalIgnoreCase) && System.Runtime.InteropServices.NativeLibrary.TryLoad(path, out var handle)
-                ? handle
-                : IntPtr.Zero;
+            Path.GetFileName(name).StartsWith("msquic", StringComparison.OrdinalIgnoreCase) ? handle : IntPtr.Zero;
     }
 
     /// <summary>A free TCP port on 127.0.0.1 (for the host's game to listen on).</summary>
@@ -97,21 +106,24 @@ public static class CoopTunnel
 
     // ---- Signalling ----
 
-    /// <summary>One side's ways in: its address as the internet sees it, and on its own network.</summary>
-    internal sealed record Candidates(IPEndPoint Public, IPEndPoint Local, string? Thumbprint)
+    /// <summary>
+    /// One side's ways in: its address as the internet sees it, on its own network (the rendezvous only passes that
+    /// on to someone behind the same router), and its certificate's fingerprint.
+    /// </summary>
+    internal sealed record Candidates(IPEndPoint Public, IPEndPoint? Local, string Thumbprint)
     {
         public JsonObject ToJson() => new()
         {
-            ["public"] = Public.ToString(), ["local"] = Local.ToString(), ["cert"] = Thumbprint,
+            ["public"] = Public.ToString(), ["local"] = Local?.ToString(), ["cert"] = Thumbprint,
         };
 
         public static Candidates? FromJson(JsonNode? data) =>
-            data is null || !IPEndPoint.TryParse((string?)data["public"] ?? "", out var pub) || !IPEndPoint.TryParse((string?)data["local"] ?? "", out var local)
+            data is null || !IPEndPoint.TryParse((string?)data["public"] ?? "", out var pub) || (string?)data["cert"] is not { Length: 64 } cert
                 ? null
-                : new Candidates(pub, local, (string?)data["cert"]);
+                : new Candidates(pub, IPEndPoint.TryParse((string?)data["local"] ?? "", out var local) ? local : null, cert);
 
         /// <summary>Where to reach this side from <paramref name="me"/>: its own-network address when both share one router.</summary>
-        public IPEndPoint ReachFrom(Candidates me) => Public.Address.Equals(me.Public.Address) ? Local : Public;
+        public IPEndPoint ReachFrom(Candidates me) => Local is { } local && Public.Address.Equals(me.Public.Address) ? local : Public;
     }
 
     internal sealed class Rendezvous : IAsyncDisposable
@@ -119,11 +131,11 @@ public static class CoopTunnel
         readonly ClientWebSocket _ws = new();
         readonly SemaphoreSlim _send = new(1, 1);
 
-        public static async Task<Rendezvous> ConnectAsync(string code, string role, CancellationToken cancel)
+        public static async Task<Rendezvous> ConnectAsync(string query, CancellationToken cancel)
         {
             var r = new Rendezvous();
             r._ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
-            await r._ws.ConnectAsync(new Uri($"{RendezvousUrl.TrimEnd('/')}/lobby/{code}?role={role}"), cancel);
+            await r._ws.ConnectAsync(new Uri($"{RendezvousUrl.TrimEnd('/')}/{query}"), cancel);
             return r;
         }
 
@@ -132,6 +144,13 @@ public static class CoopTunnel
             await _send.WaitAsync(cancel);
             try { await _ws.SendAsync(Encoding.UTF8.GetBytes(message.ToJsonString()), WebSocketMessageType.Text, true, cancel); }
             finally { _send.Release(); }
+        }
+
+        /// <summary>Sends if still connected; a party update that doesn't arrive isn't worth failing over.</summary>
+        public async Task TrySendAsync(JsonObject message)
+        {
+            try { await SendAsync(message, CancellationToken.None); }
+            catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or InvalidOperationException) { }
         }
 
         /// <summary>The next message; null when the rendezvous closed.</summary>
@@ -146,6 +165,7 @@ public static class CoopTunnel
                 catch (WebSocketException) { return null; }
                 if (result.MessageType == WebSocketMessageType.Close) return null;
                 message.Write(buffer, 0, result.Count);
+                if (message.Length > 65536) return null;
                 if (!result.EndOfMessage) continue;
                 try { return JsonNode.Parse(message.ToArray()); }
                 catch (JsonException) { message.SetLength(0); }
@@ -167,13 +187,17 @@ public static class CoopTunnel
     // ---- Hole punching ----
 
     /// <summary>A UDP socket on a fresh port and how it can be reached; the port is handed to QUIC after punching.</summary>
-    internal static async Task<(Socket Socket, Candidates Me)> OpenAsync(string? thumbprint, CancellationToken cancel)
+    internal static async Task<(Socket Socket, Candidates Me)> OpenAsync(string thumbprint, CancellationToken cancel)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         socket.Bind(new IPEndPoint(IPAddress.Any, 0));
         var port = ((IPEndPoint)socket.LocalEndPoint!).Port;
-        var mapped = await Stun.MappedAddressAsync(socket, cancel)
-                     ?? throw new CoopException("couldn't find this PC's internet address (a STUN server didn't answer)");
+        var mapped = await Stun.MappedAddressAsync(socket, cancel);
+        if (mapped is null)
+        {
+            socket.Dispose();
+            throw new CoopException("couldn't find this PC's internet address (a STUN server didn't answer)");
+        }
         return (socket, new Candidates(mapped, new IPEndPoint(LanAddress(), port), thumbprint));
     }
 
@@ -222,6 +246,12 @@ public static class CoopTunnel
         return X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx), null);
     }
 
+    internal static string Thumbprint(X509Certificate cert) => Convert.ToHexString(cert.GetCertHash(HashAlgorithmName.SHA256));
+
+    /// <summary>True only for the certificate whose fingerprint came through the rendezvous.</summary>
+    internal static bool IsExpected(X509Certificate? cert, string expected) =>
+        cert is not null && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(Thumbprint(cert)), Encoding.ASCII.GetBytes(expected.ToUpperInvariant()));
+
     /// <summary>Copies both ways until either side closes.</summary>
     internal static async Task PumpAsync(Stream a, Stream b)
     {
@@ -237,37 +267,57 @@ public static class CoopTunnel
 
 public sealed class CoopException(string message) : Exception(message);
 
+public enum MemberState { Connecting, Connected, Failed }
+
+public sealed record PartyMember(string Id, string Name, MemberState State);
+
+/// <summary>What everyone in a party sees: the host's name, who's in it, and whether the host has started the game.</summary>
+public sealed record PartyInfo(string Host, IReadOnlyList<PartyMember> Members, bool Started);
+
 /// <summary>
-/// The host's side: keeps the lobby open on the rendezvous, and for each player who joins with the code, punches a path
-/// to them on a fresh UDP port and accepts their QUIC connection there, forwarding each stream to the game's port.
+/// The host's side: keeps the party open on the rendezvous, punches a path to each player who joins, accepts their
+/// QUIC connection (and only theirs), and forwards each stream to the game's port. Keeps everyone's party list
+/// current, starts everyone's game together, and can remove a player.
 /// </summary>
 public sealed class CoopHost : IAsyncDisposable
 {
     readonly CancellationTokenSource _stop = new();
     readonly X509Certificate2 _cert = CoopTunnel.NewCertificate();
     readonly int _gamePort;
-    readonly Dictionary<string, (System.Net.Sockets.Socket Socket, CoopTunnel.Candidates Me)> _pending = new();
-    readonly List<IAsyncDisposable> _open = new();
+    readonly string _name;
+    readonly object _lock = new();
+    readonly Dictionary<string, (Socket Socket, CoopTunnel.Candidates Me)> _pending = new();
+    readonly Dictionary<string, PartyMember> _members = new();
+    readonly Dictionary<string, QuicConnection> _connections = new();
     CoopTunnel.Rendezvous? _rendezvous;
 
     public string Code { get; }
+    public bool Started { get; private set; }
 
-    /// <summary>Raised on a thread-pool thread with a line for the window ("Player 1 connected" …).</summary>
+    /// <summary>A line for the window ("Lexible connected" …). Raised on a thread-pool thread.</summary>
     public event Action<string>? Status;
+    /// <summary>The party changed. Raised on a thread-pool thread.</summary>
+    public event Action<PartyInfo>? PartyChanged;
 
-    CoopHost(string code, int gamePort)
+    CoopHost(string code, int gamePort, string name)
     {
         Code = code;
         _gamePort = gamePort;
+        _name = name;
     }
 
-    /// <summary>Opens a lobby; the game must be started with WOW_ROGUE_COOP_HOST = <paramref name="gamePort"/>.</summary>
-    public static async Task<CoopHost> StartAsync(int gamePort, CancellationToken cancel)
+    public PartyInfo Party
+    {
+        get { lock (_lock) return new PartyInfo(_name, [.. _members.Values], Started); }
+    }
+
+    /// <summary>Opens a party; the game must be started with WOW_ROGUE_COOP_HOST = <paramref name="gamePort"/>.</summary>
+    public static async Task<CoopHost> StartAsync(int gamePort, string name, CancellationToken cancel)
     {
         for (var attempt = 0; ; attempt++)
         {
-            var host = new CoopHost(CoopTunnel.NewCode(), gamePort);
-            host._rendezvous = await CoopTunnel.Rendezvous.ConnectAsync(host.Code, "host", cancel);
+            var host = new CoopHost(CoopTunnel.NewCode(), gamePort, name);
+            host._rendezvous = await CoopTunnel.Rendezvous.ConnectAsync($"lobby/{host.Code}?role=host", cancel);
             var first = await host._rendezvous.ReceiveAsync(cancel);
             if ((string?)first?["t"] == "hosting")
             {
@@ -276,14 +326,67 @@ public sealed class CoopHost : IAsyncDisposable
             }
             await host.DisposeAsync();
             if ((string?)first?["why"] != "taken" || attempt >= 3)
-                throw new CoopException("the co-op rendezvous refused: " + ((string?)first?["why"] ?? "no answer"));
+                throw new CoopException("the co-op service refused: " + ((string?)first?["why"] ?? "no answer"));
         }
+    }
+
+    /// <summary>Tells everyone's manager to start their game (the host's own is started by the window).</summary>
+    public async Task StartGameAsync()
+    {
+        Started = true;
+        await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "start" });
+        await SendPartyAsync();
+    }
+
+    /// <summary>Removes a player: closes their connection to this game and tells their manager they were removed.</summary>
+    public async Task KickAsync(string id)
+    {
+        QuicConnection? connection;
+        PartyMember? member;
+        lock (_lock)
+        {
+            _connections.Remove(id, out connection);
+            _members.Remove(id, out member);
+            if (_pending.Remove(id, out var pending)) pending.Socket.Dispose();
+        }
+        await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "kick", ["to"] = id });
+        if (connection is not null)
+        {
+            try { await connection.CloseAsync(0); await connection.DisposeAsync(); }
+            catch (QuicException) { }
+        }
+        if (member is not null) Status?.Invoke($"Removed {member.Name} from the party.");
+        await SendPartyAsync();
+    }
+
+    void SetMember(string id, Func<PartyMember?, PartyMember?> change)
+    {
+        lock (_lock)
+        {
+            var next = change(_members.GetValueOrDefault(id));
+            if (next is null) _members.Remove(id);
+            else _members[id] = next;
+        }
+        _ = SendPartyAsync();
+    }
+
+    async Task SendPartyAsync()
+    {
+        var party = Party;
+        PartyChanged?.Invoke(party);
+        var members = new JsonArray();
+        foreach (var m in party.Members)
+            members.Add(new JsonObject { ["id"] = m.Id, ["name"] = m.Name, ["state"] = m.State.ToString() });
+        await _rendezvous!.TrySendAsync(new JsonObject
+        {
+            ["t"] = "party",
+            ["data"] = new JsonObject { ["host"] = party.Host, ["started"] = party.Started, ["members"] = members },
+        });
     }
 
     async Task RunAsync()
     {
         var cancel = _stop.Token;
-        var players = new Dictionary<string, int>();
         try
         {
             while (!cancel.IsCancellationRequested && await _rendezvous!.ReceiveAsync(cancel) is { } message)
@@ -292,24 +395,36 @@ public sealed class CoopHost : IAsyncDisposable
                 switch ((string?)message["t"])
                 {
                     case "join":
-                        players[id] = players.Count + 1;
-                        Status?.Invoke($"Player {players[id]} is connecting…");
-                        var opened = await CoopTunnel.OpenAsync(Convert.ToHexString(_cert.GetCertHash(HashAlgorithmName.SHA256)), cancel);
-                        _pending[id] = opened;
+                        var name = (string?)message["name"] ?? "A player";
+                        SetMember(id, _ => new PartyMember(id, name, MemberState.Connecting));
+                        Status?.Invoke($"{name} is connecting…");
+                        var opened = await CoopTunnel.OpenAsync(CoopTunnel.Thumbprint(_cert), cancel);
+                        lock (_lock) _pending[id] = opened;
                         await _rendezvous.SendAsync(new JsonObject { ["t"] = "signal", ["to"] = id, ["data"] = opened.Me.ToJson() }, cancel);
                         break;
-                    case "signal" when _pending.Remove(id, out var mine) && CoopTunnel.Candidates.FromJson(message["data"]) is { } peer:
-                        var n = players.GetValueOrDefault(id);
-                        _ = AcceptAsync(mine.Socket, mine.Me, peer, n, cancel);
+                    case "signal":
+                        (Socket Socket, CoopTunnel.Candidates Me) mine;
+                        lock (_lock)
+                            if (!_pending.Remove(id, out mine)) break;
+                        if (CoopTunnel.Candidates.FromJson(message["data"]) is { } peer) _ = AcceptAsync(id, mine.Socket, mine.Me, peer, cancel);
+                        else mine.Socket.Dispose();
                         break;
-                    // A joiner leaves the rendezvous once connected directly; only a leave before that is news.
-                    case "leave" when _pending.Remove(id, out var gone):
-                        gone.Socket.Dispose();
-                        Status?.Invoke($"Player {players.GetValueOrDefault(id)} gave up connecting.");
+                    case "leave":
+                        QuicConnection? gone;
+                        PartyMember? who;
+                        lock (_lock)
+                        {
+                            if (_pending.Remove(id, out var p)) p.Socket.Dispose();
+                            _connections.Remove(id, out gone);
+                            _members.Remove(id, out who);
+                        }
+                        if (gone is not null) _ = gone.DisposeAsync().AsTask();
+                        if (who is not null) Status?.Invoke($"{who.Name} left the party.");
+                        await SendPartyAsync();
                         break;
                 }
             }
-            if (!cancel.IsCancellationRequested) Status?.Invoke("Lost the co-op rendezvous: new players can't join (players already in stay connected).");
+            if (!cancel.IsCancellationRequested) Status?.Invoke("Lost the co-op service: new players can't join, and the party list may be out of date. Players already in stay connected.");
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) when (ex is CoopException or SocketException or WebSocketException)
@@ -318,13 +433,17 @@ public sealed class CoopHost : IAsyncDisposable
         }
     }
 
-    async Task AcceptAsync(System.Net.Sockets.Socket socket, CoopTunnel.Candidates me, CoopTunnel.Candidates peer, int n, CancellationToken cancel)
+    async Task AcceptAsync(string id, Socket socket, CoopTunnel.Candidates me, CoopTunnel.Candidates peer, CancellationToken cancel)
     {
         var port = ((IPEndPoint)socket.LocalEndPoint!).Port;
+        var name = Party.Members.FirstOrDefault(m => m.Id == id)?.Name ?? "A player";
         try
         {
             await CoopTunnel.PunchAsync(socket, peer.ReachFrom(me), cancel);
-            var listener = await QuicListener.ListenAsync(new QuicListenerOptions
+            QuicConnection connection;
+            // One listener per player, on the port punched for them, closed again once they're in: it only ever
+            // accepts the certificate that player announced, so nobody else gets a connection through it.
+            await using (var listener = await QuicListener.ListenAsync(new QuicListenerOptions
             {
                 ListenEndPoint = new IPEndPoint(IPAddress.Any, port),
                 ApplicationProtocols = [CoopTunnel.Alpn],
@@ -335,16 +454,28 @@ public sealed class CoopHost : IAsyncDisposable
                     {
                         ApplicationProtocols = [CoopTunnel.Alpn],
                         ServerCertificate = _cert,
+                        ClientCertificateRequired = true,
+                        RemoteCertificateValidationCallback = (_, cert, _, _) => CoopTunnel.IsExpected(cert, peer.Thumbprint),
                     },
                 })),
-            }, cancel);
-            lock (_open) _open.Add(listener);
-
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancel);
-            timeout.CancelAfter(TimeSpan.FromSeconds(20));
-            var connection = await listener.AcceptConnectionAsync(timeout.Token);
-            lock (_open) _open.Add(connection);
-            Status?.Invoke($"Player {n} connected directly.");
+            }, cancel))
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancel);
+                timeout.CancelAfter(TimeSpan.FromSeconds(20));
+                connection = await listener.AcceptConnectionAsync(timeout.Token);
+            }
+            lock (_lock)
+            {
+                if (!_members.ContainsKey(id)) // kicked or left while connecting
+                {
+                    _ = connection.DisposeAsync().AsTask();
+                    return;
+                }
+                _connections[id] = connection;
+            }
+            SetMember(id, m => m is null ? null : m with { State = MemberState.Connected });
+            Status?.Invoke($"{name} connected directly.");
+            if (Started) await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "start" });
             while (!cancel.IsCancellationRequested)
             {
                 var stream = await connection.AcceptInboundStreamAsync(cancel);
@@ -353,11 +484,18 @@ public sealed class CoopHost : IAsyncDisposable
         }
         catch (OperationCanceledException) when (!cancel.IsCancellationRequested)
         {
-            Status?.Invoke($"Player {n} couldn't connect directly: one of your networks blocks it. They can use the game's own co-op instead.");
+            SetMember(id, m => m is null ? null : m with { State = MemberState.Failed });
+            Status?.Invoke($"{name} couldn't connect directly: one of your networks blocks it. They can use the game's own co-op instead.");
         }
-        catch (QuicException ex)
+        catch (Exception ex) when (ex is QuicException or AuthenticationException or ObjectDisposedException)
         {
-            if (!cancel.IsCancellationRequested) Status?.Invoke($"Player {n} disconnected ({ex.QuicError}).");
+            bool stillHere;
+            lock (_lock) stillHere = _connections.Remove(id) | _members.ContainsKey(id);
+            if (!cancel.IsCancellationRequested && stillHere)
+            {
+                SetMember(id, m => m is null ? null : m with { State = MemberState.Failed });
+                Status?.Invoke($"{name} disconnected.");
+            }
         }
         catch (OperationCanceledException) { }
     }
@@ -383,7 +521,7 @@ public sealed class CoopHost : IAsyncDisposable
                     await stream.DisposeAsync();
                     return;
                 }
-                if (waited == 0) Status?.Invoke("A player is waiting for your game to finish loading.");
+                if (waited == 0 && Started) Status?.Invoke("A player is waiting for your game to finish loading.");
                 await Task.Delay(1000);
             }
         }
@@ -395,38 +533,59 @@ public sealed class CoopHost : IAsyncDisposable
     {
         _stop.Cancel();
         if (_rendezvous is not null) await _rendezvous.DisposeAsync();
-        foreach (var (socket, _) in _pending.Values) socket.Dispose();
-        List<IAsyncDisposable> open;
-        lock (_open) open = [.. _open];
-        foreach (var item in open)
+        List<QuicConnection> connections;
+        lock (_lock)
         {
-            try { await item.DisposeAsync(); } catch (QuicException) { }
+            foreach (var (socket, _) in _pending.Values) socket.Dispose();
+            _pending.Clear();
+            connections = [.. _connections.Values];
+            _connections.Clear();
+        }
+        foreach (var connection in connections)
+        {
+            try { await connection.DisposeAsync(); } catch (QuicException) { }
         }
         _cert.Dispose();
     }
 }
 
 /// <summary>
-/// The joiner's side: finds the host through the code, punches a path, connects with QUIC (checking the host's
-/// certificate against the one it announced), and listens on 127.0.0.1 for the game to connect to.
+/// The joiner's side: finds the host through the code, punches a path, connects with QUIC (each side checking the
+/// other's certificate against the fingerprint it announced), and listens on 127.0.0.1 for the game to connect to.
+/// Stays on the rendezvous for the party's life, for the host's party list, start and remove.
 /// </summary>
 public sealed class CoopJoin : IAsyncDisposable
 {
     readonly CancellationTokenSource _stop = new();
+    readonly X509Certificate2 _cert = CoopTunnel.NewCertificate();
+    CoopTunnel.Rendezvous? _rendezvous;
     QuicConnection? _connection;
     TcpListener? _local;
 
     /// <summary>The 127.0.0.1 port to give the game as WOW_ROGUE_COOP_JOIN.</summary>
     public int LocalPort { get; private set; }
 
-    public event Action<string>? Status;
+    /// <summary>This player's id in the party (to mark "you" in the list).</summary>
+    public string Id { get; private set; } = "";
 
-    public static async Task<CoopJoin> ConnectAsync(string code, Action<string> progress, CancellationToken cancel)
+    public PartyInfo? Party { get; private set; }
+
+    /// <summary>The host has started (or had already started) the game.</summary>
+    public bool Started => Party?.Started == true;
+
+    public event Action<string>? Status;
+    public event Action<PartyInfo>? PartyChanged;
+    /// <summary>The host started the game: start ours.</summary>
+    public event Action? StartRequested;
+    /// <summary>The party is over for us (removed, the host left, or the connection dropped), with why.</summary>
+    public event Action<string>? Ended;
+
+    public static async Task<CoopJoin> ConnectAsync(string code, string name, Action<string> progress, CancellationToken cancel)
     {
         var join = new CoopJoin();
         try
         {
-            await join.ConnectCoreAsync(code, progress, cancel);
+            await join.ConnectCoreAsync(code, name, progress, cancel);
             return join;
         }
         catch
@@ -436,22 +595,23 @@ public sealed class CoopJoin : IAsyncDisposable
         }
     }
 
-    async Task ConnectCoreAsync(string code, Action<string> progress, CancellationToken cancel)
+    async Task ConnectCoreAsync(string code, string name, Action<string> progress, CancellationToken cancel)
     {
-        progress("Finding the lobby…");
-        await using var rendezvous = await CoopTunnel.Rendezvous.ConnectAsync(code, "join", cancel);
-        var first = await rendezvous.ReceiveAsync(cancel);
+        progress("Finding the party…");
+        _rendezvous = await CoopTunnel.Rendezvous.ConnectAsync($"lobby/{code}?role=join&name={Uri.EscapeDataString(name)}", cancel);
+        var first = await _rendezvous.ReceiveAsync(cancel);
         if ((string?)first?["t"] != "joined")
             throw new CoopException((string?)first?["why"] switch
             {
-                "no lobby" => "no lobby with that code (the host may have closed it)",
+                "no lobby" => "no party with that code (the host may have closed it)",
                 "full" => "the party is full",
-                var why => "the co-op rendezvous refused: " + (why ?? "no answer"),
+                var why => "the co-op service refused: " + (why ?? "no answer"),
             });
+        Id = (string?)first["id"] ?? "";
 
-        var (socket, me) = await CoopTunnel.OpenAsync(null, cancel);
+        var (socket, me) = await CoopTunnel.OpenAsync(CoopTunnel.Thumbprint(_cert), cancel);
         var localPort = ((IPEndPoint)socket.LocalEndPoint!).Port;
-        await rendezvous.SendAsync(new JsonObject { ["t"] = "signal", ["data"] = me.ToJson() }, cancel);
+        await _rendezvous.SendAsync(new JsonObject { ["t"] = "signal", ["data"] = me.ToJson() }, cancel);
 
         progress("Waiting for the host…");
         CoopTunnel.Candidates? host = null;
@@ -460,16 +620,20 @@ public sealed class CoopJoin : IAsyncDisposable
             wait.CancelAfter(TimeSpan.FromSeconds(20));
             while (host is null)
             {
-                var message = await rendezvous.ReceiveAsync(wait.Token) ?? throw new CoopException("the host left");
-                if ((string?)message["t"] == "closed") throw new CoopException((string?)message["why"] ?? "the host left");
-                if ((string?)message["t"] == "signal") host = CoopTunnel.Candidates.FromJson(message["data"]);
+                var message = await _rendezvous.ReceiveAsync(wait.Token) ?? throw new CoopException("the host left");
+                switch ((string?)message["t"])
+                {
+                    case "closed": throw new CoopException((string?)message["why"] ?? "the host left");
+                    case "kicked": throw new CoopException("the host removed you from the party");
+                    case "party": Party = ParseParty(message["data"]); break;
+                    case "signal": host = CoopTunnel.Candidates.FromJson(message["data"]); break;
+                }
             }
         }
 
         progress("Connecting directly to the host…");
         var target = host.ReachFrom(me);
         await CoopTunnel.PunchAsync(socket, target, cancel);
-        var expected = host.Thumbprint;
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (true)
         {
@@ -486,15 +650,14 @@ public sealed class CoopJoin : IAsyncDisposable
                     {
                         ApplicationProtocols = [CoopTunnel.Alpn],
                         TargetHost = "drangedaddons-coop",
+                        ClientCertificates = [_cert],
                         // Self-signed: trust it only if it's the one the host announced through the rendezvous.
-                        RemoteCertificateValidationCallback = (_, cert, _, _) =>
-                            cert is not null && expected is not null &&
-                            string.Equals(Convert.ToHexString(cert.GetCertHash(HashAlgorithmName.SHA256)), expected, StringComparison.OrdinalIgnoreCase),
+                        RemoteCertificateValidationCallback = (_, cert, _, _) => CoopTunnel.IsExpected(cert, host.Thumbprint),
                     },
                 }), attempt.Token);
                 break;
             }
-            catch (Exception ex) when (ex is QuicException or OperationCanceledException && !cancel.IsCancellationRequested)
+            catch (Exception ex) when (ex is QuicException or AuthenticationException or OperationCanceledException && !cancel.IsCancellationRequested)
             {
                 if (DateTime.UtcNow > deadline)
                     throw new CoopException("couldn't connect directly to the host: one of your networks blocks it. Use the game's own co-op instead");
@@ -505,6 +668,52 @@ public sealed class CoopJoin : IAsyncDisposable
         _local.Start();
         LocalPort = ((IPEndPoint)_local.LocalEndpoint).Port;
         _ = ServeGameAsync();
+        _ = FollowPartyAsync();
+    }
+
+    static PartyInfo? ParseParty(JsonNode? data)
+    {
+        if (data is null) return null;
+        var members = data["members"]?.AsArray()
+            .Select(m => (string?)m?["id"] is { } id && (string?)m?["name"] is { } name
+                ? new PartyMember(id, name, Enum.TryParse<MemberState>((string?)m["state"], out var s) ? s : MemberState.Connecting)
+                : null)
+            .OfType<PartyMember>().ToList() ?? [];
+        return new PartyInfo((string?)data["host"] ?? "Host", members, (bool?)data["started"] == true);
+    }
+
+    async Task FollowPartyAsync()
+    {
+        var cancel = _stop.Token;
+        if (Party is { } early) PartyChanged?.Invoke(early);
+        try
+        {
+            while (!cancel.IsCancellationRequested && await _rendezvous!.ReceiveAsync(cancel) is { } message)
+            {
+                switch ((string?)message["t"])
+                {
+                    case "party" when ParseParty(message["data"]) is { } party:
+                        var startedNow = party.Started && Party?.Started != true;
+                        Party = party;
+                        PartyChanged?.Invoke(party);
+                        if (startedNow) StartRequested?.Invoke();
+                        break;
+                    case "start":
+                        if (Party is { Started: false } p) Party = p with { Started = true };
+                        StartRequested?.Invoke();
+                        break;
+                    case "kicked":
+                        Ended?.Invoke("The host removed you from the party.");
+                        return;
+                    case "closed":
+                        Ended?.Invoke("The host closed the party.");
+                        return;
+                }
+            }
+            if (!cancel.IsCancellationRequested)
+                Status?.Invoke("Lost the co-op service: the party list may be out of date. Your connection to the host is unaffected.");
+        }
+        catch (OperationCanceledException) { }
     }
 
     async Task ServeGameAsync()
@@ -525,9 +734,9 @@ public sealed class CoopJoin : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) { }
-        catch (QuicException ex)
+        catch (QuicException)
         {
-            Status?.Invoke($"Lost the direct connection to the host ({ex.QuicError}).");
+            if (!cancel.IsCancellationRequested) Ended?.Invoke("Lost the connection to the host.");
         }
         catch (SocketException) { }
     }
@@ -536,10 +745,12 @@ public sealed class CoopJoin : IAsyncDisposable
     {
         _stop.Cancel();
         _local?.Stop();
+        if (_rendezvous is not null) await _rendezvous.DisposeAsync();
         if (_connection is not null)
         {
             try { await _connection.DisposeAsync(); } catch (QuicException) { }
         }
+        _cert.Dispose();
     }
 }
 
@@ -572,7 +783,9 @@ static class Stun
                     while (true)
                     {
                         var got = await socket.ReceiveFromAsync(buffer, SocketFlags.None, new IPEndPoint(IPAddress.Any, 0), timeout.Token);
-                        if (got.ReceivedBytes >= 20 && buffer.AsSpan(8, 12).SequenceEqual(request.AsSpan(8, 12))
+                        // Only the server we asked, answering the transaction we sent.
+                        if (got.RemoteEndPoint is IPEndPoint from && from.Address.Equals(server) && got.ReceivedBytes >= 20
+                            && buffer.AsSpan(8, 12).SequenceEqual(request.AsSpan(8, 12))
                             && Parse(buffer.AsSpan(0, got.ReceivedBytes)) is { } mapped)
                             return mapped;
                     }

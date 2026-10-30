@@ -6,13 +6,14 @@
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI" FontSize="13">
     <StackPanel Margin="24,20">
-        <TextBlock Text="Direct co-op" FontSize="20" FontWeight="SemiBold"/>
-        <TextBlock Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
+        <TextBlock x:Name="TitleText" Text="Direct co-op" FontSize="20" FontWeight="SemiBold"/>
+        <TextBlock x:Name="IntroText" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
                    Text="Connects your game straight to the host's PC instead of through the game's co-op relay overseas. No ports to open and nothing else to install. Experimental."/>
 
-        <!-- Invites from friends: one click joins and starts the game. -->
+        <!-- Invites from friends: one click joins the party. -->
         <StackPanel x:Name="InviteList" Margin="0,14,0,0"/>
 
+        <!-- Not in a party yet: host one (by inviting someone), or join with a code. -->
         <StackPanel x:Name="ModeTabs" Orientation="Horizontal" Margin="0,14,0,0">
             <RadioButton x:Name="HostTab" GroupName="CoopMode" Style="{StaticResource TabButton}" Content="Host"
                          IsChecked="True" Checked="Mode_Checked"/>
@@ -20,21 +21,25 @@
                          Checked="Mode_Checked"/>
         </StackPanel>
 
-        <!-- Host: invite friends who are online, or share the code. -->
-        <StackPanel x:Name="HostPanel" Margin="0,12,0,0">
-            <Border x:Name="CodePanel" Visibility="Collapsed" Padding="14,10" CornerRadius="6" Margin="0,0,0,12"
-                    Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
-                <DockPanel>
-                    <Button x:Name="CopyButton" DockPanel.Dock="Right" Content="Copy" Style="{StaticResource GhostBtn}"
-                            VerticalAlignment="Center" Click="Copy_Click"/>
-                    <StackPanel>
-                        <TextBlock Text="Lobby code (for friends not in the list)" Foreground="{StaticResource MutedBrush}"/>
-                        <TextBlock x:Name="CodeText" FontSize="26" FontWeight="SemiBold" FontFamily="Consolas"
-                                   Foreground="{StaticResource AccentBrush}"/>
-                    </StackPanel>
-                </DockPanel>
+        <!-- The party lobby: who's in, invited and connecting; the host can remove players and start the game. -->
+        <StackPanel x:Name="PartyPanel" Margin="0,14,0,0" Visibility="Collapsed">
+            <DockPanel>
+                <StackPanel x:Name="CodePanel" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Code " Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="CodeText" FontFamily="Consolas" FontSize="16" FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <Button x:Name="CopyButton" Content="Copy" Style="{StaticResource GhostBtn}" Click="Copy_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="PartyHeader" Text="Your party" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center"/>
+            </DockPanel>
+            <Border Margin="0,8,0,0" CornerRadius="6" Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                <StackPanel x:Name="MemberList" Margin="12,8"/>
             </Border>
+        </StackPanel>
 
+        <!-- Host: friends online to invite (before and during a party). -->
+        <StackPanel x:Name="FriendsPanel" Margin="0,14,0,0">
             <DockPanel>
                 <TextBlock x:Name="OnlineHeader" Text="Friends online" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 <Border DockPanel.Dock="Right" HorizontalAlignment="Right" Background="{StaticResource Panel2Brush}"
@@ -51,17 +56,17 @@
             </DockPanel>
             <Border Margin="0,8,0,0" CornerRadius="6" Background="{StaticResource PanelBrush}"
                     BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
-                <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="OnlineList" Margin="12,8"/>
                 </ScrollViewer>
             </Border>
             <TextBlock x:Name="HostHint" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12"
-                       Text="Invite starts the game hosting. Or click Host and start, then send the code."/>
+                       Text="Inviting someone opens your party. Or click Create party and send the code to anyone not in the list."/>
         </StackPanel>
 
         <!-- Join with a code: for friends not online in the list. -->
         <StackPanel x:Name="JoinPanel" Margin="0,12,0,0" Visibility="Collapsed">
-            <TextBlock Text="Host's lobby code" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <TextBlock Text="Party code" FontWeight="SemiBold" Margin="0,0,0,6"/>
             <Border Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
                     CornerRadius="6" Padding="8,0" Height="36" Width="180" HorizontalAlignment="Left">
                 <TextBox x:Name="CodeBox" Background="Transparent" BorderThickness="0" VerticalContentAlignment="Center"
@@ -71,16 +76,7 @@
             </Border>
         </StackPanel>
 
-        <StackPanel x:Name="PasswordPanel">
-            <TextBlock Text="Game password (optional, the same for everyone)" FontWeight="SemiBold" Margin="0,14,0,6"/>
-            <Border Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
-                    CornerRadius="6" Padding="8,0" Height="32">
-                <PasswordBox x:Name="PasswordBox" Background="Transparent" BorderThickness="0" VerticalContentAlignment="Center"
-                             Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource TextBrush}"/>
-            </Border>
-        </StackPanel>
-
-        <!-- What's happening: lobby opened, players connecting, the game closing. -->
+        <!-- What's happening: players connecting, the game starting, the party ending. -->
         <StackPanel x:Name="StatusList" Margin="0,14,0,0"/>
 
         <CheckBox x:Name="OnlineCheck" Margin="0,16,0,0" Foreground="{StaticResource MutedBrush}"
@@ -91,7 +87,7 @@
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
             <Button x:Name="CloseButton" Content="Close" Style="{StaticResource Btn}" MinWidth="90" Margin="0,0,8,0"
                     Click="Close_Click"/>
-            <Button x:Name="StartButton" Content="Host and start" Style="{StaticResource AccentBtn}" MinWidth="130"
+            <Button x:Name="StartButton" Content="Create party" Style="{StaticResource AccentBtn}" MinWidth="130"
                     IsDefault="True" Click="Start_Click"/>
         </StackPanel>
     </StackPanel>

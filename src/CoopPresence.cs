@@ -14,7 +14,8 @@ public sealed record CoopPlayer(string Id, string Name);
 public sealed class CoopPresence : IDisposable
 {
     readonly CancellationTokenSource _stop = new();
-    readonly string _id;
+    /// <summary>This install's secret; others only ever see a hash of it as this player's id.</summary>
+    readonly string _key;
     readonly Dictionary<string, CoopPlayer> _players = new();
     readonly SemaphoreSlim _send = new(1, 1);
     ClientWebSocket? _ws;
@@ -33,9 +34,9 @@ public sealed class CoopPresence : IDisposable
     public event Action<CoopPlayer, string>? Invited;
     public event Action<CoopPlayer>? Declined;
 
-    public CoopPresence(string id, string name)
+    public CoopPresence(string key, string name)
     {
-        _id = id;
+        _key = key;
         Name = name;
         _ = RunAsync();
     }
@@ -49,7 +50,7 @@ public sealed class CoopPresence : IDisposable
             {
                 using var ws = new ClientWebSocket();
                 ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
-                var url = $"{CoopTunnel.RendezvousUrl.TrimEnd('/')}/presence?id={Uri.EscapeDataString(_id)}&name={Uri.EscapeDataString(Name)}";
+                var url = $"{CoopTunnel.RendezvousUrl.TrimEnd('/')}/presence?key={Uri.EscapeDataString(_key)}&name={Uri.EscapeDataString(Name)}";
                 await ws.ConnectAsync(new Uri(url), _stop.Token);
                 _ws = ws;
                 wait = TimeSpan.FromSeconds(5);

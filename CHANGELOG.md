@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.33.0
+- **Friends.** The people icon above your picture in the side bar opens Friends; a red badge counts friend requests
+  waiting for you.
+  - **Search** finds members by name (anyone who has used DrangedAddons, online or not), with **Add friend**. Two
+    members with the same name are told apart by a short tag.
+  - **Requests** to you: Accept or Decline. Requests you sent wait under **Sent** (Cancel to take one back), and reach
+    the other person even if they're offline when you send it.
+  - **Friends** lists online friends first, with their picture, status, game and lobby ("In game · Azeroth Survivors ·
+    hosting 2/5"). **Remove** ends the friendship for both of you.
+- **Friends in co-op lobbies.** The invite list shows your friends first, under Friends, then everyone else under
+  Others online. Open lobbies lists friends' lobbies first, marked Friend.
+- Your account and friends are for every game now, not just Azeroth Survivors: you're online whenever DrangedAddons
+  runs (still subject to Appear offline), and **In game** names the game, for WoW too.
+
 ## 0.32.0
 - **Account.** Your picture sits at the bottom of the side bar, with a dot for your status; click it (or File → Account…)
   to set what other members see. Nothing to sign up for: it's kept on this PC, and the app's own install key is who

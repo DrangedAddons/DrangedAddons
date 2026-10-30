@@ -30,12 +30,23 @@
 // ever see a hash of the key as the member's id, so nobody can copy an id from the list and connect as that member.
 // Older managers sent their key as ?id=, which still works, and no state (online).
 //   state:        online, away, ingame, or offline ("appear offline": still connected and sees the others, but
-//                 nobody sees it, and invites to it are dropped)
-//   to a member:  {t:"online", players:[{id,name,lobby,state,avatar}]}   {t:"here", player:{…}}   {t:"gone", id}
+//                 nobody sees it, and invites to it are dropped). &game=<game id> says which game while ingame.
+// Presence, accounts and friends are for every game the manager supports; a listed lobby carries the game it's for.
+//   to a member:  {t:"online", players:[{id,name,lobby,state,game,avatar}]}   {t:"here", player:{…}}   {t:"gone", id}
 //                 {t:"invite", from:{id,name}, code}  {t:"declined", from:{id,name}}
 //   from anyone:  {t:"invite", to, code}  {t:"decline", to}
-//                 {t:"status", lobby, state}   lobby: null, or {code, locked, password, count} while hosting; the
-//                                              code is only listed while the lobby is unlocked. state: optional.
+//                 {t:"status", lobby, state, game}   lobby: null, or {code, locked, password, count, game} while
+//                                              hosting; the code is only listed while the lobby is unlocked.
+//                                              state and game: optional.
+// Friends (kept in storage, so they last across restarts and work while either side is offline):
+//   from anyone:  {t:"search", q}      -> {t:"found", q, players:[{id,name,avatar,relation}]}: known members whose name
+//                                         contains q (2+ characters), at most 20. relation: friend, incoming (they
+//                                         asked you), outgoing (you asked them) or null. Appearing offline doesn't
+//                                         hide a member from search, only their status.
+//                 {t:"friend", to}     asks to be friends; if they already asked you, you're friends now
+//                 {t:"unfriend", to}   removes a friend, or declines / cancels a request
+//   to a member:  {t:"friends", friends:[{id,name,avatar}], incoming:[…], outgoing:[…]} on connect and whenever
+//                 that changes. Which friends are online comes from the online / here / gone messages.
 // avatar is a short hash of the member's picture, or null. PUT /avatar?key=<install secret> (a PNG or JPEG of at most
 // 64 KB) sets it and DELETE /avatar?key=… removes it; GET /avatar/<id> returns it.
 
@@ -51,6 +62,10 @@ const INVITE_GAP_MS = 5000; // the same member, at most once per 5 seconds
 const INVITES_PER_MINUTE = 20;
 const AVATAR_BYTES = 64 * 1024;
 const AVATAR_GAP_MS = 5000; // one picture change per 5 seconds per member
+const SEARCH_LENGTH = 24;
+const SEARCHES_PER_10S = 20;
+const FRIENDS_MAX = 200;
+const REQUESTS_MAX = 50; // pending each way
 
 export default {
   async fetch(request, env) {
@@ -266,6 +281,11 @@ function cleanState(state) {
   return STATES.includes(state) ? state : "online";
 }
 
+/** A game id ("wow", "azeroth-survivors"), or null. */
+function cleanGame(game) {
+  return typeof game === "string" && /^[a-z0-9-]{1,32}$/.test(game) ? game : null;
+}
+
 function visible(player) {
   return player.state !== "offline";
 }
@@ -285,6 +305,7 @@ function cleanLobby(lobby) {
     locked,
     password: lobby.password === true,
     count: Math.max(1, Math.min(5, Number.isInteger(lobby.count) ? lobby.count : 1)),
+    game: cleanGame(lobby.game),
   };
 }
 
@@ -293,6 +314,7 @@ export class Presence {
     this.state = state;
     this.sent = new Map(); // sender id -> recent invite times and last invite per target; lost on hibernation, fine
     this.avatarAt = new Map(); // member id -> last picture change, same
+    this.searches = new Map(); // member id -> recent search times, same
   }
 
   /** Everyone others may see: connected and not appearing offline. */
@@ -322,11 +344,15 @@ export class Presence {
     const [client, server] = Object.values(new WebSocketPair());
     this.state.acceptWebSocket(server);
     const stored = await this.state.storage.get("avatar:" + id);
-    const me = { id, name, lobby: null, state: cleanState(params.get("state")), avatar: stored?.hash ?? null };
+    const state = cleanState(params.get("state"));
+    const me = { id, name, lobby: null, state, game: state === "ingame" ? cleanGame(params.get("game")) : null, avatar: stored?.hash ?? null };
     server.serializeAttachment(me);
     server.send(JSON.stringify({ t: "online", players: this.players().filter((p) => p.id !== id) }));
     if (visible(me)) this.broadcast({ t: "here", player: me }, id);
     else if (wasVisible) this.broadcast({ t: "gone", id }, id);
+    // Known members, for search and for friends' names while they're offline.
+    await this.state.storage.put("member:" + id, { name, seen: Date.now() });
+    server.send(JSON.stringify(await this.friendsMessage(id)));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -385,15 +411,22 @@ export class Presence {
     const me = ws.deserializeAttachment();
     if (!message || !me) return;
     if (message.t === "status") {
+      const state = message.state === undefined ? me.state : cleanState(message.state);
       const updated = {
         ...me,
         lobby: cleanLobby(message.lobby),
-        state: message.state === undefined ? me.state : cleanState(message.state),
+        state,
+        game: state !== "ingame" ? null : message.game === undefined ? me.game : cleanGame(message.game),
       };
       ws.serializeAttachment(updated);
       if (visible(updated)) this.broadcast({ t: "here", player: updated }, me.id);
       else if (visible(me)) this.broadcast({ t: "gone", id: me.id }, me.id); // just chose to appear offline
       return;
+    }
+    if (message.t === "search") return this.search(ws, me, message.q);
+    if (message.t === "friend" || message.t === "unfriend") {
+      if (typeof message.to !== "string" || !/^[0-9a-f]{16}$/.test(message.to) || message.to === me.id) return;
+      return message.t === "friend" ? this.befriend(me.id, message.to) : this.unfriend(me.id, message.to);
     }
     if (typeof message.to !== "string") return;
     // Someone appearing offline can't be reached: an invite to them would show they're there.
@@ -417,6 +450,105 @@ export class Presence {
 
   async webSocketError(ws) {
     this.gone(ws);
+  }
+
+  // ---- Friends ----
+
+  async links(id) {
+    return (await this.state.storage.get("links:" + id)) ?? { friends: [], incoming: [], outgoing: [] };
+  }
+
+  /** Names and pictures for member ids, from the directory (members never seen have no entry and are left out). */
+  async profiles(ids) {
+    const out = [];
+    for (let i = 0; i < ids.length; i += 64) {
+      const chunk = ids.slice(i, i + 64);
+      const stored = await this.state.storage.get(chunk.flatMap((id) => ["member:" + id, "avatar:" + id]));
+      for (const id of chunk) {
+        const member = stored.get("member:" + id);
+        if (member) out.push({ id, name: member.name, avatar: stored.get("avatar:" + id)?.hash ?? null });
+      }
+    }
+    return out;
+  }
+
+  async friendsMessage(id) {
+    const links = await this.links(id);
+    return {
+      t: "friends",
+      friends: await this.profiles(links.friends),
+      incoming: await this.profiles(links.incoming),
+      outgoing: await this.profiles(links.outgoing),
+    };
+  }
+
+  /** Sends both members their friends lists again (whichever of them is connected). */
+  async tellFriends(...ids) {
+    for (const id of ids) {
+      const sockets = this.state.getWebSockets().filter((s) => s.deserializeAttachment()?.id === id);
+      if (sockets.length === 0) continue;
+      const text = JSON.stringify(await this.friendsMessage(id));
+      for (const s of sockets) s.send(text);
+    }
+  }
+
+  async search(ws, me, q) {
+    const query = typeof q === "string" ? cleanName(q).slice(0, SEARCH_LENGTH).toLowerCase() : "";
+    if (query.length < 2) return;
+    const now = Date.now();
+    const times = (this.searches.get(me.id) ?? []).filter((t) => now - t < 10000);
+    if (times.length >= SEARCHES_PER_10S) return;
+    times.push(now);
+    this.searches.set(me.id, times);
+
+    const members = await this.state.storage.list({ prefix: "member:", limit: 5000 });
+    const ids = [];
+    for (const [key, member] of members) {
+      const id = key.slice("member:".length);
+      if (id !== me.id && member.name.toLowerCase().includes(query)) ids.push(id);
+      if (ids.length >= 20) break;
+    }
+    const links = await this.links(me.id);
+    const relation = (id) =>
+      links.friends.includes(id) ? "friend" : links.incoming.includes(id) ? "incoming" : links.outgoing.includes(id) ? "outgoing" : null;
+    const players = (await this.profiles(ids)).map((p) => ({ ...p, relation: relation(p.id) }));
+    ws.send(JSON.stringify({ t: "found", q, players }));
+  }
+
+  async befriend(me, to) {
+    if (!(await this.state.storage.get("member:" + to))) return; // nobody by that id has ever been here
+    const mine = await this.links(me);
+    const theirs = await this.links(to);
+    if (mine.friends.includes(to)) return;
+    if (mine.incoming.includes(to)) {
+      // They asked first: accepting.
+      if (mine.friends.length >= FRIENDS_MAX || theirs.friends.length >= FRIENDS_MAX) return;
+      mine.incoming = mine.incoming.filter((id) => id !== to);
+      theirs.outgoing = theirs.outgoing.filter((id) => id !== me);
+      mine.friends.push(to);
+      theirs.friends.push(me);
+    } else {
+      if (mine.outgoing.includes(to) || mine.outgoing.length >= REQUESTS_MAX || theirs.incoming.length >= REQUESTS_MAX) return;
+      mine.outgoing.push(to);
+      theirs.incoming.push(me);
+    }
+    await this.state.storage.put({ ["links:" + me]: mine, ["links:" + to]: theirs });
+    await this.tellFriends(me, to);
+  }
+
+  /** Remove a friend, decline their request, or cancel yours: whichever link there is, both ways. */
+  async unfriend(me, to) {
+    const mine = await this.links(me);
+    const theirs = await this.links(to);
+    const drop = (list, id) => list.filter((x) => x !== id);
+    mine.friends = drop(mine.friends, to);
+    mine.incoming = drop(mine.incoming, to);
+    mine.outgoing = drop(mine.outgoing, to);
+    theirs.friends = drop(theirs.friends, me);
+    theirs.incoming = drop(theirs.incoming, me);
+    theirs.outgoing = drop(theirs.outgoing, me);
+    await this.state.storage.put({ ["links:" + me]: mine, ["links:" + to]: theirs });
+    await this.tellFriends(me, to);
   }
 
   /** Keeps one member from flooding others with invite notifications. */

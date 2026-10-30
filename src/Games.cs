@@ -54,6 +54,10 @@ public abstract class GameDefinition
     /// <summary>Whether the game can host or join co-op directly, without its relay (the Direct co-op window).</summary>
     public virtual bool HasDirectCoop => false;
 
+    /// <summary>Whether the game is running now (any version), for "In game" on the account.</summary>
+    public virtual bool IsRunning(string root) =>
+        GetFlavors(root).Select(f => GetLaunch(root, f)?.Exe).OfType<string>().Any(Account.IsRunning);
+
     /// <summary>A small icon for <paramref name="flavor"/> in the version picker; null for none.</summary>
     public virtual ImageSource? FlavorIcon(string root, GameFlavor flavor) => null;
 
@@ -166,6 +170,10 @@ sealed class WowGame : GameDefinition
         WowLocator.ArtKey(flavor.Folder) is { } key && Bundled($"versionicons/{key}.png") is { } icon ? icon
         : VersionExe(Path.Combine(root, flavor.Folder)) is { } exe ? ExeIcon(exe, 32)
         : null;
+
+    /// <summary>Any version's game program, not the launcher (which <see cref="GetLaunch"/> starts).</summary>
+    public override bool IsRunning(string root) =>
+        GetFlavors(root).Select(f => VersionExe(Path.Combine(root, f.Folder))).OfType<string>().Any(Account.IsRunning);
 
     /// <summary>A version folder's game program (Wow.exe, WowClassic.exe, WowB.exe …); null if there isn't one.</summary>
     static string? VersionExe(string folder)

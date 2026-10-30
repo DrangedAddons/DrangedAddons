@@ -7,6 +7,7 @@ namespace DrangedAddons;
 public partial class MainWindow
 {
     readonly DispatcherTimer _accountTick = new() { Interval = TimeSpan.FromSeconds(15) };
+    FriendsWindow? _friendsWindow;
     bool _syncingPicture;
 
     AccountSettings AccountInfo => _settings.Account ??= new AccountSettings();
@@ -21,18 +22,21 @@ public partial class MainWindow
     static string? Clean(string? name) =>
         name?.Trim() is { Length: > 0 } trimmed ? trimmed[..Math.Min(trimmed.Length, Account.NameLength)] : null;
 
-    /// <summary>What members see now: appear offline, in game, away (picked or idle), or online.</summary>
-    string AccountState =>
-        Account.Effective(AccountInfo.Status,
-            RootOf(CoopGame) is { } root && CoopGame.GetLaunch(root, CoopGame.GetFlavors(root)[0]) is { } launch
-            && Account.IsRunning(launch.Exe));
+    /// <summary>The first game in the side bar that's running, or null.</summary>
+    string? RunningGame() =>
+        _settings.Games.Select(GameDefinition.Find).OfType<GameDefinition>()
+            .FirstOrDefault(g => RootOf(g) is { } root && g.IsRunning(root))?.Id;
 
     /// <summary>In game and idle-away change on their own: checked every 15 seconds.</summary>
     void StartAccount()
     {
         _accountTick.Tick += (_, _) => UpdateCoopPresence();
         _accountTick.Start();
-        Avatars.Loaded += () => _coopWindow?.RefreshLists();
+        Avatars.Loaded += () =>
+        {
+            _coopWindow?.RefreshLists();
+            _friendsWindow?.Refresh();
+        };
         UpdateAccountChip();
     }
 
@@ -48,11 +52,29 @@ public partial class MainWindow
         // Grey unless the co-op service actually lists us: not connected (yet) counts as offline.
         var shown = _coopPresence is { Connected: true } p ? p.State : "offline";
         AccountDot.Fill = Account.StateBrush(shown);
-        var where = _coopPresence is null ? "Not connected (add Azeroth Survivors to go online)"
-            : !_coopPresence.Connected ? "Connecting…"
+        var where = _coopPresence is not { Connected: true } ? "Connecting…"
             : AccountInfo.Status == AccountStatus.AppearOffline ? "Appearing offline"
-            : Account.Label(shown);
+            : Account.Label(shown, _coopPresence.Game);
         AccountButton.ToolTip = $"{name}\n{where}";
+
+        var requests = _coopPresence?.Friends.Incoming.Count ?? 0;
+        FriendsBadge.Visibility = requests > 0 ? Visibility.Visible : Visibility.Collapsed;
+        FriendsBadgeText.Text = requests.ToString();
+        FriendsButton.ToolTip = requests switch { 0 => "Friends", 1 => "Friends: 1 request", _ => $"Friends: {requests} requests" };
+    }
+
+    /// <summary>One Friends window at a time, not modal, so it can stay open beside the game list.</summary>
+    void Friends_Click(object sender, RoutedEventArgs e)
+    {
+        if (_friendsWindow is not null)
+        {
+            if (_friendsWindow.WindowState == WindowState.Minimized) _friendsWindow.WindowState = WindowState.Normal;
+            _friendsWindow.Activate();
+            return;
+        }
+        _friendsWindow = new FriendsWindow(_coopPresence) { Owner = this };
+        _friendsWindow.Closed += (_, _) => _friendsWindow = null;
+        _friendsWindow.Show();
     }
 
     void Account_Click(object sender, RoutedEventArgs e)

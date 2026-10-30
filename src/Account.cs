@@ -36,18 +36,22 @@ public static class Account
 
     public static string PictureFile => Path.Combine(Storage.Dir, "avatar.jpg");
 
-    /// <summary>The state to show: appear offline wins, then playing, then away (picked, or idle for 10 minutes).</summary>
-    public static string Effective(AccountStatus status, bool inGame) =>
+    /// <summary>
+    /// The state to show: appear offline wins, then playing (<paramref name="game"/>: which game, or null), then away
+    /// (picked, or idle for 10 minutes).
+    /// </summary>
+    public static string Effective(AccountStatus status, string? game) =>
         status == AccountStatus.AppearOffline ? "offline"
-        : inGame ? "ingame"
+        : game is not null ? "ingame"
         : status == AccountStatus.Away || IdleFor() >= IdleAway ? "away"
         : "online";
 
-    public static string Label(string? state) => state switch
+    /// <param name="game">For in game: the game's id, to name it ("In game · World of Warcraft").</param>
+    public static string Label(string? state, string? game = null) => state switch
     {
         "online" => "Online",
         "away" => "Away",
-        "ingame" => "In game",
+        "ingame" => GameDefinition.Find(game) is { } g ? $"In game · {g.Name}" : "In game",
         _ => "Offline",
     };
 

@@ -13,33 +13,32 @@ public partial class MainWindow
     static readonly GameDefinition CoopGame = GameDefinition.All.First(g => g.HasDirectCoop);
 
     /// <summary>
-    /// Connected to the co-op service while Azeroth Survivors is in the side bar, under the account's name and status
-    /// (appearing offline stays connected, so the member list still shows, but nobody sees you). Called on start and
-    /// whenever one of those changes; a status change alone is sent without reconnecting.
+    /// Connected to the co-op service while the app runs, whatever the games, under the account's name and status
+    /// (appearing offline stays connected, so friends and members still show, but nobody sees you). Called on start
+    /// and every 15 seconds; a status change alone is sent without reconnecting, a new name reconnects.
     /// </summary>
     void UpdateCoopPresence()
     {
-        var name = _settings.Games.Contains(CoopGame.Id) && RootOf(CoopGame) is not null ? AccountName : null;
-        var state = AccountState;
+        var name = AccountName;
+        var game = AccountInfo.Status == AccountStatus.AppearOffline ? null : RunningGame();
+        var state = Account.Effective(AccountInfo.Status, game);
         if (_coopPresence?.Name == name)
         {
-            if (_coopPresence is not null) _ = _coopPresence.SetStateAsync(state);
+            _ = _coopPresence.SetStateAsync(state, game);
             UpdateAccountChip();
             return;
         }
         _coopPresence?.Dispose();
-        _coopPresence = null;
-        if (name is not null)
+        _coopPresence = new CoopPresence(CoopKey, name, state, game);
+        _coopPresence.Invited += (from, code) => Dispatcher.BeginInvoke(() => OnCoopInvite(from, code));
+        _coopPresence.Changed += () => Dispatcher.BeginInvoke(() =>
         {
-            _coopPresence = new CoopPresence(CoopKey, name, state);
-            _coopPresence.Invited += (from, code) => Dispatcher.BeginInvoke(() => OnCoopInvite(from, code));
-            _coopPresence.Changed += () => Dispatcher.BeginInvoke(() =>
-            {
-                UpdateAccountChip();
-                _ = SyncPictureAsync();
-            });
-        }
+            UpdateAccountChip();
+            _friendsWindow?.Refresh();
+            _ = SyncPictureAsync();
+        });
         _coopWindow?.UsePresence(_coopPresence);
+        _friendsWindow?.UsePresence(_coopPresence);
         UpdateAccountChip();
     }
 

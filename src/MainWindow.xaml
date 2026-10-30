@@ -59,6 +59,20 @@
                          Margin="0,0,-2,-2" Stroke="#111317" StrokeThickness="2.5" Fill="#747F8D"/>
             </Grid>
         </Button>
+        <!-- Friends, for every game; the badge counts friend requests waiting for an answer. -->
+        <Button x:Name="FriendsButton" DockPanel.Dock="Bottom" Style="{StaticResource RailButton}" Margin="0,0,0,4"
+                Click="Friends_Click" ToolTip="Friends">
+            <Grid Width="36" Height="36">
+                <TextBlock Text="&#xE716;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="18"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                <Border x:Name="FriendsBadge" Background="{StaticResource DangerBrush}" CornerRadius="8" MinWidth="16" Height="16"
+                        Padding="4,0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,-4,0" Visibility="Collapsed">
+                    <TextBlock x:Name="FriendsBadgeText" FontSize="10" FontWeight="Bold" Foreground="White"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </Grid>
+        </Button>
         <StackPanel Margin="0,10,0,0">
             <ItemsControl x:Name="GameRail" Focusable="False">
                 <ItemsControl.ItemTemplate>

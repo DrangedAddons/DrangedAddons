@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using Ellipse = System.Windows.Shapes.Ellipse;
 using System.Windows.Threading;
 
 namespace DrangedAddons;
@@ -20,6 +19,9 @@ public partial class CoopWindow : Window
     enum Screen { Start, Host, Join, Joined }
 
     readonly string _exe;
+
+    /// <summary>The game these lobbies are for: its id tags the listed lobby, and only its lobbies are listed.</summary>
+    static readonly string CoopGameId = GameDefinition.All.First(g => g.HasDirectCoop).Id;
     readonly string _name;
     readonly string _key;
     /// <summary>Hosting started (true) or ended (false): the manager keeps this player online while hosting.</summary>
@@ -218,7 +220,7 @@ public partial class CoopWindow : Window
     Task ListLobbyAsync() =>
         _presence is null ? Task.CompletedTask
         : _host is null ? _presence.SetLobbyAsync(null)
-        : _presence.SetLobbyAsync(new CoopLobby(_host.Code, _host.Locked, _host.HasPassword, _host.Party.Members.Count + 1));
+        : _presence.SetLobbyAsync(new CoopLobby(_host.Code, _host.Locked, _host.HasPassword, _host.Party.Members.Count + 1, CoopGameId));
 
     async void StartGame_Click(object sender, RoutedEventArgs e)
     {
@@ -563,15 +565,32 @@ public partial class CoopWindow : Window
             OnlineList.Children.Add(Line(all.Count == 0 ? "Nobody else is online." : "No matches.", Muted));
             return;
         }
-        foreach (var player in shown)
+        // Friends first, under their own heading; everyone else online after them.
+        var friends = shown.Where(p => _presence.IsFriend(p.Id)).ToList();
+        var others = shown.Where(p => !_presence.IsFriend(p.Id)).ToList();
+        foreach (var (heading, players) in new[] { ("Friends", friends), ("Others online", others) })
         {
-            var joined = inLobby.Contains(player.Id);
-            var invited = _invited.ContainsKey(player.Id);
-            var label = joined ? "In lobby" : invited ? "Invited" : "Invite";
-            OnlineList.Children.Add(Row(Display(player, sameName), Account.Label(player.State), Account.StateBrush(player.State),
-                (label, () => _ = InviteAsync(player)), enabled: !joined && !invited && !full, player: player));
+            if (players.Count == 0) continue;
+            if (friends.Count > 0) OnlineList.Children.Add(ListHeading(heading));
+            foreach (var player in players)
+            {
+                var joined = inLobby.Contains(player.Id);
+                var invited = _invited.ContainsKey(player.Id);
+                var label = joined ? "In lobby" : invited ? "Invited" : "Invite";
+                OnlineList.Children.Add(Row(Display(player, sameName), Account.Label(player.State, player.Game), Account.StateBrush(player.State),
+                    (label, () => _ = InviteAsync(player)), enabled: !joined && !invited && !full, player: player));
+            }
         }
     }
+
+    TextBlock ListHeading(string text) => new()
+    {
+        Text = text,
+        Foreground = Muted,
+        FontSize = 12,
+        FontWeight = FontWeights.SemiBold,
+        Margin = new Thickness(0, OnlineList.Children.Count == 0 ? 0 : 10, 0, 4),
+    };
 
     async Task InviteAsync(CoopPlayer player)
     {
@@ -618,7 +637,9 @@ public partial class CoopWindow : Window
     {
         LobbyList.Children.Clear();
         if (ShowPresenceState(LobbyList)) return;
-        var hosting = _presence!.Players.Where(p => p.Lobby is not null).ToList();
+        // Lobbies listed without a game came from managers before 0.33, which only hosted this game.
+        var hosting = _presence!.Players.Where(p => p.Lobby is { } l && (l.Game ?? CoopGameId) == CoopGameId)
+            .OrderBy(p => _presence.IsFriend(p.Id) ? 0 : 1).ToList();
         var sameName = SameNames(_presence.Players);
         if (hosting.Count == 0)
         {
@@ -628,7 +649,8 @@ public partial class CoopWindow : Window
         foreach (var player in hosting)
         {
             var lobby = player.Lobby!;
-            var info = $"{lobby.Count}/5" + (lobby.Password ? " · password" : "") + (lobby.Locked ? " · locked" : "");
+            var info = (_presence.IsFriend(player.Id) ? "Friend · " : "")
+                       + $"{lobby.Count}/5" + (lobby.Password ? " · password" : "") + (lobby.Locked ? " · locked" : "");
             var canJoin = lobby is { Locked: false, Code: not null } && lobby.Count < 5 && !_busy;
             LobbyList.Children.Add(Row(Display(player, sameName), info, Muted, ("Join", () =>
             {
@@ -808,35 +830,7 @@ public partial class CoopWindow : Window
     }
 
     /// <summary>A member's picture (or initials) with their status dot.</summary>
-    UIElement Avatar(CoopPlayer player)
-    {
-        var grid = new Grid { Width = 28, Height = 28, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
-        grid.Children.Add(new Ellipse { Fill = (Brush)FindResource("Panel2Brush"), Stroke = (Brush)FindResource("LineBrush"), StrokeThickness = 1 });
-        if (Avatars.Get(player.Id, player.Avatar) is { } picture)
-            grid.Children.Add(new Ellipse { Fill = new ImageBrush(picture) { Stretch = Stretch.UniformToFill } });
-        else
-            grid.Children.Add(new TextBlock
-            {
-                Text = Account.Initials(player.Name),
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = (Brush)FindResource("AccentBrush"),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-        grid.Children.Add(new Ellipse
-        {
-            Width = 10,
-            Height = 10,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(0, 0, -2, -2),
-            Fill = Account.StateBrush(player.State),
-            Stroke = (Brush)FindResource("BgBrush"),
-            StrokeThickness = 2,
-        });
-        return grid;
-    }
+    UIElement Avatar(CoopPlayer player) => MemberUi.Avatar(this, player, player.State);
 
     static TextBlock Line(string text, Brush brush) => new() { Text = text, Foreground = brush, TextWrapping = TextWrapping.Wrap };
 

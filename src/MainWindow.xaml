@@ -130,8 +130,31 @@
             </ComboBox>
             <!-- Starts the game version that's picked (WoW through Battle.net); disabled when it can't be found. -->
             <!-- A plain icon: most people start the game from Battle.net, so it shouldn't compete with the list. -->
+            <!-- Games that can skip their co-op relay (Azeroth Survivors) ask first: play, or direct co-op. -->
             <Button x:Name="PlayButton" Grid.Column="3" Style="{StaticResource IconBtn}" Width="38" Height="38"
-                    Margin="6,0,0,0" VerticalAlignment="Center" Click="Play_Click" Content="&#xF5B0;" FontSize="16"/>
+                    Margin="6,0,0,0" VerticalAlignment="Center" Click="Play_Click" Content="&#xF5B0;" FontSize="16">
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Click="PlayItem_Click">
+                            <MenuItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xF5B0;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Width="26" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Play"/>
+                                </StackPanel>
+                            </MenuItem.Header>
+                        </MenuItem>
+                        <MenuItem Click="DirectCoop_Click"
+                                  ToolTip="Host or join co-op straight to the host, not through the game's relay">
+                            <MenuItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE716;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Width="26" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Direct co-op…"/>
+                                </StackPanel>
+                            </MenuItem.Header>
+                        </MenuItem>
+                    </ContextMenu>
+                </Button.ContextMenu>
+            </Button>
             <Button x:Name="GameMenuButton" Grid.Column="4" Style="{StaticResource GhostBtn}" Width="38" Height="38"
                     Margin="6,0,0,0" Padding="0" VerticalAlignment="Center" Click="GameMenu_Click" ToolTip="Game folder options">
                 <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"/>
@@ -151,16 +174,6 @@
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="&#xE838;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Width="26" VerticalAlignment="Center"/>
                                     <TextBlock Text="Open AddOns folder"/>
-                                </StackPanel>
-                            </MenuItem.Header>
-                        </MenuItem>
-                        <!-- Games that can skip their co-op relay (Azeroth Survivors); hidden for the rest. -->
-                        <MenuItem x:Name="DirectCoopItem" Click="DirectCoop_Click" ToolTipService.ShowOnDisabled="True"
-                                  ToolTip="Host or join co-op straight to the host, not through the game's relay">
-                            <MenuItem.Header>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE716;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Width="26" VerticalAlignment="Center"/>
-                                    <TextBlock Text="Direct co-op…"/>
                                 </StackPanel>
                             </MenuItem.Header>
                         </MenuItem>

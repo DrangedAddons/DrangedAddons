@@ -574,7 +574,6 @@ public partial class MainWindow : Window
         // Only WoW has versions to pick; for other games the picker would only ever hold the game itself.
         FlavorList.Visibility = _game.HasVersions ? Visibility.Visible : Visibility.Collapsed;
         ScanGamesItem.Visibility = ScanGamesMenu.Visibility = _game.HasVersions ? Visibility.Visible : Visibility.Collapsed;
-        DirectCoopItem.Visibility = _game.HasDirectCoop ? Visibility.Visible : Visibility.Collapsed;
         UpdateRailIcon(_game);
         if (_root is null)
         {
@@ -1486,10 +1485,21 @@ public partial class MainWindow : Window
         var what = _game.HasVersions && CurrentFlavor is { } flavor ? $"{_game.Name} {flavor.DisplayName}" : _game.Name;
         PlayButton.Visibility = NoGames ? Visibility.Collapsed : Visibility.Visible;
         PlayButton.IsEnabled = launch is not null;
-        PlayButton.ToolTip = launch is not null ? $"Start {what} {launch.How}" : $"{what} isn't installed in the game folder";
+        PlayButton.ToolTip = launch is null ? $"{what} isn't installed in the game folder"
+            : _game.HasDirectCoop ? $"Play {what}, or start direct co-op"
+            : $"Start {what} {launch.How}";
+        ContextMenuService.SetIsEnabled(PlayButton, _game.HasDirectCoop); // no right-click menu for plain Play
     }
 
     void Play_Click(object sender, RoutedEventArgs e)
+    {
+        if (_game.HasDirectCoop) OpenMenuUnder(PlayButton);
+        else PlayGame();
+    }
+
+    void PlayItem_Click(object sender, RoutedEventArgs e) => PlayGame();
+
+    void PlayGame()
     {
         if (CurrentLaunch is not { } launch) return;
         try

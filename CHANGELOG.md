@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.28.1
+- **Direct co-op moved to the Play button.** For Azeroth Survivors, ▶ now opens a small menu: **Play** starts the game as before, **Direct co-op…** opens the co-op window. It's no longer in the ⋯ menu. WoW's ▶ still starts the game straight away.
+
 ## 0.28.0
 - **Direct co-op works without touching anyone's router, and friends invite each other.** 0.27.0 needed the host's router to open a port (UPnP), which plenty of routers don't allow. Now the two managers find each other through a small co-op service and punch a direct path through both routers, the way voice chat apps do. The game's connection then runs inside an encrypted link between the two PCs; nothing else needs installing, and nobody needs an account.
   - **Friends online**: while DrangedAddons runs, with Azeroth Survivors in the side bar, you show as online under the hero you last played. ⋯ → Direct co-op… lists who else is online, with a search box.

@@ -5,6 +5,45 @@
 #include <vulkan/vulkan.h>
 #undef CreateSemaphore // windows.h's macro, not Vulkan's function
 #include <cstdio>
+#include <cstring>
+#include <csignal>
+#include <exception>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+
+// When the program aborts or an exception escapes, print where (with the overlay DLL's symbols when its PDB is there).
+void PrintStack(const char* why)
+{
+    printf("=== %s\n", why);
+    HANDLE process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS);
+    char exe[MAX_PATH];
+    GetModuleFileNameA(nullptr, exe, MAX_PATH);
+    *strrchr(exe, 92) = 0; // symbols next to the programs, in bin
+    SymInitialize(process, exe, TRUE);
+    void* frames[64];
+    USHORT n = CaptureStackBackTrace(0, 64, frames, nullptr);
+    for (USHORT i = 0; i < n; i++)
+    {
+        char buffer[sizeof(SYMBOL_INFO) + 256] = {};
+        auto* symbol = (SYMBOL_INFO*)buffer;
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+        symbol->MaxNameLen = 255;
+        DWORD64 offset = 0;
+        IMAGEHLP_LINE64 line{ sizeof line };
+        DWORD lineOffset = 0;
+        char module[MAX_PATH] = "?";
+        HMODULE m = nullptr;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)frames[i], &m))
+            GetModuleFileNameA(m, module, MAX_PATH);
+        const char* base = strrchr(module, 92);
+        bool named = SymFromAddr(process, (DWORD64)frames[i], &offset, symbol);
+        bool lined = SymGetLineFromAddr64(process, (DWORD64)frames[i], &lineOffset, &line);
+        printf("  %-22s %s%s", base ? base + 1 : module, named ? symbol->Name : "?", lined ? "" : "\n");
+        if (lined) printf("  (%s:%lu)\n", strrchr(line.FileName, 92) ? strrchr(line.FileName, 92) + 1 : line.FileName, line.LineNumber);
+    }
+    fflush(stdout);
+}
 #include <vector>
 
 #define FAIL(what) do { printf("FAILED: %s\n", what); return 1; } while (0)
@@ -23,7 +62,31 @@ I(DestroyDevice) I(ResetCommandBuffer)
 
 int main(int argc, char** argv)
 {
+    // First chance: a C++ exception being thrown anywhere (E06D7363), with its type, before anything handles it.
+    AddVectoredExceptionHandler(1, [](EXCEPTION_POINTERS* e) -> LONG {
+        auto* r = e->ExceptionRecord;
+        if (r->ExceptionCode != 0xE06D7363 || r->NumberParameters < 4) return EXCEPTION_CONTINUE_SEARCH;
+        auto base = (char*)r->ExceptionInformation[3];
+        auto throwInfo = base + *(int*)((char*)r->ExceptionInformation[2] + 12);  // ThrowInfo.pCatchableTypeArray
+        auto first = base + *(int*)(throwInfo + 4);                               // first CatchableType
+        auto type = (const char*)(base + *(int*)(first + 4)) + 16;                // its TypeDescriptor's name
+        char why[256];
+        snprintf(why, sizeof why, "C++ exception thrown: %s", type);
+        PrintStack(why);
+        return EXCEPTION_CONTINUE_SEARCH;
+    });
+    signal(SIGABRT, [](int) { PrintStack("abort"); });
+    std::set_terminate([] { PrintStack("terminate"); abort(); });
+    SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* e) -> LONG {
+        char why[64];
+        snprintf(why, sizeof why, "unhandled exception %08lX", e->ExceptionRecord->ExceptionCode);
+        PrintStack(why);
+        return EXCEPTION_CONTINUE_SEARCH;
+    });
+    setvbuf(stdout, nullptr, _IONBF, 0);
     int frames = argc > 1 ? atoi(argv[1]) : 30;
+    // "click": from frame 10, posts clicks and typing to the (hidden) window, as a player using the overlay would.
+    bool click = argc > 2 && strcmp(argv[2], "click") == 0;
     HMODULE vulkan = LoadLibraryW(L"vulkan-1.dll");
     if (!vulkan) FAIL("no vulkan-1.dll");
     gipa = (PFN_vkGetInstanceProcAddr)GetProcAddress(vulkan, "vkGetInstanceProcAddr");
@@ -190,8 +253,19 @@ int main(int argc, char** argv)
 
     for (int frame = 0; frame < frames; frame++)
     {
+        if (click && frame >= 10 && frame < 40)
+        {
+            int x = (int)extent.width / 2, y = (int)extent.height / 2 + (frame % 2 ? 40 : -20);
+            LPARAM at = MAKELPARAM(x, y);
+            PostMessageW(window, WM_MOUSEMOVE, 0, at);
+            PostMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, at);
+            PostMessageW(window, WM_LBUTTONUP, 0, at);
+            PostMessageW(window, WM_KEYDOWN, 'A', 1);
+            PostMessageW(window, WM_CHAR, 'a', 1);
+            PostMessageW(window, WM_KEYUP, 'A', 0xC0000001);
+        }
         MSG msg;
-        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
         uint32_t index;
         CHECK(AcquireNextImageKHR(device, swapchain, UINT64_MAX, acquired, VK_NULL_HANDLE, &index));
         ResetCommandBuffer(cmd, 0);

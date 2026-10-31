@@ -84,6 +84,13 @@ std::unordered_map<VkSwapchainKHR, std::unique_ptr<Swapchain>> g_swapchains;
 bool g_dumped = false;
 int g_drawnFrames = 0; // the test dump waits a few frames: ImGui shows auto-sized windows from their second frame
 
+/// Which drawn frame the test dump takes: DRANGED_OVERLAY_DUMP_FRAME, else the fifth.
+int DumpFrame()
+{
+    char value[16] = {};
+    return GetEnvironmentVariableA("DRANGED_OVERLAY_DUMP_FRAME", value, sizeof value) ? atoi(value) : 5;
+}
+
 bool IsSrgb(VkFormat f)
 {
     return f == VK_FORMAT_B8G8R8A8_SRGB || f == VK_FORMAT_R8G8B8A8_SRGB || f == VK_FORMAT_A8B8G8R8_SRGB_PACK32;
@@ -636,7 +643,7 @@ VkResult VKAPI_CALL QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info)
             if (IsSrgb(s->format)) LinearizeColours(ImGui::GetDrawData());
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
             d->CmdEndRenderPass(cmd);
-            if (s->canCopy && !g_dumped && overlay::DumpPath() && ++g_drawnFrames >= 5) dumping = StartDump(d, s, cmd, s->images[index], dump);
+            if (s->canCopy && !g_dumped && overlay::DumpPath() && ++g_drawnFrames >= DumpFrame()) dumping = StartDump(d, s, cmd, s->images[index], dump);
             d->EndCommandBuffer(cmd);
 
             std::vector<VkPipelineStageFlags> stages(info->waitSemaphoreCount, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);

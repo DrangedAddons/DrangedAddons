@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.38.1
+- **Fix: clicking in the overlay crashed the game.** Letting go of the mouse makes Windows send the game's window a
+  second message from inside the first; the overlay's lock didn't allow that, threw, and the game ended. The lock
+  now allows it, nothing from the overlay can reach the game as an error any more, and an ImGui check that fails is
+  logged instead of ending the game.
+- While the overlay is open the game only gets the release of keys and mouse buttons it saw pressed, never one it
+  didn't; ImGui no longer moves the IME window from the game's render thread.
+- What a game started from the app writes to stderr (a crash message, say) is kept in
+  %LOCALAPPDATA%\DrangedAddons\game-errors.log.
+
 ## 0.38.0
 - **In-game overlay, first version.** Games started from the app with the overlay on get a panel inside the game:
   Shift+Tab opens it, Esc or the key again closes it, and a hint shows for a few seconds after the game starts.

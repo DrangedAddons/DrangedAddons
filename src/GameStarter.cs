@@ -55,6 +55,8 @@ public static class GameStarter
             WorkingDirectory = Path.GetDirectoryName(exe)!,
             // Variables need the process started directly; without any, start it the way Explorer would.
             UseShellExecute = variables.Count == 0,
+            // A game started directly keeps what it writes to stderr (a Rust panic's message, say) in game-errors.log.
+            RedirectStandardError = variables.Count > 0,
         };
         foreach (var (name, value) in variables) info.Environment[name] = value;
         Process process;
@@ -66,6 +68,15 @@ public static class GameStarter
         {
             session?.Dispose();
             throw;
+        }
+        if (info.RedirectStandardError)
+        {
+            var name = game.Name;
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data)) GameErrors.Write(name, e.Data);
+            };
+            process.BeginErrorReadLine(); // read as it comes, so the game never waits on a full pipe
         }
         session?.Follow(process.Id);
         return process;
@@ -235,6 +246,26 @@ public static class GameStarter
         {
             if (!_stop.IsCancellationRequested) _stop.Cancel();
         }
+    }
+}
+
+/// <summary>What games started from the app write to stderr, in %LOCALAPPDATA%\DrangedAddons\game-errors.log.</summary>
+static class GameErrors
+{
+    static readonly object Lock = new();
+
+    public static void Write(string game, string line)
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DrangedAddons", "game-errors.log");
+            lock (Lock)
+            {
+                if (File.Exists(path) && new FileInfo(path).Length > 512 * 1024) File.Delete(path);
+                File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{game}] {line}{Environment.NewLine}");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 }
 

@@ -9,6 +9,7 @@
 #include <memory>
 #include <cstdarg>
 #include <mutex>
+#include <set>
 #include <thread>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -19,7 +20,9 @@ void DrawUi(bool open, bool hint);
 
 namespace {
 
-std::mutex g_lock; // ImGui and the state below
+// ImGui and the state below. Re-entrant: Windows can call the window procedure again from inside ImGui's handling of
+// a message (taking mouse capture sends one), on the same thread.
+std::recursive_mutex g_lock;
 HWND g_window = nullptr;
 WNDPROC g_previous = nullptr;
 std::atomic<bool> g_open = false;
@@ -185,6 +188,31 @@ void SetOpen(bool open)
     Send(open ? "{\"t\":\"opened\"}" : "{\"t\":\"closed\"}");
 }
 
+// Keys and mouse buttons the game has seen go down and not yet up. While the overlay is open the game sees no presses,
+// and only the releases of these, so it never gets a release it didn't see pressed (winit counts presses and
+// releases for mouse capture).
+std::set<UINT> g_gameHeld;
+
+/// The virtual key a key or mouse-button message is about; 0 for anything else.
+UINT InputKey(UINT message, WPARAM w)
+{
+    switch (message)
+    {
+    case WM_KEYDOWN: case WM_KEYUP: case WM_SYSKEYDOWN: case WM_SYSKEYUP: return (UINT)w;
+    case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK: return VK_LBUTTON;
+    case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_RBUTTONDBLCLK: return VK_RBUTTON;
+    case WM_MBUTTONDOWN: case WM_MBUTTONUP: case WM_MBUTTONDBLCLK: return VK_MBUTTON;
+    case WM_XBUTTONDOWN: case WM_XBUTTONUP: case WM_XBUTTONDBLCLK: return HIWORD(w) == XBUTTON1 ? VK_XBUTTON1 : VK_XBUTTON2;
+    }
+    return 0;
+}
+
+bool IsRelease(UINT message)
+{
+    return message == WM_KEYUP || message == WM_SYSKEYUP || message == WM_LBUTTONUP || message == WM_RBUTTONUP ||
+           message == WM_MBUTTONUP || message == WM_XBUTTONUP;
+}
+
 bool IsHotkey(WPARAM vk)
 {
     auto down = [](int key) { return (GetKeyState(key) & 0x8000) != 0; };
@@ -192,7 +220,7 @@ bool IsHotkey(WPARAM vk)
     return vk == g_hotkey.vk && down(VK_CONTROL) == g_hotkey.ctrl && down(VK_MENU) == g_hotkey.alt && down(VK_SHIFT) == g_hotkey.shift;
 }
 
-LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w, LPARAM l)
+LRESULT HandleMessage(HWND window, UINT message, WPARAM w, LPARAM l)
 {
     if (message == CloseMessage)
     {
@@ -205,6 +233,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w, LPARAM l)
         SetOpen(!g_open);
         return 0;
     }
+    UINT key = InputKey(message, w);
     if (g_open)
     {
         if (keyDown && w == VK_ESCAPE)
@@ -221,13 +250,36 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w, LPARAM l)
             SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(32512))); // IDC_ARROW
             return TRUE;
         }
-        // The game doesn't see input while the overlay is open, except keys and buttons being let go, so nothing
-        // it was holding stays held.
-        bool release = message == WM_KEYUP || message == WM_SYSKEYUP || message == WM_LBUTTONUP || message == WM_RBUTTONUP ||
-                       message == WM_MBUTTONUP || message == WM_XBUTTONUP;
-        if (message == WM_INPUT) return DefWindowProcW(window, message, w, l);
-        if (!release && ((message >= WM_KEYFIRST && message <= WM_KEYLAST) || (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST)))
-            return 0;
+        if (message == WM_INPUT) return DefWindowProcW(window, message, w, l); // raw input: the game doesn't get it
+        bool input = (message >= WM_KEYFIRST && message <= WM_KEYLAST) || (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST);
+        if (input)
+        {
+            // Only the release of something the game saw pressed; nothing else.
+            if (!(key && IsRelease(message) && g_gameHeld.erase(key))) return 0;
+        }
+    }
+    else if (key)
+    {
+        if (IsRelease(message)) g_gameHeld.erase(key);
+        else g_gameHeld.insert(key);
+    }
+    return CallWindowProcW(g_previous, window, message, w, l);
+}
+
+LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM w, LPARAM l)
+{
+    try
+    {
+        return HandleMessage(window, message, w, l);
+    }
+    catch (const std::exception& ex)
+    {
+        // Nothing may unwind into Windows or the game: log it and let the game handle the message.
+        Log("window message %u failed: %s", message, ex.what());
+    }
+    catch (...)
+    {
+        Log("window message %u failed", message);
     }
     return CallWindowProcW(g_previous, window, message, w, l);
 }
@@ -339,6 +391,8 @@ void Attach(HWND window)
         Style();
     }
     ImGui_ImplWin32_Init(window);
+    // ImGui would position the IME window from the render thread; IME calls belong on the window's own thread.
+    ImGui::GetPlatformIO().Platform_SetImeDataFn = nullptr;
     g_window = window;
     g_previous = (WNDPROC)SetWindowLongPtrW(window, GWLP_WNDPROC, (LONG_PTR)WindowProc);
     g_hintUntil = GetTickCount64() + 8000;
@@ -358,13 +412,25 @@ bool Frame(const std::function<void()>& newFrame, const std::function<void()>& r
     if (!g_window) return false;
     bool hint = GetTickCount64() < g_hintUntil;
     if (!g_open && !hint) return false;
-    newFrame();
-    ImGui_ImplWin32_NewFrame();
-    ImGui::NewFrame();
-    DrawUi(g_open, hint);
-    ImGui::Render();
-    render();
-    return true;
+    try
+    {
+        newFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+        DrawUi(g_open, hint);
+        ImGui::Render();
+        render();
+        return true;
+    }
+    catch (const std::exception& ex)
+    {
+        Log("frame failed: %s", ex.what());
+    }
+    catch (...)
+    {
+        Log("frame failed");
+    }
+    return false;
 }
 
 // ---- What it shows (a test panel for now) ----
@@ -422,3 +488,16 @@ void DrawUi(bool open, bool hint)
 }
 
 } // namespace overlay
+
+// IM_ASSERT (imconfig_overlay.h): logged once per place, never fatal.
+void OverlayImGuiAssert(const char* expression, const char* file, int line)
+{
+    static std::mutex lock;
+    static std::set<std::pair<const char*, int>> seen;
+    {
+        std::lock_guard guard(lock);
+        if (!seen.insert({ file, line }).second) return;
+    }
+    const char* name = strrchr(file, 92); // the last backslash
+    overlay::Log("ImGui check failed: %s (%s:%d)", expression, name ? name + 1 : file, line);
+}

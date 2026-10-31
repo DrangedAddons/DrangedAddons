@@ -15,14 +15,15 @@ if not exist build mkdir build
 
 set IMGUI=third_party\imgui
 set FLAGS=/nologo /O2 /MT /EHsc /std:c++20 /utf-8 /W3 /DNOMINMAX /DWIN32_LEAN_AND_MEAN /D_CRT_SECURE_NO_WARNINGS ^
+ /DNDEBUG /DIMGUI_USER_CONFIG="\"imconfig_overlay.h\"" /Isrc ^
  /DVK_USE_PLATFORM_WIN32_KHR /DVK_NO_PROTOTYPES /DIMGUI_IMPL_VULKAN_NO_PROTOTYPES ^
  /I%IMGUI% /I%IMGUI%\backends /Ithird_party\vulkan-headers\include /Fobuild\
 
 cl %FLAGS% /LD src\overlay.cpp src\vulkan_layer.cpp ^
  %IMGUI%\imgui.cpp %IMGUI%\imgui_draw.cpp %IMGUI%\imgui_tables.cpp %IMGUI%\imgui_widgets.cpp ^
  %IMGUI%\backends\imgui_impl_win32.cpp %IMGUI%\backends\imgui_impl_vulkan.cpp ^
- /Fe:bin\DrangedOverlay64.dll /link user32.lib gdi32.lib || exit /b 1
+ /Zi /Fdbuild\overlay.pdb /Fe:bin\DrangedOverlay64.dll /link /DEBUG /OPT:REF /OPT:NOICF user32.lib gdi32.lib || exit /b 1
 copy /y DrangedOverlay64.json bin\ >nul
 
-cl %FLAGS% tests\vktest.cpp /Fe:bin\vktest.exe /link user32.lib || exit /b 1
+cl %FLAGS% /Zi /Fdbuild\vktest.pdb tests\vktest.cpp /Fe:bin\vktest.exe /link /DEBUG user32.lib || exit /b 1
 echo Built bin\DrangedOverlay64.dll

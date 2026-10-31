@@ -52,6 +52,10 @@
 // summary to the Presence object: host, players, when each joined, roughly where each connects from (Cloudflare's
 // country, city and network for the connection) and their pings. GET /sessions with the stats token lists the open
 // ones for the platform dashboard. Unlike /stats this has names, places and networks: admin only.
+// Each session also keeps everyone who left ({left:[…]} with when and how) and a timeline ({events:[{t,e,name}]}:
+// opened, joined, connected, failed, left, removed, started, closed). When a session ends (or stops reporting) it's
+// archived for SESSION_ARCHIVE_DAYS, at most SESSION_ARCHIVE_MAX of them: GET /sessions/history lists them newest
+// first without their samples or timelines, GET /sessions/<id> returns one in full, open or archived. Admin only.
 // GET /stats with "Authorization: Bearer <STATS_TOKEN>" (a Worker secret) returns totals for the platform dashboard:
 // how many are connected, by status and game, open lobbies per game, members, friendships. Counts only: no names,
 // ids or lobby codes.
@@ -74,6 +78,9 @@ const INVITE_GAP_MS = 5000; // the same member, at most once per 5 seconds
 const INVITES_PER_MINUTE = 20;
 const SESSION_SAMPLES = 360; // 10 s apart: the last hour
 const SESSION_STALE_MS = 90000; // a session not reported for this long is gone (its lobby object stopped)
+const SESSION_EVENTS = 300;
+const SESSION_ARCHIVE_MAX = 300;
+const SESSION_ARCHIVE_DAYS = 30;
 const AVATAR_BYTES = 64 * 1024;
 const AVATAR_GAP_MS = 5000; // one picture change per 5 seconds per member
 const SEARCH_LENGTH = 24;
@@ -95,7 +102,7 @@ export default {
     if (url.pathname === "/avatar" || /^\/avatar\/[0-9a-f]{16}$/.test(url.pathname)) {
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
     }
-    if (url.pathname === "/stats" || url.pathname === "/sessions") {
+    if (url.pathname === "/stats" || /^\/sessions(\/history|\/[0-9a-f-]{12})?$/.test(url.pathname)) {
       if (!(await isAdmin(request, env))) return new Response("not allowed", { status: 401 });
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
     }
@@ -200,6 +207,7 @@ export class Lobby {
       });
       server.send(JSON.stringify({ t: "hosting" }));
       await this.state.storage.deleteAll(); // a fresh lobby under a code used before
+      await this.event("opened", null);
       await this.report();
     } else if (role === "join") {
       if (!host) return refuse("no lobby");
@@ -226,9 +234,14 @@ export class Lobby {
       const id = "p" + crypto.randomUUID().slice(0, 8);
       this.state.acceptWebSocket(server);
       const name = cleanName(params.get("name")) || "A player";
-      server.serializeAttachment({ role: "join", id, ip, member, name, joined: Date.now(), where: place(request) });
+      const joined = { role: "join", id, ip, member, name, joined: Date.now(), where: place(request) };
+      server.serializeAttachment(joined);
       server.send(JSON.stringify({ t: "joined", id }));
       host.send(JSON.stringify({ t: "join", id, member, name }));
+      const roster = (await this.state.storage.get("roster")) ?? {};
+      roster[id] = { id, name, member, joined: joined.joined, where: joined.where };
+      await this.state.storage.put("roster", roster);
+      await this.event("joined", name);
     } else {
       return new Response("role must be host or join", { status: 400 });
     }
@@ -310,13 +323,25 @@ export class Lobby {
   /** A party, start or telemetry message from the host: keep what the session view needs, then report it. */
   async sessionUpdate(message) {
     const now = Date.now();
-    if (message.t === "start" && !(await this.state.storage.get("started"))) await this.state.storage.put("started", now);
+    const start = async () => {
+      if (await this.state.storage.get("started")) return;
+      await this.state.storage.put("started", now);
+      await this.event("started", null);
+    };
+    if (message.t === "start") await start();
     if (message.t === "party" && message.data && typeof message.data === "object") {
+      const before = (await this.state.storage.get("states")) ?? {};
+      const roster = (await this.state.storage.get("roster")) ?? {};
       const states = {};
       for (const m of Array.isArray(message.data.members) ? message.data.members : [])
         if (typeof m?.id === "string" && typeof m.state === "string") states[m.id] = m.state.slice(0, 12);
       await this.state.storage.put("states", states);
-      if (message.data.started === true && !(await this.state.storage.get("started"))) await this.state.storage.put("started", now);
+      for (const [id, state] of Object.entries(states)) {
+        if (state === before[id] || !roster[id]) continue;
+        if (state === "Connected") await this.event("connected", roster[id].name);
+        else if (state === "Failed") await this.event("failed", roster[id].name);
+      }
+      if (message.data.started === true) await start();
     }
     if (message.t === "telemetry") {
       const pings = {};
@@ -332,24 +357,50 @@ export class Lobby {
   /** The session as the dashboard sees it, handed to the Presence object (which /sessions reads). */
   async report() {
     const host = this.sockets("host")[0]?.deserializeAttachment();
-    if (!host?.session) return;
-    const stored = await this.state.storage.get(["started", "states", "samples", "pings"]);
+    if (host?.session) await this.tellPresence(await this.snapshot(host));
+  }
+
+  /**
+   * The session now: who's in it with their pings, who left (with their pings over the time they were in), the
+   * samples and the timeline. With ended, everyone still in it is listed as left when the lobby closed.
+   */
+  async snapshot(host, ended = null) {
+    const stored = await this.state.storage.get(["started", "states", "samples", "pings", "roster", "events"]);
     const samples = stored.get("samples") ?? [];
     const pings = stored.get("pings") ?? {};
     const states = stored.get("states") ?? {};
-    const players = this.sockets("join").map((s) => s.deserializeAttachment()).filter(Boolean).map((j) => {
-      const all = samples.map((x) => x.p[j.id]).filter((v) => Number.isFinite(v));
+    const roster = stored.get("roster") ?? {};
+    const readings = (id) => samples.map((x) => x.p[id]).filter((v) => Number.isFinite(v));
+    const average = (all) => Math.round(all.reduce((a, b) => a + b, 0) / all.length);
+    // Over everything sampled while they were in: what's kept of a player who's gone.
+    const overall = (id, jitter = null) => {
+      const all = readings(id);
+      return all.length ? { avg: average(all), min: Math.min(...all), max: Math.max(...all), jitter, session: average(all) } : null;
+    };
+    // A socket that's closing can still be listed; the roster already says it left.
+    const players = this.sockets("join").map((s) => s.deserializeAttachment()).filter((j) => j && !roster[j.id]?.left).map((j) => {
+      const all = readings(j.id);
       return {
         id: j.id, name: j.name, member: j.member, joined: j.joined ?? null, where: j.where ?? null,
         state: states[j.id] ?? "Connecting",
-        ping: pings[j.id] ? { ...pings[j.id], session: all.length ? Math.round(all.reduce((a, b) => a + b, 0) / all.length) : null } : null,
+        ping: pings[j.id] ? { ...pings[j.id], session: all.length ? average(all) : null } : null,
       };
     });
-    await this.tellPresence({
+    const left = Object.values(roster).filter((r) => r.left).map((r) => ({ ...r, state: r.how, ping: overall(r.id) }));
+    if (ended)
+      for (const p of players) left.push({ ...p, left: ended, how: "Lobby closed", state: "Lobby closed", ping: overall(p.id, p.ping?.jitter ?? null) });
+    return {
       id: host.session, game: host.game, opened: host.opened, started: stored.get("started") ?? null,
       host: { name: host.name, where: host.where, locked: host.locked, password: !!host.pw },
-      players, samples,
-    });
+      players: ended ? [] : players, left: left.sort((a, b) => a.joined - b.joined), samples, events: stored.get("events") ?? [],
+    };
+  }
+
+  /** Adds to the session's timeline: what happened, and to whom (null for the lobby itself). */
+  async event(e, name) {
+    const events = (await this.state.storage.get("events")) ?? [];
+    events.push({ t: Date.now(), e, name });
+    await this.state.storage.put("events", events.slice(-SESSION_EVENTS));
   }
 
   async tellPresence(body) {
@@ -363,18 +414,34 @@ export class Lobby {
   }
 
   async webSocketClose(ws) {
-    this.gone(ws);
+    await this.gone(ws);
   }
 
   async webSocketError(ws) {
-    this.gone(ws);
+    await this.gone(ws);
   }
 
-  gone(ws) {
+  async gone(ws) {
     const me = ws.deserializeAttachment();
     if (me?.role === "host" && me.session) {
-      this.tellPresence({ id: me.session, ended: true });
-      this.state.storage.deleteAll();
+      // Close and error can both arrive; the first one archives the session.
+      if ((await this.state.storage.get("ended")) !== me.session) {
+        await this.state.storage.put("ended", me.session);
+        await this.event("closed", null);
+        const ended = Date.now();
+        await this.tellPresence({ ...(await this.snapshot(me, ended)), ended, how: "Closed" });
+        await this.state.storage.deleteAll();
+        await this.state.storage.put("ended", me.session);
+      }
+    } else if ((me?.role === "join" || me?.role === "kicked") && this.sockets("host").length > 0) {
+      const roster = (await this.state.storage.get("roster")) ?? {};
+      if (roster[me.id] && !roster[me.id].left) {
+        const how = me.role === "kicked" ? "Removed" : "Left";
+        roster[me.id] = { ...roster[me.id], left: Date.now(), how };
+        await this.state.storage.put("roster", roster);
+        await this.event(me.role === "kicked" ? "removed" : "left", me.name);
+        await this.report();
+      }
     }
     for (const other of this.state.getWebSockets()) {
       if (other === ws) continue;
@@ -520,6 +587,8 @@ export class Presence {
     if (url.pathname.startsWith("/avatar")) return this.avatar(request, url);
     if (url.pathname === "/stats") return this.stats(); // the token was checked before it got here
     if (url.pathname === "/sessions") return this.sessions(); // so was this one's
+    if (url.pathname === "/sessions/history") return this.sessionHistory(); // and these
+    if (url.pathname.startsWith("/sessions/")) return this.oneSession(url.pathname.slice("/sessions/".length));
     if (url.pathname.startsWith("/profiles")) return this.gameProfiles(request, url, request.headers.get("X-Platform-Admin") === "1");
     // Only lobby objects reach this: the Worker's front door never forwards /internal/ here.
     if (url.pathname === "/internal/session" && request.method === "POST") return this.storeSession(await request.json());
@@ -652,9 +721,42 @@ export class Presence {
 
   async storeSession(body) {
     if (typeof body?.id !== "string" || !/^[0-9a-f-]{12}$/.test(body.id)) return new Response("bad session", { status: 400 });
-    if (body.ended) await this.state.storage.delete("session:" + body.id);
-    else await this.state.storage.put("session:" + body.id, { ...body, updated: Date.now() });
+    if (body.ended) {
+      // A lobby from before archiving sends just the id: archive the last report instead.
+      const last = body.host ? body : await this.state.storage.get("session:" + body.id);
+      if (last) await this.archiveSession({ ...last, updated: Date.now() }, Number.isFinite(body.ended) ? body.ended : Date.now(), body.how ?? "Closed");
+      await this.state.storage.delete("session:" + body.id);
+    } else await this.state.storage.put("session:" + body.id, { ...body, updated: Date.now() });
     return new Response("ok");
+  }
+
+  /**
+   * Keeps an ended session: in full under archive:<id>, and as a small summary (no samples or timeline) under
+   * archived:<id> for the history list. Drops the oldest past SESSION_ARCHIVE_MAX or SESSION_ARCHIVE_DAYS.
+   */
+  async archiveSession(s, ended, how) {
+    const full = { ...s, ended, how };
+    delete full.updated;
+    const { samples, events, ...summary } = full;
+    await this.state.storage.put({ ["archive:" + s.id]: full, ["archived:" + s.id]: summary });
+    const all = [...(await this.state.storage.list({ prefix: "archived:" })).values()].sort((a, b) => b.ended - a.ended);
+    const cutoff = Date.now() - SESSION_ARCHIVE_DAYS * 86400000;
+    const drop = all.filter((x, i) => i >= SESSION_ARCHIVE_MAX || x.ended < cutoff);
+    if (drop.length) await this.state.storage.delete(drop.flatMap((x) => ["archive:" + x.id, "archived:" + x.id]).slice(0, 128));
+  }
+
+  /** Ended sessions, newest first, without their samples or timelines. */
+  async sessionHistory() {
+    const all = [...(await this.state.storage.list({ prefix: "archived:" })).values()].sort((a, b) => b.ended - a.ended);
+    return new Response(JSON.stringify({ at: new Date().toISOString(), sessions: all }),
+      { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  }
+
+  /** One session in full: open, or archived. */
+  async oneSession(id) {
+    const s = (await this.state.storage.get("session:" + id)) ?? (await this.state.storage.get("archive:" + id));
+    if (!s) return new Response("no such session", { status: 404 });
+    return new Response(JSON.stringify(s), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
   /** Game profiles (see the top). The front door has checked the token for anything but GET. */
@@ -732,8 +834,10 @@ export class Presence {
     const now = Date.now();
     const out = [];
     for (const [key, s] of await this.state.storage.list({ prefix: "session:" })) {
-      if (now - s.updated > SESSION_STALE_MS) await this.state.storage.delete(key);
-      else out.push(s);
+      if (now - s.updated > SESSION_STALE_MS) {
+        await this.archiveSession(s, s.updated, "Lost contact");
+        await this.state.storage.delete(key);
+      } else out.push(s);
     }
     out.sort((a, b) => a.opened - b.opened);
     return new Response(JSON.stringify({ at: new Date(now).toISOString(), sessions: out }),

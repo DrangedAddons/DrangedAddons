@@ -58,6 +58,9 @@ public abstract class GameDefinition
     /// <summary>Whether the game can host or join co-op directly, without its relay (the Direct co-op window).</summary>
     public virtual bool HasDirectCoop => false;
 
+    /// <summary>Whether the platform turns the in-game overlay on for this game (its profile; off without one).</summary>
+    public bool HasOverlay => GameProfiles.Find(Id)?.OverlayOn == true;
+
     /// <summary>Whether the game is running now (any version), for "In game" on the account.</summary>
     public virtual bool IsRunning(string root) =>
         GetFlavors(root).Select(f => GetLaunch(root, f)?.Exe).OfType<string>().Any(Account.IsRunning);

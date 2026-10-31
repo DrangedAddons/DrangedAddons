@@ -1,0 +1,14 @@
+{
+  "file_format_version": "1.2.0",
+  "layer": {
+    "name": "VK_LAYER_DRANGED_overlay",
+    "type": "GLOBAL",
+    "library_path": ".\\DrangedOverlay64.dll",
+    "api_version": "1.4.364",
+    "implementation_version": "1",
+    "description": "DrangedAddons in-game overlay (only in games the DrangedAddons manager starts)",
+    "functions": { "vkNegotiateLoaderLayerInterfaceVersion": "vkNegotiateLoaderLayerInterfaceVersion" },
+    "enable_environment": { "DRANGED_OVERLAY_ENABLE": "1" },
+    "disable_environment": { "DRANGED_OVERLAY_DISABLE": "1" }
+  }
+}

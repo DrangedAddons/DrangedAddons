@@ -56,6 +56,10 @@ public sealed class GameState
 {
     public string? Root { get; set; }
     public string? Flavor { get; set; }
+    /// <summary>This player shows the in-game overlay in this game (when the platform has it on for the game).</summary>
+    public bool Overlay { get; set; } = true;
+    /// <summary>The key that opens the overlay, as "Shift+Tab"; null for <see cref="OverlayHotkey.Default"/>.</summary>
+    public string? OverlayHotkey { get; set; }
 }
 
 public sealed class InstalledRecord

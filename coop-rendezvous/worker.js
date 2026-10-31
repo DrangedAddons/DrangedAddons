@@ -521,6 +521,14 @@ function cleanProfile(id, b) {
     return known ? (inside(known[2]) ? `%${known[1].toUpperCase()}%\\${inside(known[2])}` : null) : inside(p);
   };
   const env = (v) => (typeof v === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(v) ? v : null);
+  // NAME=value set when the manager starts the game. Not the overlay's own variables, the Vulkan loader's (they can
+  // load other code into the game) or the ones that say where programs are.
+  const launchVar = (v) => {
+    const m = typeof v === "string" ? v.match(/^([A-Za-z_][A-Za-z0-9_]{0,63})=(.*)$/) : null;
+    if (!m || /^(DRANGED_|VK_)|^(PATH|PATHEXT|COMSPEC|SYSTEMROOT|WINDIR)$/i.test(m[1])) return null;
+    const value = text(m[2], 200);
+    return value ? `${m[1]}=${value}` : null;
+  };
 
   const name = text(b.name, 40);
   if (!name) return { problem: "name required" };
@@ -538,6 +546,7 @@ function cleanProfile(id, b) {
     saved: inside(i.saved),
     search: Array.isArray(i.search) ? i.search.slice(0, 12).map(searchPath).filter(Boolean) : [],
     typical: text(i.typical, 200) || null,
+    launchEnv: Array.isArray(i.launchEnv) ? i.launchEnv.slice(0, 8).map(launchVar).filter(Boolean) : [],
   };
   if (!builtin && (!install.exe || !install.addons)) return { problem: "install.exe (a file name ending .exe) and install.addons (a folder inside the game folder) required" };
 

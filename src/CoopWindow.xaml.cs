@@ -26,6 +26,7 @@ public partial class CoopWindow : Window
 
     /// <summary>The game these lobbies are for: its id tags the listed lobby, and only its lobbies are listed.</summary>
     static readonly string CoopGameId = GameDefinition.All.First(g => g.HasDirectCoop).Id;
+    static GameDefinition CoopGame => GameDefinition.All.First(g => g.Id == CoopGameId);
     readonly string _name;
     readonly string _key;
     /// <summary>Hosting started (true) or ended (false): the manager keeps this player online while hosting.</summary>
@@ -1109,13 +1110,7 @@ public partial class CoopWindow : Window
 
     void StartGame(Dictionary<string, string> env)
     {
-        var info = new ProcessStartInfo(_exe)
-        {
-            WorkingDirectory = Path.GetDirectoryName(_exe)!,
-            UseShellExecute = false, // needed to hand the game its own environment variables
-        };
-        foreach (var (name, value) in env) info.Environment[name] = value;
-        var game = Process.Start(info) ?? throw new System.ComponentModel.Win32Exception("Windows didn't start it");
+        var game = GameStarter.Start(CoopGame, _exe, "", env);
         _game = game;
         game.EnableRaisingEvents = true;
         // The player closed the game: co-op ends, and the game stays closed.
@@ -1136,7 +1131,7 @@ public partial class CoopWindow : Window
     {
         try
         {
-            Process.Start(new ProcessStartInfo(_exe) { WorkingDirectory = Path.GetDirectoryName(_exe)!, UseShellExecute = true })?.Dispose();
+            GameStarter.Start(CoopGame, _exe, "").Dispose();
         }
         catch (System.ComponentModel.Win32Exception ex)
         {

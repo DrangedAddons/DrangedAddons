@@ -1,0 +1,35 @@
+<Window x:Class="DrangedAddons.OverlaySettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="In-game overlay" Width="480" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
+        FontFamily="Segoe UI" FontSize="13">
+    <StackPanel Margin="24,20">
+        <TextBlock Text="In-game overlay" FontSize="20" FontWeight="SemiBold"/>
+        <TextBlock x:Name="AboutText" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+
+        <CheckBox x:Name="OnCheck" Margin="0,18,0,0" Click="On_Click"/>
+
+        <TextBlock Text="Opens with" FontWeight="SemiBold" Margin="0,18,0,6"/>
+        <DockPanel x:Name="KeyRow">
+            <Button x:Name="ResetButton" DockPanel.Dock="Right" Content="Reset" Style="{StaticResource GhostBtn}"
+                    Margin="8,0,0,0" Click="Reset_Click"/>
+            <Button x:Name="ChangeButton" DockPanel.Dock="Right" Content="Change" Style="{StaticResource Btn}"
+                    Margin="8,0,0,0" Click="Change_Click"/>
+            <!-- Takes the next key pressed while waiting (after Change). -->
+            <Border x:Name="KeyBox" Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}"
+                    BorderThickness="1" CornerRadius="6" Padding="10,0" Height="34" Focusable="True"
+                    PreviewKeyDown="KeyBox_PreviewKeyDown" LostKeyboardFocus="KeyBox_LostFocus">
+                <TextBlock x:Name="KeyText" VerticalAlignment="Center" FontFamily="Consolas" FontSize="15"/>
+            </Border>
+        </DockPanel>
+        <TextBlock x:Name="ProblemText" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" Margin="0,8,0,0"
+                   Visibility="Collapsed"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <Button Content="Cancel" Style="{StaticResource Btn}" MinWidth="90" IsCancel="True" Margin="0,0,8,0"/>
+            <Button Content="Save" Style="{StaticResource AccentBtn}" MinWidth="90" Click="Save_Click"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

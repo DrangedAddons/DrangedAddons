@@ -32,6 +32,7 @@ public partial class MainWindow : Window
         _updateBannerBackground = UpdateBanner.Background;
         VersionText.Text = $"v{AppUpdater.CurrentVersion}";
         _settings.Migrate();
+        GameStarter.PlayerState = _settings.StateFor;
         _game = GameDefinition.Find(_settings.Game) ?? GameDefinition.Wow;
         LoadRail();
         StartAccount();
@@ -1509,11 +1510,7 @@ public partial class MainWindow : Window
         if (CurrentLaunch is not { } launch) return;
         try
         {
-            Process.Start(new ProcessStartInfo(launch.Exe, launch.Arguments)
-            {
-                WorkingDirectory = Path.GetDirectoryName(launch.Exe)!,
-                UseShellExecute = true,
-            })?.Dispose();
+            GameStarter.Start(_game, launch.Exe, launch.Arguments).Dispose();
             StatusText.Text = $"Starting {(_game.HasVersions ? CurrentFlavor?.DisplayName : _game.Name)} {launch.How}…";
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
@@ -1581,7 +1578,21 @@ public partial class MainWindow : Window
         OpenFolderItem.ToolTip = CurrentFlavor is { } flavor ? flavor.AddOnsPath : "Pick a game version first.";
     }
 
-    void GameMenu_Click(object sender, RoutedEventArgs e) => OpenMenuUnder(GameMenuButton);
+    void GameMenu_Click(object sender, RoutedEventArgs e)
+    {
+        OverlayItem.Visibility = _game.HasOverlay ? Visibility.Visible : Visibility.Collapsed;
+        OpenMenuUnder(GameMenuButton);
+    }
+
+    void Overlay_Click(object sender, RoutedEventArgs e)
+    {
+        var state = _settings.StateFor(_game.Id);
+        var window = new OverlaySettingsWindow(_game.Name, state.Overlay, state.OverlayHotkey) { Owner = this };
+        if (window.ShowDialog() != true) return;
+        state.Overlay = window.On;
+        state.OverlayHotkey = window.Hotkey == OverlayHotkey.Default ? null : window.Hotkey;
+        Storage.Save(SettingsFile, _settings);
+    }
 
     /// <summary>Opens a button's menu under it, right edges lined up.</summary>
     static void OpenMenuUnder(Button button)

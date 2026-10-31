@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.38.0
+- **In-game overlay, first version.** Games started from the app with the overlay on get a panel inside the game:
+  Shift+Tab opens it, Esc or the key again closes it, and a hint shows for a few seconds after the game starts.
+  While it's open the game doesn't get your keyboard or mouse, and it never takes focus from the game or minimises
+  it. For now the panel only shows that the overlay works; the lobby, friends and chat come next.
+- Works in games that draw with Vulkan, including Azeroth Survivors (started with Vulkan from its profile). It's a
+  Vulkan layer registered for your Windows user that only loads into games this app starts. See docs/overlay.md.
+- **Your overlay settings per game**: the game's ⚙ menu → In-game overlay… turns it off for you or changes its key
+  (Esc, Windows keys and plain typing keys aren't allowed). Only shown for games whose profile has the overlay on.
+- Games start with their profile's launch environment (set in DrangedAddons Platform).
+- Logs to %LOCALAPPDATA%\DrangedAddons\overlay.log, from both the app and the game.
+
 ## 0.37.0
 - **New lobby.** The host can set up a new lobby while the current one carries on: tick who comes along, set the
   lock and password, and add members to invite. Create lobby opens it, moves everyone ticked straight into it (their

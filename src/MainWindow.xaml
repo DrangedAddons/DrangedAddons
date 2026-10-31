@@ -190,6 +190,14 @@
                                 </StackPanel>
                             </MenuItem.Header>
                         </MenuItem>
+                        <MenuItem x:Name="OverlayItem" Click="Overlay_Click" Visibility="Collapsed">
+                            <MenuItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE765;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Width="26" VerticalAlignment="Center"/>
+                                    <TextBlock Text="In-game overlay…"/>
+                                </StackPanel>
+                            </MenuItem.Header>
+                        </MenuItem>
                         <Separator Style="{StaticResource MenuSeparator}"/>
                         <MenuItem x:Name="ChangeFolderItem" Click="ChangeFolder_Click" ToolTipService.ShowOnDisabled="True">
                             <MenuItem.Header>

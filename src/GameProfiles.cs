@@ -22,8 +22,14 @@ public sealed class GameProfile
     public ProfileInstall Install { get; set; } = new();
     public string Connectivity { get; set; } = "";
     public int? PartySize { get; set; }
+    /// <summary>The in-game overlay for this game; null (a profile from before the setting) for the default.</summary>
+    public bool? Overlay { get; set; }
     /// <summary>A short hash of the profile's icon on the Worker; null for none.</summary>
     public string? Icon { get; set; }
+
+    /// <summary>The overlay is on for the game: as set on the platform, else on unless the game is presence only.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool OverlayOn => Overlay ?? Connectivity != "presence-only";
 }
 
 /// <summary>Where the game is and how it starts. Folders are inside the game folder.</summary>
@@ -36,6 +42,8 @@ public sealed class ProfileInstall
     /// <summary>Folders relative to each drive, or starting %LOCALAPPDATA% and the like.</summary>
     public List<string> Search { get; set; } = [];
     public string? Typical { get; set; }
+    /// <summary>NAME=value set whenever the app starts the game (the Worker allows only safe names).</summary>
+    public List<string> LaunchEnv { get; set; } = [];
 }
 
 /// <summary>

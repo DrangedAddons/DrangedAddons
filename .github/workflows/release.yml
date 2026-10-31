@@ -29,6 +29,10 @@ jobs:
             exit 1
           fi
 
+      - name: Build the in-game overlay DLL
+        shell: cmd
+        run: overlay\build.cmd
+
       - name: Build DrangedAddons.exe
         run: dotnet publish src -c Release -o publish
 

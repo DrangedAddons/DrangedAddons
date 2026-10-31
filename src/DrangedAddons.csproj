@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <!-- Only for the tray icon (NotifyIcon); WinForms names are used qualified so they don't clash with WPF. -->
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>0.37.0</Version>
+    <Version>0.38.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Regenerate with tools/make_icon.py -->
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -29,6 +29,10 @@
     <Resource Include="versionicons\*.png" />
     <!-- Tray icon -->
     <Resource Include="app.ico" />
+    <!-- The in-game overlay (overlay\build.cmd builds the DLL; GameStarter writes both out and registers the layer).
+         A build without the DLL just has no overlay. -->
+    <EmbeddedResource Include="..\overlay\bin\DrangedOverlay64.dll" LogicalName="DrangedOverlay64.dll" Condition="Exists('..\overlay\bin\DrangedOverlay64.dll')" />
+    <EmbeddedResource Include="..\overlay\DrangedOverlay64.json" LogicalName="DrangedOverlay64.json" />
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
   </ItemGroup>

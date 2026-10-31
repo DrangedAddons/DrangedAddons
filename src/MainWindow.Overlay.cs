@@ -23,7 +23,8 @@ public partial class MainWindow
 
     /// <summary>You and your lobby, for the Friends window.</summary>
     FriendsContext FriendsContextNow() => new(AccountName, Account.LoadOwnPicture(), _coopPresence?.State ?? "offline", _coopPresence?.Game,
-        _coopWindow is { IsHosting: true, LobbyFull: false }, _coopWindow?.LobbyCode, _coopWindow?.LobbyMembers ?? [],
+        _coopWindow is { IsHosting: true, LobbyFull: false }, RootOf(CoopGame) is { } root && CoopGame.IsRunning(root),
+        _coopWindow?.LobbyCode, _coopWindow?.LobbyMembers ?? [],
         _coopInvites.Where(i => DateTime.UtcNow - i.At < TimeSpan.FromMinutes(15)).Select(i => (i.From, i.Code)).ToList());
 
     /// <summary>Invite to lobby on a friend: to your lobby when you host one with room, else a new lobby set up with them in it.</summary>

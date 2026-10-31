@@ -9,12 +9,14 @@ namespace DrangedAddons;
 /// <summary>What the Friends lists need from the rest of the app: you, and the lobby you're in (to invite to or join).</summary>
 /// <param name="Picture">Your picture, or null for your initials.</param>
 /// <param name="State">Your status ("online", "away", "ingame", "offline").</param>
-/// <param name="Hosting">You host a lobby with room: friends get Invite (otherwise Invite to lobby opens a new one).</param>
+/// <param name="Hosting">You host a lobby with room: friends get Invite.</param>
+/// <param name="GameRunning">A game with lobbies is running and you aren't hosting: friends get Invite to lobby, which
+/// sets up a new one. With neither, there's nothing to invite them to, so no button.</param>
 /// <param name="LobbyCode">The lobby you're in, if any (its own listing isn't offered to join).</param>
 /// <param name="LobbyMembers">Member ids in your lobby or invited to it.</param>
 /// <param name="Invites">Lobby invites waiting for an answer.</param>
-public sealed record FriendsContext(string Name, ImageSource? Picture, string State, string? Game, bool Hosting, string? LobbyCode,
-    IReadOnlySet<string> LobbyMembers, IReadOnlyList<(CoopPlayer From, string Code)> Invites);
+public sealed record FriendsContext(string Name, ImageSource? Picture, string State, string? Game, bool Hosting, bool GameRunning,
+    string? LobbyCode, IReadOnlySet<string> LobbyMembers, IReadOnlyList<(CoopPlayer From, string Code)> Invites);
 
 /// <summary>
 /// Friends for every game, laid out like the in-game overlay's Friends window and with the same actions: you at the
@@ -150,8 +152,8 @@ public partial class FriendsWindow : Window
     {
         var buttons = new List<(string, bool, Action)>();
         var inLobby = context?.LobbyMembers.Contains(f.Id) == true;
-        if (f.State != "offline" && !inLobby)
-            buttons.Add((context?.Hosting == true ? "Invite" : "Invite to lobby", false, () => InviteToLobby?.Invoke(f)));
+        if (f.State != "offline" && !inLobby && context is { Hosting: true } or { GameRunning: true })
+            buttons.Add((context.Hosting ? "Invite" : "Invite to lobby", false, () => InviteToLobby?.Invoke(f)));
         if (f.Lobby is { Code: { } code, Locked: false } lobby && lobby.Count < 5 && code != context?.LobbyCode && context?.Hosting != true)
             buttons.Add(("Join", true, () => JoinLobby?.Invoke(code, null)));
         var status = f.State == "offline" ? "Offline"

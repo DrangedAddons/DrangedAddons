@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.40.1
+- The app's Friends window only offers Invite to lobby while Azeroth Survivors is running (or Invite when you host
+  a lobby with room). With neither, there's nothing to invite a friend to, so there's no button. The overlay is
+  unchanged: it's always in the game.
+
 ## 0.40.0
 - **Invite to lobby, from inside the game.** In the overlay's Friends, every online friend has Invite to lobby: with
   a lobby of yours that has room it invites them; otherwise it opens a New lobby window in the game with them ticked

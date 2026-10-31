@@ -11,12 +11,16 @@ namespace DrangedAddons;
 /// relay, which sits overseas: two players in the same country saw 500+ ms through it.
 ///
 /// Screens: Start (Host a lobby / Join a lobby), Host (code, lock, password, who's in with Remove, invite members,
-/// Start game), Join (a code, or an open lobby from members online) and, once joined, the lobby's member list.
+/// Start game), Stage (a new lobby set up while the current one carries on), Join (a code, or an open lobby from members
+/// online) and, once joined, the lobby's member list.
 /// The window stays open while playing, because the connection lives in this app; closing it, or the game, ends co-op.
+/// The game only reads its co-op settings when it starts, so co-op ending here restarts it in solo, and a game already
+/// running restarts to play co-op. A player moved to the host's new lobby has their game closed instead, and it starts
+/// again with the new lobby's game.
 /// </summary>
 public partial class CoopWindow : Window
 {
-    enum Screen { Start, Host, Join, Joined }
+    enum Screen { Start, Host, Stage, Join, Joined }
 
     readonly string _exe;
 
@@ -34,7 +38,9 @@ public partial class CoopWindow : Window
     CoopHost? _host;
     CoopJoin? _join;
     int _hostGamePort;
+    /// <summary>The game as started for co-op; its exit ends co-op. Null once closed from here.</summary>
     Process? _game;
+    bool _launching;
     bool _busy;
     /// <summary>Members invited to this lobby and not in it yet, by member id.</summary>
     readonly Dictionary<string, CoopPlayer> _invited = new();
@@ -76,6 +82,9 @@ public partial class CoopWindow : Window
         Width = screen is Screen.Host or Screen.Joined ? 1000 : 560;
         StartPanel.Visibility = Visible(screen == Screen.Start);
         JoinPanel.Visibility = Visible(screen == Screen.Join);
+        StagePanel.Visibility = Visible(screen == Screen.Stage);
+        NewLobbyButton.Visibility = Visible(screen == Screen.Host);
+        CreateButton.Visibility = Visible(screen == Screen.Stage);
         LobbyPanel.Visibility = Visible(screen is Screen.Host or Screen.Joined);
         HostSettings.Visibility = Visible(screen == Screen.Host);
         JoinedInfo.Visibility = Visible(screen == Screen.Joined);
@@ -83,6 +92,7 @@ public partial class CoopWindow : Window
         TitleText.Text = screen switch
         {
             Screen.Host => "Your lobby",
+            Screen.Stage => "New lobby",
             Screen.Join => "Join a lobby",
             Screen.Joined => "In a lobby",
             _ => "Azeroth Survivors",
@@ -90,6 +100,7 @@ public partial class CoopWindow : Window
         BackButton.Content = screen switch
         {
             Screen.Host => "Close lobby",
+            Screen.Stage => "Cancel",
             Screen.Join => "Back",
             Screen.Joined => "Leave lobby",
             _ => "Close",
@@ -113,6 +124,7 @@ public partial class CoopWindow : Window
         ShowSlots();
         ShowInviteList();
         ShowLobbies();
+        ShowStage();
     }
 
     void Play_Click(object sender, RoutedEventArgs e)
@@ -140,9 +152,14 @@ public partial class CoopWindow : Window
                 StatusList.Children.Clear();
                 Show(Screen.Start);
                 break;
+            case Screen.Stage:
+                StatusList.Children.Clear();
+                Show(Screen.Host);
+                break;
             default:
                 if (!ConfirmEnd()) return;
                 await EndAsync();
+                await RestartSoloAsync();
                 StatusList.Children.Clear();
                 Show(Screen.Start);
                 break;
@@ -161,20 +178,7 @@ public partial class CoopWindow : Window
         {
             using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             _hostGamePort = CoopTunnel.FreeLocalPort();
-            _host = await CoopHost.StartAsync(_hostGamePort, _name, cancel.Token, CoopGameId);
-            LogList.Children.Clear();
-            _roster.Clear();
-            _started = false;
-            _host.Status += line => Dispatcher.BeginInvoke(() => AddStatus(line));
-            _host.Chat += line => Dispatcher.BeginInvoke(() => AddChat(line));
-            _host.PartyChanged += party => Dispatcher.BeginInvoke(() =>
-            {
-                Refresh();
-                _ = ListLobbyAsync();
-            });
-            CodeText.Text = _host.Code;
-            AccessText.Text = "";
-            CopyButton.Content = "Copy";
+            UseHost(await CoopHost.StartAsync(_hostGamePort, _name, cancel.Token, CoopGameId));
             LockedCheck.IsChecked = false;
             HostPasswordBox.Clear();
             _ = ListLobbyAsync();
@@ -193,6 +197,33 @@ public partial class CoopWindow : Window
             _busy = false;
             HostButton.IsEnabled = JoinButton.IsEnabled = CoopTunnel.IsSupported;
         }
+    }
+
+    /// <summary>Shows <paramref name="host"/>'s lobby: its code, a fresh lobby chat, and its events (only while it's this window's lobby).</summary>
+    void UseHost(CoopHost host)
+    {
+        _host = host;
+        LogList.Children.Clear();
+        _roster.Clear();
+        _removed.Clear();
+        _started = false;
+        host.Status += line => Dispatcher.BeginInvoke(() =>
+        {
+            if (_host == host) AddStatus(line);
+        });
+        host.Chat += line => Dispatcher.BeginInvoke(() =>
+        {
+            if (_host == host) AddChat(line);
+        });
+        host.PartyChanged += party => Dispatcher.BeginInvoke(() =>
+        {
+            if (_host != host) return;
+            Refresh();
+            _ = ListLobbyAsync();
+        });
+        CodeText.Text = host.Code;
+        AccessText.Text = "";
+        CopyButton.Content = "Copy";
     }
 
     void Settings_Changed(object sender, RoutedEventArgs e) => _ = ApplySettingsAsync();
@@ -224,9 +255,16 @@ public partial class CoopWindow : Window
 
     async void StartGame_Click(object sender, RoutedEventArgs e)
     {
-        if (_host is null || _host.Started) return;
+        var host = _host;
+        if (host is null || host.Started || _launching) return;
+        if (GameRunning && !DarkDialog.Show(this, "Restart the game?", "Azeroth Survivors is running. It restarts to host co-op.", "Restart", "Cancel"))
+            return;
+        _launching = true;
+        StartButton.IsEnabled = false;
         try
         {
+            await CloseGamesAsync();
+            if (_host != host) return;
             StartGame(AzerothSurvivorsGame.DirectCoopEnvironment(_hostGamePort, null, null));
         }
         catch (System.ComponentModel.Win32Exception ex)
@@ -234,7 +272,12 @@ public partial class CoopWindow : Window
             AddStatus("Couldn't start the game: " + ex.Message, danger: true);
             return;
         }
-        await _host.StartGameAsync();
+        finally
+        {
+            _launching = false;
+            Refresh();
+        }
+        await host.StartGameAsync();
         Refresh();
     }
 
@@ -247,6 +290,165 @@ public partial class CoopWindow : Window
         _removed.Add(member.Id);
         await _host.KickAsync(member.Id);
         AddLog($"You removed {member.Name}.");
+    }
+
+    // ---- New lobby (host): set up while this one carries on, then opened in one go ----
+
+    /// <summary>Who comes along from this lobby (party ids), and members to invite, for the new lobby being set up.</summary>
+    readonly HashSet<string> _bring = [];
+    readonly Dictionary<string, CoopPlayer> _stageInvites = new();
+
+    void NewLobby_Click(object sender, RoutedEventArgs e)
+    {
+        if (_host is null || _busy) return;
+        _bring.Clear();
+        foreach (var member in _host.Party.Members) _bring.Add(member.Id);
+        _stageInvites.Clear();
+        StageLockedCheck.IsChecked = _host.Locked;
+        StagePasswordBox.Password = HostPasswordBox.Password;
+        StatusList.Children.Clear();
+        Show(Screen.Stage);
+    }
+
+    void StagePassword_Changed(object sender, RoutedEventArgs e) => StagePasswordHint.Visibility = Visible(StagePasswordBox.Password.Length == 0);
+
+    /// <summary>Everyone in this lobby, ticked to come along, then members online to invite; at most a full party.</summary>
+    void ShowStage()
+    {
+        if (_screen != Screen.Stage || _host is null) return;
+        var members = _host.Party.Members;
+        _bring.IntersectWith(members.Select(m => m.Id));
+        var count = 1 + _bring.Count + _stageInvites.Count;
+        StageCount.Text = $"{count}/{Slots}";
+        CreateButton.IsEnabled = !_busy;
+
+        BringList.Children.Clear();
+        if (members.Count == 0) BringList.Children.Add(Line("Nobody else is in this lobby.", Muted));
+        foreach (var member in members)
+        {
+            var bring = _bring.Contains(member.Id);
+            var check = new CheckBox
+            {
+                Content = member.Name, IsChecked = bring, IsEnabled = bring || count < Slots, Margin = new Thickness(0, 4, 0, 4),
+                Foreground = (Brush)FindResource("TextBrush"),
+            };
+            check.Click += (_, _) =>
+            {
+                if (check.IsChecked == true) _bring.Add(member.Id);
+                else _bring.Remove(member.Id);
+                ShowStage();
+            };
+            BringList.Children.Add(check);
+        }
+
+        StageInviteList.Children.Clear();
+        if (ShowPresenceState(StageInviteList)) return;
+        var inLobby = members.Select(m => m.Member).OfType<string>().ToHashSet();
+        var others = _presence!.Players.Where(p => !inLobby.Contains(p.Id)).OrderBy(p => _presence.IsFriend(p.Id) ? 0 : 1).ToList();
+        if (others.Count == 0)
+        {
+            StageInviteList.Children.Add(Line("Nobody else is online.", Muted));
+            return;
+        }
+        var sameName = SameNames(_presence.Players);
+        foreach (var player in others)
+        {
+            var added = _stageInvites.ContainsKey(player.Id);
+            StageInviteList.Children.Add(Row(Display(player, sameName), Account.Label(player.State, player.Game), Account.StateBrush(player.State),
+                (added ? "Added" : "Add", () =>
+                {
+                    if (!_stageInvites.Remove(player.Id)) _stageInvites[player.Id] = player;
+                    ShowStage();
+                }), enabled: added || count < Slots, player: player));
+        }
+    }
+
+    async void CreateLobby_Click(object sender, RoutedEventArgs e) => await CreateLobbyAsync();
+
+    /// <summary>
+    /// Opens the new lobby, lets in who's coming along and who's invited, moves those coming along (their managers
+    /// leave this lobby before joining the new one), then closes this lobby and the game. The new lobby's game starts
+    /// with Start game, as any lobby's does.
+    /// </summary>
+    async Task CreateLobbyAsync()
+    {
+        var old = _host;
+        if (old is null || _busy) return;
+        var bring = old.Party.Members.Where(m => _bring.Contains(m.Id) && m.Member is not null).ToList();
+        var left = old.Party.Members.Count - bring.Count;
+        var playing = GameRunning;
+        if (playing || left > 0)
+        {
+            var what = new List<string>();
+            if (playing) what.Add("Your game closes, and starts again when you start the new lobby's game.");
+            if (bring.Count > 0) what.Add($"{string.Join(", ", bring.Select(m => m.Name))} move{(bring.Count == 1 ? "s" : "")} with you.");
+            if (left > 0) what.Add("Everyone else leaves the party and their game restarts in solo.");
+            if (!DarkDialog.Show(this, "Create the new lobby?", string.Join(" ", what), "Create lobby", "Cancel")) return;
+        }
+        _busy = true;
+        CreateButton.IsEnabled = false;
+        StatusList.Children.Clear();
+        AddStatus("Opening the new lobby…");
+        CoopHost? next = null;
+        try
+        {
+            using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var port = CoopTunnel.FreeLocalPort();
+            next = await CoopHost.StartAsync(port, _name, cancel.Token, CoopGameId);
+            var (locked, password) = (StageLockedCheck.IsChecked == true, StagePasswordBox.Password);
+            await next.SetSettingsAsync(locked, password);
+            foreach (var member in bring) await next.AllowAsync(member.Member!);
+            foreach (var player in _stageInvites.Values) await next.AllowAsync(player.Id);
+
+            foreach (var member in bring) await old.MoveAsync(member.Id, next.Code);
+            // They leave this lobby on their own; give them a moment before it closes on them.
+            for (var waited = 0; waited < 50 && old.Party.Members.Any(m => bring.Any(b => b.Id == m.Id)); waited++)
+                await Task.Delay(100);
+            _host = null;
+            _invited.Clear();
+            await old.DisposeAsync();
+            await CloseGamesAsync();
+
+            _hostGamePort = port;
+            UseHost(next);
+            LockedCheck.IsChecked = locked;
+            HostPasswordBox.Password = password;
+            _passwordDelay.Stop(); // already applied
+            PasswordHint.Visibility = Visible(password.Length == 0);
+            StatusList.Children.Clear();
+            Show(Screen.Host);
+            AddLog("You opened a new lobby.");
+            foreach (var member in bring) _invited[member.Member!] = new CoopPlayer(member.Member!, member.Name);
+            if (bring.Count > 0) AddLog($"Moving {string.Join(", ", bring.Select(m => m.Name))} from your last lobby.");
+            foreach (var player in _stageInvites.Values)
+            {
+                try
+                {
+                    if (_presence is null) break;
+                    await _presence.InviteAsync(player, next.Code);
+                    _invited[player.Id] = player;
+                    AddLog($"You invited {player.Name}.");
+                }
+                catch (Exception ex) when (ex is CoopException or System.Net.WebSockets.WebSocketException)
+                {
+                    AddStatus($"Couldn't invite {player.Name}.", danger: true);
+                }
+            }
+            _stageInvites.Clear();
+            _ = ListLobbyAsync();
+        }
+        catch (Exception ex) when (IsCoopFailure(ex))
+        {
+            CoopLog.Write("new lobby", ex);
+            if (next is not null && _host != next) await next.DisposeAsync();
+            StatusList.Children.Clear();
+            AddStatus(Describe(ex), danger: true);
+        }
+        finally
+        {
+            _busy = false;
+            Refresh();
+        }
     }
 
     void Copy_Click(object sender, RoutedEventArgs e)
@@ -691,9 +893,10 @@ public partial class CoopWindow : Window
 
     string _joinCode = "";
 
-    async Task JoinAsync(string code, CoopPlayer? invitedBy = null)
+    /// <summary>Joins the lobby with <paramref name="code"/>; false if that didn't work (the reason is shown).</summary>
+    async Task<bool> JoinAsync(string code, CoopPlayer? invitedBy = null)
     {
-        if (_busy || _host is not null || _join is not null) return;
+        if (_busy || _host is not null || _join is not null) return false;
         _busy = true;
         if (_screen != Screen.Join) Show(Screen.Join);
         CodeBox.Text = code;
@@ -702,32 +905,56 @@ public partial class CoopWindow : Window
         try
         {
             using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            _join = await CoopJoin.ConnectAsync(code, _name, _key, JoinPasswordBox.Password,
+            var join = await CoopJoin.ConnectAsync(code, _name, _key, JoinPasswordBox.Password,
                 line => Dispatcher.BeginInvoke(() => { StatusList.Children.Clear(); AddStatus(line); }), cancel.Token);
+            _join = join;
             LogList.Children.Clear();
             _roster.Clear();
             _started = false;
-            _join.Status += line => Dispatcher.BeginInvoke(() => AddStatus(line, danger: true));
-            _join.Chat += line => Dispatcher.BeginInvoke(() => AddChat(line));
-            _join.PartyChanged += _ => Dispatcher.BeginInvoke(() =>
+            join.Status += line => Dispatcher.BeginInvoke(() =>
             {
-                Refresh();
+                if (_join == join) AddStatus(line, danger: true);
             });
-            _join.StartRequested += () => Dispatcher.BeginInvoke(StartJoinGame);
-            _join.Ended += why => Dispatcher.BeginInvoke(async () =>
+            join.Chat += line => Dispatcher.BeginInvoke(() =>
             {
+                if (_join == join) AddChat(line);
+            });
+            join.PartyChanged += _ => Dispatcher.BeginInvoke(() =>
+            {
+                if (_join == join) Refresh();
+            });
+            join.StartRequested += () => Dispatcher.BeginInvoke(() =>
+            {
+                if (_join == join) _ = StartJoinGameAsync();
+            });
+            join.Ended += why => Dispatcher.BeginInvoke(async () =>
+            {
+                if (_join != join) return;
+                var playing = GameRunning;
                 await EndAsync();
+                await RestartSoloAsync();
                 Show(Screen.Start);
-                AddStatus(why, danger: true);
+                AddStatus(why + (playing ? " Your game restarted in solo." : ""), danger: true);
+            });
+            join.Moved += next => Dispatcher.BeginInvoke(async () =>
+            {
+                if (_join != join) return;
+                var host = join.Party?.Host ?? "The host";
+                var playing = GameRunning;
+                await EndAsync(); // out of this lobby before joining the next
+                await CloseGamesAsync();
+                if (await JoinAsync(next)) AddLog($"{host} moved the party to a new lobby.");
+                else if (playing) StartSolo();
             });
             StatusList.Children.Clear();
             JoinPasswordBox.Clear();
             JoinPasswordRow.Visibility = Visibility.Collapsed;
             _joinCode = code;
             CopyButton.Content = "Copy";
-            Show(Screen.Joined);
-            AddLog(_join.Party is { } joinedParty ? $"You joined {joinedParty.Host}'s lobby." : "You joined the lobby.");
-            if (_join.Started) StartJoinGame();
+            AddLog(join.Party is { } joinedParty ? $"You joined {joinedParty.Host}'s lobby." : "You joined the lobby.");
+            Show(Screen.Joined); // logs who's already in
+            if (join.Started) _ = StartJoinGameAsync();
+            return true;
         }
         catch (Exception ex) when (IsCoopFailure(ex))
         {
@@ -740,6 +967,7 @@ public partial class CoopWindow : Window
                 JoinPasswordBox.Focus();
             }
             await EndAsync();
+            return false;
         }
         finally
         {
@@ -748,16 +976,25 @@ public partial class CoopWindow : Window
         }
     }
 
-    void StartJoinGame()
+    /// <summary>The host started: start the game pointed at this join, restarting a copy that's already running.</summary>
+    async Task StartJoinGameAsync()
     {
-        if (_join is null || _game is not null) return;
+        var join = _join;
+        if (join is null || _game is not null || _launching) return;
+        _launching = true;
         try
         {
-            StartGame(AzerothSurvivorsGame.DirectCoopEnvironment(null, $"127.0.0.1:{_join.LocalPort}", null));
+            await CloseGamesAsync();
+            if (_join != join) return;
+            StartGame(AzerothSurvivorsGame.DirectCoopEnvironment(null, $"127.0.0.1:{join.LocalPort}", null));
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
             AddStatus("Couldn't start the game: " + ex.Message, danger: true);
+        }
+        finally
+        {
+            _launching = false;
         }
         Refresh();
     }
@@ -878,15 +1115,99 @@ public partial class CoopWindow : Window
             UseShellExecute = false, // needed to hand the game its own environment variables
         };
         foreach (var (name, value) in env) info.Environment[name] = value;
-        _game = Process.Start(info) ?? throw new System.ComponentModel.Win32Exception("Windows didn't start it");
-        _game.EnableRaisingEvents = true;
-        _game.Exited += (_, _) => Dispatcher.BeginInvoke(async () =>
+        var game = Process.Start(info) ?? throw new System.ComponentModel.Win32Exception("Windows didn't start it");
+        _game = game;
+        game.EnableRaisingEvents = true;
+        // The player closed the game: co-op ends, and the game stays closed.
+        game.Exited += (_, _) => Dispatcher.BeginInvoke(async () =>
         {
+            if (_game != game) return; // closed from here
+            _game = null;
+            game.Dispose();
             if (_host is null && _join is null) return;
             await EndAsync();
             Show(Screen.Start);
             AddStatus("The game closed, so co-op ended.");
         });
+    }
+
+    /// <summary>Starts the game the ordinary way, without co-op; its exit means nothing to this window.</summary>
+    void StartSolo()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(_exe) { WorkingDirectory = Path.GetDirectoryName(_exe)!, UseShellExecute = true })?.Dispose();
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            AddStatus("Couldn't start the game: " + ex.Message, danger: true);
+        }
+    }
+
+    /// <summary>Co-op ended from here: a game that's running restarts in solo, since it can't leave co-op on its own.</summary>
+    async Task RestartSoloAsync()
+    {
+        if (!GameRunning) return;
+        await CloseGamesAsync();
+        StartSolo();
+    }
+
+    bool GameRunning
+    {
+        get
+        {
+            var running = RunningGames();
+            foreach (var game in running) game.Dispose();
+            return running.Count > 0;
+        }
+    }
+
+    /// <summary>Copies of the game running from this exe, whoever started them.</summary>
+    List<Process> RunningGames()
+    {
+        var running = new List<Process>();
+        foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(_exe)))
+        {
+            try
+            {
+                if (string.Equals(process.MainModule?.FileName, _exe, StringComparison.OrdinalIgnoreCase))
+                {
+                    running.Add(process);
+                    continue;
+                }
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+            process.Dispose();
+        }
+        return running;
+    }
+
+    /// <summary>
+    /// Closes every copy of the game running from this exe (the one started for co-op, or one started some other way)
+    /// as its close button would, and ends any still running 10 seconds later.
+    /// </summary>
+    async Task CloseGamesAsync()
+    {
+        _game?.Dispose();
+        _game = null; // its exit no longer ends co-op
+        foreach (var game in RunningGames())
+        {
+            using (game)
+            {
+                try
+                {
+                    game.CloseMainWindow();
+                    using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    try { await game.WaitForExitAsync(wait.Token); }
+                    catch (OperationCanceledException)
+                    {
+                        game.Kill(entireProcessTree: true);
+                        await game.WaitForExitAsync();
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            }
+        }
     }
 
     async Task EndAsync()
@@ -896,8 +1217,6 @@ public partial class CoopWindow : Window
         _host = null;
         _join = null;
         _invited.Clear();
-        _game?.Dispose();
-        _game = null;
         if (host is not null)
         {
             if (_presence is not null) await _presence.SetLobbyAsync(null);
@@ -907,14 +1226,17 @@ public partial class CoopWindow : Window
         if (join is not null) await join.DisposeAsync();
     }
 
+    /// <summary>Asks before ending co-op when that disconnects anyone or restarts the game; true to go ahead.</summary>
     bool ConfirmEnd()
     {
         if (_host is null && _join is null) return true;
-        var others = _host is not null ? _host.Party.Members.Count > 0 : true;
-        if (!others && _game is not { HasExited: false }) return true;
+        var others = _host is not null && _host.Party.Members.Count > 0;
+        var playing = GameRunning;
+        if (!others && !playing) return true;
+        var what = string.Join(" ", new[] { others ? "Everyone in it is disconnected." : null, playing ? "Your game restarts in solo." : null }.OfType<string>());
         return _host is not null
-            ? DarkDialog.Show(this, "Close the lobby?", "Everyone in it is disconnected.", "Close lobby", "Stay")
-            : DarkDialog.Show(this, "Leave the lobby?", "Your game is disconnected from the host.", "Leave", "Stay");
+            ? DarkDialog.Show(this, "Close the lobby?", what, "Close lobby", "Stay")
+            : DarkDialog.Show(this, "Leave the lobby?", what, "Leave", "Stay");
     }
 
     protected override async void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -926,13 +1248,15 @@ public partial class CoopWindow : Window
             return;
         }
         _passwordDelay.Stop();
+        var coop = _host is not null || _join is not null;
         await EndAsync();
         UsePresence(null);
+        if (coop) await RestartSoloAsync();
     }
 
     void AddStatus(string text, bool danger = false)
     {
-        if (_screen is Screen.Host or Screen.Joined)
+        if (_screen is Screen.Host or Screen.Joined && (_host is not null || _join is not null))
         {
             AddLog(text, danger);
             return;

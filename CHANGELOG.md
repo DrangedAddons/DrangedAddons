@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.37.0
+- **New lobby.** The host can set up a new lobby while the current one carries on: tick who comes along, set the
+  lock and password, and add members to invite. Create lobby opens it, moves everyone ticked straight into it (their
+  manager leaves the old lobby first), closes the old lobby and the host's game, and sends the invites. Start game
+  starts everyone's game in the new lobby as usual.
+- **Ending co-op restarts the game in solo.** The game only reads its co-op settings when it starts, so closing or
+  leaving a lobby, being removed, or the host closing the lobby now closes the game and starts it again on its own.
+  Players moved to a new lobby have their game closed instead, and it starts again with the new lobby's game.
+  Closing the game yourself still just ends co-op.
+- Starting co-op with the game already running (yours, or one started outside the manager) restarts it for co-op;
+  the host is asked first. Leaving a lobby no longer leaves a second copy of the game behind.
+- Needs the co-op service update that passes moves; a player on an older manager stays behind and is disconnected
+  when the old lobby closes.
+
 ## 0.36.1
 - About DrangedAddons and the README now describe playing together: your account, friends, and hosting or joining
   game lobbies.

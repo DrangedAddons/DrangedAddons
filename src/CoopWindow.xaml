@@ -91,6 +91,40 @@
             </Border>
         </StackPanel>
 
+        <!-- New lobby (host): set up while the current lobby carries on; nothing changes until Create lobby. -->
+        <StackPanel x:Name="StagePanel" Visibility="Collapsed" Margin="0,6,0,0">
+            <TextBlock Text="Bring from this lobby" Style="{StaticResource Heading}"/>
+            <Border Style="{StaticResource Card}" Margin="0,8,0,0" Padding="12,8">
+                <StackPanel x:Name="BringList"/>
+            </Border>
+            <TextBlock Text="Who can join" Style="{StaticResource Heading}" Margin="0,18,0,0"/>
+            <Border Style="{StaticResource Card}" Margin="0,8,0,0">
+                <DockPanel>
+                    <CheckBox x:Name="StageLockedCheck" Content="Locked" VerticalAlignment="Center" Margin="0,0,20,0"
+                              ToolTip="Only members you invite can join"/>
+                    <TextBlock Text="Password" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <Border Style="{StaticResource Field}">
+                        <Grid>
+                            <TextBlock x:Name="StagePasswordHint" Text="None" Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center" IsHitTestVisible="False"/>
+                            <PasswordBox x:Name="StagePasswordBox" Background="Transparent" BorderThickness="0"
+                                         VerticalContentAlignment="Center" Foreground="{StaticResource TextBrush}"
+                                         CaretBrush="{StaticResource TextBrush}" PasswordChanged="StagePassword_Changed"/>
+                        </Grid>
+                    </Border>
+                </DockPanel>
+            </Border>
+            <DockPanel Margin="0,18,0,0">
+                <TextBlock x:Name="StageCount" DockPanel.Dock="Right" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                <TextBlock Text="Invite" Style="{StaticResource Heading}"/>
+            </DockPanel>
+            <Border Style="{StaticResource Card}" Margin="0,8,0,0" Padding="12,8">
+                <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="StageInviteList"/>
+                </ScrollViewer>
+            </Border>
+        </StackPanel>
+
         <!-- The lobby (hosting or joined). -->
         <Grid x:Name="LobbyPanel" Visibility="Collapsed" Margin="0,6,0,0">
             <Grid.ColumnDefinitions>
@@ -215,9 +249,14 @@
 
         <DockPanel Margin="0,18,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="NewLobbyButton" Content="New lobby" Style="{StaticResource GhostBtn}" MinWidth="110" Height="38"
+                        Margin="0,0,10,0" Visibility="Collapsed" Click="NewLobby_Click"
+                        ToolTip="Set up a new lobby, bring players from this one, then switch to it"/>
                 <Button x:Name="BackButton" Content="Close" Style="{StaticResource Btn}" MinWidth="110" Height="38" Click="Back_Click"/>
                 <Button x:Name="StartButton" Content="Start game" Style="{StaticResource AccentBtn}" MinWidth="140" Height="38"
                         Margin="10,0,0,0" Visibility="Collapsed" Click="StartGame_Click"/>
+                <Button x:Name="CreateButton" Content="Create lobby" Style="{StaticResource AccentBtn}" MinWidth="140" Height="38"
+                        Margin="10,0,0,0" Visibility="Collapsed" Click="CreateLobby_Click"/>
             </StackPanel>
         </DockPanel>
     </StackPanel>

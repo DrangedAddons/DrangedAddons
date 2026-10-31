@@ -405,6 +405,12 @@ public sealed class CoopHost : IAsyncDisposable
         await SendPartyAsync();
     }
 
+    /// <summary>
+    /// Sends a player to another lobby this host has opened (<paramref name="code"/>): their manager leaves this one
+    /// and joins that one. They drop out of this party once they've left.
+    /// </summary>
+    public Task MoveAsync(string id, string code) => _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "move", ["to"] = id, ["code"] = code });
+
     /// <summary>Removes a player: closes their connection to this game and tells their manager they were removed.</summary>
     public async Task KickAsync(string id)
     {
@@ -732,6 +738,8 @@ public sealed class CoopJoin : IAsyncDisposable
     public event Action? StartRequested;
     /// <summary>The party is over for us (removed, the host left, or the connection dropped), with why.</summary>
     public event Action<string>? Ended;
+    /// <summary>The host opened a new lobby with us in it, by its code: leave this one and join that.</summary>
+    public event Action<string>? Moved;
     public event Action<ChatLine>? Chat;
 
     /// <summary>Lobby chat: goes to everyone through the co-op service, which echoes it back.</summary>
@@ -908,6 +916,9 @@ public sealed class CoopJoin : IAsyncDisposable
                         return;
                     case "closed":
                         Ended?.Invoke("The host closed the lobby.");
+                        return;
+                    case "move" when CoopTunnel.NormalizeCode((string?)message["code"] ?? "") is { } code:
+                        Moved?.Invoke(code);
                         return;
                 }
             }

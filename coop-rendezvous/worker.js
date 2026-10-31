@@ -8,10 +8,12 @@
 // game together, and remove a player. The lobby's lock, password and removals are enforced here, not just in the
 // host's app, so a modified client can't get past them. Messages, as JSON:
 //   to a joiner:   {t:"joined", id}  {t:"signal", from:"host", data}  {t:"party", data}  {t:"start"}
-//                  {t:"kicked"}  {t:"closed", why}
+//                  {t:"kicked"}  {t:"closed", why}  {t:"move", code}
 //   to the host:   {t:"hosting"}  {t:"join", id, name, member}  {t:"signal", from:<id>, data}  {t:"leave", id}
 //   from a joiner: {t:"signal", data}           (always to the host)
 //   from the host: {t:"signal", to, data}  {t:"party", data}  {t:"start"}  {t:"kick", to}
+//                  {t:"move", to, code}         (the host opened a new lobby with this player in it: their manager
+//                                              leaves this one and joins that one; the session log says "Moved")
 //   from anyone:   {t:"chat", text}  ->  to everyone, sender included: {t:"chat", from, host, text}. The sender's
 //                  name is the one it joined (or hosted) under, not anything in the message; at most 300 characters,
 //                  5 messages per 5 seconds per player.
@@ -306,6 +308,14 @@ export class Lobby {
         if (typeof message.member === "string" && /^[0-9a-f]{16}$/.test(message.member) && !me.allow.includes(message.member))
           ws.serializeAttachment({ ...me, allow: [...me.allow, message.member].slice(-20) });
         break;
+      case "move": {
+        const target = joiners.find((s) => s.deserializeAttachment()?.id === message.to);
+        if (!target || typeof message.code !== "string" || !CODE.test(message.code)) return;
+        // Their manager leaves on its own; when its socket closes, the roster records how.
+        target.serializeAttachment({ ...target.deserializeAttachment(), role: "moving" });
+        target.send(JSON.stringify({ t: "move", code: message.code }));
+        break;
+      }
       case "kick": {
         const target = joiners.find((s) => s.deserializeAttachment()?.id === message.to);
         if (!target) return;
@@ -378,7 +388,7 @@ export class Lobby {
       return all.length ? { avg: average(all), min: Math.min(...all), max: Math.max(...all), jitter, session: average(all) } : null;
     };
     // A socket that's closing can still be listed; the roster already says it left.
-    const players = this.sockets("join").map((s) => s.deserializeAttachment()).filter((j) => j && !roster[j.id]?.left).map((j) => {
+    const players = [...this.sockets("join"), ...this.sockets("moving")].map((s) => s.deserializeAttachment()).filter((j) => j && !roster[j.id]?.left).map((j) => {
       const all = readings(j.id);
       return {
         id: j.id, name: j.name, member: j.member, joined: j.joined ?? null, where: j.where ?? null,
@@ -433,13 +443,13 @@ export class Lobby {
         await this.state.storage.deleteAll();
         await this.state.storage.put("ended", me.session);
       }
-    } else if ((me?.role === "join" || me?.role === "kicked") && this.sockets("host").length > 0) {
+    } else if ((me?.role === "join" || me?.role === "kicked" || me?.role === "moving") && this.sockets("host").length > 0) {
       const roster = (await this.state.storage.get("roster")) ?? {};
       if (roster[me.id] && !roster[me.id].left) {
-        const how = me.role === "kicked" ? "Removed" : "Left";
+        const [how, e] = { kicked: ["Removed", "removed"], moving: ["Moved", "moved"] }[me.role] ?? ["Left", "left"];
         roster[me.id] = { ...roster[me.id], left: Date.now(), how };
         await this.state.storage.put("roster", roster);
-        await this.event(me.role === "kicked" ? "removed" : "left", me.name);
+        await this.event(e, me.name);
         await this.report();
       }
     }
@@ -448,7 +458,7 @@ export class Lobby {
       if (me?.role === "host") {
         other.send(JSON.stringify({ t: "closed", why: "the host closed the lobby" }));
         other.close(1000, "host left");
-      } else if (me?.role === "join" && other.deserializeAttachment()?.role === "host") {
+      } else if ((me?.role === "join" || me?.role === "moving") && other.deserializeAttachment()?.role === "host") {
         other.send(JSON.stringify({ t: "leave", id: me.id }));
       }
     }

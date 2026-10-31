@@ -36,6 +36,7 @@ public partial class MainWindow
             UpdateAccountChip();
             _friendsWindow?.Refresh();
             _ = SyncPictureAsync();
+            NotifyOverlays();
         });
         _coopWindow?.UsePresence(_coopPresence);
         _friendsWindow?.UsePresence(_coopPresence);
@@ -61,15 +62,21 @@ public partial class MainWindow
     {
         _coopInvites.RemoveAll(i => i.From.Id == from.Id || DateTime.UtcNow - i.At > TimeSpan.FromMinutes(15));
         _coopInvites.Add((from, code, DateTime.UtcNow));
+        OverlayHub.Toast($"{from.Name} invited you", "Join from Friends.");
+        OverlayHub.Changed();
         if (_coopWindow is not null) _coopWindow.ShowInvite(from, code);
         else _tray?.Notify($"{from.Name} invites you to co-op", "Click here to join their Azeroth Survivors party.", () => OpenCoopWindow());
     }
 
-    /// <summary>One co-op window at a time; it stays open (not modal) while the game runs, since it carries the connection.</summary>
-    void OpenCoopWindow()
+    /// <summary>
+    /// One co-op window at a time; it stays open (not modal) while the game runs, since it carries the connection.
+    /// From the in-game overlay it opens without <paramref name="activate"/>, so the game keeps focus.
+    /// </summary>
+    void OpenCoopWindow(bool activate = true)
     {
         if (_coopWindow is not null)
         {
+            if (!activate) return;
             if (_coopWindow.WindowState == WindowState.Minimized) _coopWindow.WindowState = WindowState.Normal;
             _coopWindow.Show();
             _coopWindow.Activate();
@@ -78,7 +85,8 @@ public partial class MainWindow
         var root = RootOf(CoopGame);
         if (root is null || CoopGame.GetLaunch(root, CoopGame.GetFlavors(root)[0]) is not { } launch)
         {
-            DarkDialog.Show(this, $"Couldn't start {CoopGame.Name}", $"Pick your {CoopGame.Name} folder first.");
+            if (activate) DarkDialog.Show(this, $"Couldn't start {CoopGame.Name}", $"Pick your {CoopGame.Name} folder first.");
+            else OverlayHub.Toast($"Couldn't start {CoopGame.Name}", $"Pick your {CoopGame.Name} folder in DrangedAddons first.");
             return;
         }
         _coopWindow = new CoopWindow(launch.Exe, AccountName, CoopKey, hosting =>
@@ -94,10 +102,12 @@ public partial class MainWindow
         _coopWindow.Closed += (_, _) =>
         {
             _coopWindow = null;
+            OverlayHub.Changed();
             if (!_coopHosting) return;
             _coopHosting = false;
             UpdateCoopPresence();
         };
+        _coopWindow.ShowActivated = activate;
         _coopWindow.Show();
     }
 }

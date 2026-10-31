@@ -19,7 +19,7 @@ set FLAGS=/nologo /O2 /MT /EHsc /std:c++20 /utf-8 /W3 /DNOMINMAX /DWIN32_LEAN_AN
  /DVK_USE_PLATFORM_WIN32_KHR /DVK_NO_PROTOTYPES /DIMGUI_IMPL_VULKAN_NO_PROTOTYPES ^
  /I%IMGUI% /I%IMGUI%\backends /Ithird_party\vulkan-headers\include /Fobuild\
 
-cl %FLAGS% /LD src\overlay.cpp src\vulkan_layer.cpp ^
+cl %FLAGS% /LD src\overlay.cpp src\ui.cpp src\vulkan_layer.cpp ^
  %IMGUI%\imgui.cpp %IMGUI%\imgui_draw.cpp %IMGUI%\imgui_tables.cpp %IMGUI%\imgui_widgets.cpp ^
  %IMGUI%\backends\imgui_impl_win32.cpp %IMGUI%\backends\imgui_impl_vulkan.cpp ^
  /Zi /Fdbuild\overlay.pdb /Fe:bin\DrangedOverlay64.dll /link /DEBUG /OPT:REF /OPT:NOICF user32.lib gdi32.lib || exit /b 1

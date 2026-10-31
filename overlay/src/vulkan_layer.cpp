@@ -615,6 +615,7 @@ VkResult VKAPI_CALL QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info)
         return d->QueuePresentKHR(queue, info);
 
     overlay::Attach(s->window);
+    overlay::SetSrgbTarget(IsSrgb(s->format));
     uint32_t index = info->pImageIndices[0];
     VkSemaphore drawn = VK_NULL_HANDLE;
     bool ok = true;

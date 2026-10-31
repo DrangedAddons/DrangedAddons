@@ -36,6 +36,7 @@ public partial class MainWindow : Window
         _game = GameDefinition.Find(_settings.Game) ?? GameDefinition.Wow;
         LoadRail();
         StartAccount();
+        StartOverlay();
         LoadColumns();
         AddonList.ItemsSource = _rows;
         _view = System.Windows.Data.CollectionViewSource.GetDefaultView(_rows);
@@ -892,6 +893,7 @@ public partial class MainWindow : Window
         UpdateFolderTooltips();
         UpdateGameLogo();
         UpdateFlavorCounts();
+        OverlayHub.Changed(); // Game overview lists these
 
         // Tabs and search: re-filter (installs/uninstalls move rows between tabs) and show the counts.
         _view.Refresh();

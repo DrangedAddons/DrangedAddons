@@ -1,7 +1,9 @@
 #include "overlay.h"
+#include "core.h"
 #include "json.h"
 #include "imgui.h"
 #include "imgui_impl_win32.h"
+#include "imgui_internal.h" // RegisterUserTexture
 
 #include <atomic>
 #include <condition_variable>
@@ -9,6 +11,8 @@
 #include <memory>
 #include <cstdarg>
 #include <mutex>
+#include <cmath>
+#include <map>
 #include <set>
 #include <thread>
 
@@ -16,7 +20,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 namespace overlay {
 
-void DrawUi(bool open, bool hint);
+ImFont* g_regular = nullptr;
+ImFont* g_bold = nullptr;
 
 namespace {
 
@@ -106,13 +111,115 @@ void WriterThread(HANDLE pipe, std::shared_ptr<std::atomic<bool>> alive)
     }
 }
 
+Shared g_state;
+bool g_srgb = false;      // the backend draws into an sRGB image: pictures are converted to linear first
+bool g_iniLoaded = false; // window positions for this game read (once its id is known)
+
+struct Picture
+{
+    std::string hash;
+    int width = 0, height = 0;
+    std::vector<unsigned char> rgba;
+    ImTextureData* texture = nullptr; // made in Frame, where the ImGui context is in use
+};
+std::map<std::string, Picture> g_pictures;
+
+std::vector<unsigned char> Base64(const std::string& text)
+{
+    static int table[256];
+    static bool ready = false;
+    if (!ready)
+    {
+        for (int& v : table) v = -1;
+        const char* letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i = 0; i < 64; i++) table[(unsigned char)letters[i]] = i;
+        ready = true;
+    }
+    std::vector<unsigned char> out;
+    out.reserve(text.size() * 3 / 4);
+    int buffer = 0, bits = 0;
+    for (unsigned char c : text)
+    {
+        if (table[c] < 0) continue; // padding, line breaks
+        buffer = (buffer << 6 | table[c]) & 0xFFFFFF;
+        bits += 6;
+        if (bits >= 8)
+        {
+            bits -= 8;
+            out.push_back((unsigned char)(buffer >> bits & 0xFF));
+        }
+    }
+    return out;
+}
+
 void Handle(const json::Value& m)
 {
     const auto& t = m["t"].str();
+    std::lock_guard guard(g_lock);
     if (t == "hello")
     {
-        std::lock_guard guard(g_lock);
         if (m["vk"].num() > 0) g_hotkey = { (UINT)m["vk"].num(), m["ctrl"].flag(), m["alt"].flag(), m["shift"].flag() };
+        if (!m["game"].str().empty()) g_state.game = m["game"].str();
+        g_state.gameId = m["gameId"].str();
+        g_state.lobbies = m["lobbies"].flag();
+        g_state.addons = m["addons"].flag();
+        g_state.you = m["you"];
+    }
+    else if (t == "state")
+    {
+        for (auto& [key, value] : m.fields)
+        {
+            if (key == "friends") g_state.friends = value;
+            else if (key == "lobby") g_state.lobby = value;
+            else if (key == "overview") g_state.overview = value;
+        }
+    }
+    else if (t == "avatar")
+    {
+        auto& p = g_pictures[m["id"].str()];
+        if (p.hash == m["hash"].str() && p.texture) return;
+        p.hash = m["hash"].str();
+        p.width = m["w"].num();
+        p.height = m["h"].num();
+        p.rgba = Base64(m["rgba"].str());
+        if ((int)p.rgba.size() != p.width * p.height * 4) p.rgba.clear();
+        p.texture = nullptr; // a new one is made next frame (the old one stays with ImGui: pictures rarely change)
+    }
+    else if (t == "toast")
+    {
+        g_state.toasts.push_back({ m["title"].str(), m["text"].str(), GetTickCount64() + 7000 });
+        if (g_state.toasts.size() > 4) g_state.toasts.erase(g_state.toasts.begin());
+    }
+}
+
+/// Turns pictures that arrived into ImGui textures. Under the lock, with the context in use.
+void MakeTextures()
+{
+    static unsigned char linear[256];
+    static bool ready = false;
+    if (!ready)
+    {
+        for (int i = 0; i < 256; i++)
+        {
+            float c = i / 255.f;
+            linear[i] = (unsigned char)((c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f)) * 255.f + 0.5f);
+        }
+        ready = true;
+    }
+    for (auto& [id, p] : g_pictures)
+    {
+        if (p.texture || p.rgba.empty()) continue;
+        auto* tex = IM_NEW(ImTextureData)();
+        tex->Create(ImTextureFormat_RGBA32, p.width, p.height);
+        auto* px = (unsigned char*)tex->GetPixels();
+        memcpy(px, p.rgba.data(), p.rgba.size());
+        if (g_srgb)
+            for (size_t i = 0; i < p.rgba.size(); i += 4)
+                px[i] = linear[px[i]], px[i + 1] = linear[px[i + 1]], px[i + 2] = linear[px[i + 2]];
+        tex->UseColors = true;
+        tex->SetStatus(ImTextureStatus_WantCreate);
+        ImGui::RegisterUserTexture(tex);
+        p.texture = tex;
     }
 }
 
@@ -389,6 +496,33 @@ void Attach(HWND window)
         io.LogFilename = nullptr;
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange; // the window procedure sets the cursor
         Style();
+        // Segoe UI like the manager, with Segoe Fluent Icons (Windows 11; MDL2 Assets on 10) merged in for the icons.
+        wchar_t windows[MAX_PATH];
+        GetWindowsDirectoryW(windows, MAX_PATH);
+        auto font = [&](const wchar_t* name) {
+            char path[MAX_PATH * 3];
+            WideCharToMultiByte(CP_UTF8, 0, (std::wstring(windows) + L"\\Fonts\\" + name).c_str(), -1, path, sizeof path, nullptr, nullptr);
+            return GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES ? std::string() : std::string(path);
+        };
+        auto icons = font(L"SegoeIcons.ttf");
+        if (icons.empty()) icons = font(L"segmdl2.ttf");
+        for (auto [file, out] : { std::pair{ L"segoeui.ttf", &g_regular }, std::pair{ L"segoeuib.ttf", &g_bold } })
+        {
+            auto path = font(file);
+            if (path.empty()) continue;
+            *out = io.Fonts->AddFontFromFileTTF(path.c_str());
+            if (!icons.empty())
+            {
+                ImFontConfig merge;
+                merge.MergeMode = true;
+                merge.GlyphOffset.y = 2;
+                io.Fonts->AddFontFromFileTTF(icons.c_str(), 16, &merge); // the offset needs a reference size; it scales with the text
+            }
+        }
+        if (!g_regular) g_regular = io.Fonts->AddFontDefault();
+        if (!g_bold) g_bold = g_regular;
+        io.FontDefault = g_regular;
+        ImGui::GetStyle().FontSizeBase = 16;
     }
     ImGui_ImplWin32_Init(window);
     // ImGui would position the IME window from the render thread; IME calls belong on the window's own thread.
@@ -411,10 +545,28 @@ bool Frame(const std::function<void()>& newFrame, const std::function<void()>& r
     std::lock_guard guard(g_lock);
     if (!g_window) return false;
     bool hint = GetTickCount64() < g_hintUntil;
-    if (!g_open && !hint) return false;
+    auto now = GetTickCount64();
+    std::erase_if(g_state.toasts, [now](auto& t) { return t.until < now; });
+    if (!g_open && !hint && g_state.toasts.empty()) return false;
     try
     {
+        if (!g_iniLoaded && !g_state.gameId.empty())
+        {
+            // Window positions and which windows were open, per game.
+            static std::string ini;
+            wchar_t local[MAX_PATH];
+            GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
+            std::wstring base = std::wstring(local) + L"\\DrangedAddons\\overlay-" + std::wstring(g_state.gameId.begin(), g_state.gameId.end());
+            char path[MAX_PATH * 3];
+            WideCharToMultiByte(CP_UTF8, 0, (base + L".ini").c_str(), -1, path, sizeof path, nullptr, nullptr);
+            ini = path;
+            ImGui::LoadIniSettingsFromDisk(ini.c_str());
+            ImGui::GetIO().IniFilename = ini.c_str();
+            LoadWindows(base + L"-windows.txt");
+            g_iniLoaded = true;
+        }
         newFrame();
+        MakeTextures();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
         DrawUi(g_open, hint);
@@ -433,7 +585,39 @@ bool Frame(const std::function<void()>& newFrame, const std::function<void()>& r
     return false;
 }
 
-// ---- What it shows (a test panel for now) ----
+// ---- For the UI (core.h) ----
+
+Shared& State() { return g_state; }
+
+ImTextureData* Avatar(const std::string& id)
+{
+    auto it = g_pictures.find(id);
+    return it == g_pictures.end() ? nullptr : it->second.texture;
+}
+
+void Act(const char* action, const std::string& fields)
+{
+    Log("action %s", action);
+    Send(std::string("{\"t\":\"action\",\"a\":") + json::Quote(action) + (fields.empty() ? "" : "," + fields) + "}");
+}
+
+void Close()
+{
+    if (g_window) PostMessageW(g_window, CloseMessage, 0, 0);
+}
+
+bool Connected() { return g_connected; }
+
+ULONGLONG SessionMilliseconds()
+{
+    FILETIME created, exited, kernel, user, now;
+    GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user);
+    GetSystemTimeAsFileTime(&now);
+    auto ticks = [](FILETIME f) { return (ULONGLONG)f.dwHighDateTime << 32 | f.dwLowDateTime; };
+    return (ticks(now) - ticks(created)) / 10000;
+}
+
+void SetSrgbTarget(bool srgb) { g_srgb = srgb; }
 
 std::string HotkeyText()
 {
@@ -447,44 +631,6 @@ std::string HotkeyText()
     UINT scan = MapVirtualKeyW(g_hotkey.vk, MAPVK_VK_TO_VSC);
     GetKeyNameTextA((LONG)(scan << 16), name, sizeof name);
     return s + (name[0] ? name : "?");
-}
-
-void DrawUi(bool open, bool hint)
-{
-    auto& io = ImGui::GetIO();
-    bool connected = g_connected;
-    if (open)
-    {
-        // Dim the game, then the panel in the middle.
-        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 140));
-        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x / 2, io.DisplaySize.y / 2), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_Always);
-        ImGui::Begin("DrangedAddons", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                                                   ImGuiWindowFlags_NoSavedSettings);
-        ImGui::SetWindowFontScale(1.4f);
-        ImGui::TextUnformatted("DrangedAddons");
-        ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextDisabled("In-game overlay %s · %s", Version, g_api);
-        ImGui::Separator();
-        ImGui::Text(connected ? "Connected to the manager." : "Not connected to the manager.");
-        ImGui::Text("Your lobby, friends and lobby chat will show here.");
-        static char chat[200] = "";
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputTextWithHint("##chat", "Type here to test the keyboard", chat, sizeof chat);
-        if (ImGui::Button("Close")) PostMessageW(g_window, CloseMessage, 0, 0);
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s or Esc closes this.", HotkeyText().c_str());
-        ImGui::End();
-    }
-    else if (hint)
-    {
-        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 16, 16), ImGuiCond_Always, ImVec2(1, 0));
-        ImGui::SetNextWindowBgAlpha(0.9f);
-        ImGui::Begin("##hint", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
-                                            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing);
-        ImGui::Text("DrangedAddons: %s opens your lobby and friends", HotkeyText().c_str());
-        ImGui::End();
-    }
 }
 
 } // namespace overlay

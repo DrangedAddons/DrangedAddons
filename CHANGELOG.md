@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.39.0
+- **The in-game overlay, laid out like Steam's.** Shift+Tab dims the game and shows a top bar (the game and how
+  long you've played this session, the clock, Back to game) and a dock along the bottom that opens each module in
+  its own window. Move and resize them; which are open and where is kept per game.
+- **Friends**: you at the top, then lobby invites and friend requests to answer, friends online (with pictures,
+  status and lobbies) and the rest folded under Offline. Invite friends to your lobby or join theirs.
+- **Lobby** (games with lobbies): the code, who can get in, every slot with its player's picture, state and ping,
+  and Start game, Remove, Close lobby or Leave lobby. Host a lobby or join one with a code when you're not in one.
+  Anything that restarts the game or removes someone asks first, in the overlay.
+- **Lobby chat**: the lobby's log and messages, and a box to talk.
+- **Game overview**: this session's time and your addons for the game, with updates waiting.
+- **Notifications** in the corner of the game, open or not: invites, friend requests, friends coming online, and
+  players joining or leaving your lobby.
+- Segoe UI and Windows' own icons, in the app's colours. Starting or joining from the overlay opens the co-op
+  window behind the game without taking focus.
+
 ## 0.38.1
 - **Fix: clicking in the overlay crashed the game.** Letting go of the mouse makes Windows send the game's window a
   second message from inside the first; the overlay's lock didn't allow that, threw, and the game ended. The lock

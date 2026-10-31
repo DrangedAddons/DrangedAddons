@@ -7,10 +7,13 @@
 
 namespace overlay {
 
-constexpr const char* Version = "0.1.0";
+constexpr const char* Version = "0.2.0";
 
 /// Which backend drew: "vulkan", "d3d11", "d3d12", "opengl". Sent to the manager in hello.
 void SetApi(const char* api);
+
+/// The backend draws into an sRGB image: pictures are converted to linear before upload, as vertex colours are.
+void SetSrgbTarget(bool srgb);
 
 /// The window the game presents to. Subclasses it (hotkey, input while open); a new window replaces the old one.
 void Attach(HWND window);

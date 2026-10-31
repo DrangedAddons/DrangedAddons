@@ -98,7 +98,13 @@ int main(int argc, char** argv)
     wc.lpszClassName = L"DrangedOverlayTest";
     RegisterClassW(&wc);
     // Never shown: nothing appears on screen.
-    HWND window = CreateWindowExW(0, wc.lpszClassName, L"overlay test", WS_OVERLAPPEDWINDOW, 0, 0, 1280, 720, nullptr, nullptr, wc.hInstance, nullptr);
+    // Third argument: the client size, e.g. 1920x1080 (default 1280x720).
+    int width = 1280, height = 720;
+    if (argc > 3) sscanf(argv[3], "%dx%d", &width, &height);
+    RECT frame{ 0, 0, width, height };
+    AdjustWindowRect(&frame, WS_POPUP, FALSE);
+    HWND window = CreateWindowExW(0, wc.lpszClassName, L"overlay test", WS_POPUP, 0, 0, frame.right - frame.left, frame.bottom - frame.top,
+                                  nullptr, nullptr, wc.hInstance, nullptr);
     RECT client;
     GetClientRect(window, &client);
 
@@ -253,6 +259,22 @@ int main(int argc, char** argv)
 
     for (int frame = 0; frame < frames; frame++)
     {
+        // VKTEST_CLICK=x,y: one click there at frame 60 (after the overlay has its state).
+        static int clickX = -1, clickY = -1;
+        if (frame == 0)
+        {
+            char at[32] = {};
+            if (GetEnvironmentVariableA("VKTEST_CLICK", at, sizeof at)) sscanf(at, "%d,%d", &clickX, &clickY);
+        }
+        if (clickX >= 0 && frame == 60)
+        {
+            // Move, press and release together: the real cursor isn't over this hidden window, so Windows says the
+            // mouse left as soon as ImGui asks, and a click spread over frames would lose its hover.
+            LPARAM at = MAKELPARAM(clickX, clickY);
+            PostMessageW(window, WM_MOUSEMOVE, 0, at);
+            PostMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, at);
+            PostMessageW(window, WM_LBUTTONUP, 0, at);
+        }
         if (click && frame >= 10 && frame < 40)
         {
             int x = (int)extent.width / 2, y = (int)extent.height / 2 + (frame % 2 ? 40 : -20);
@@ -301,6 +323,7 @@ int main(int argc, char** argv)
         VkResult r = QueuePresentKHR(queue, &pi);
         if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) { printf("present returned %d\n", (int)r); return 1; }
         QueueWaitIdle(queue);
+        Sleep(16); // about 60 frames a second: a hidden window isn't held to the display's rate
     }
     DeviceWaitIdle(device);
     DestroySwapchainKHR(device, swapchain, nullptr);

@@ -126,6 +126,7 @@ public partial class CoopWindow : Window
         ShowInviteList();
         ShowLobbies();
         ShowStage();
+        OverlayHub.Changed();
     }
 
     void Play_Click(object sender, RoutedEventArgs e)
@@ -204,7 +205,7 @@ public partial class CoopWindow : Window
     void UseHost(CoopHost host)
     {
         _host = host;
-        LogList.Children.Clear();
+        ClearLog();
         _roster.Clear();
         _removed.Clear();
         _started = false;
@@ -254,11 +255,13 @@ public partial class CoopWindow : Window
         : _host is null ? _presence.SetLobbyAsync(null)
         : _presence.SetLobbyAsync(new CoopLobby(_host.Code, _host.Locked, _host.HasPassword, _host.Party.Members.Count + 1, CoopGameId));
 
-    async void StartGame_Click(object sender, RoutedEventArgs e)
+    async void StartGame_Click(object sender, RoutedEventArgs e) => await StartGameAsync(ask: true);
+
+    async Task StartGameAsync(bool ask)
     {
         var host = _host;
         if (host is null || host.Started || _launching) return;
-        if (GameRunning && !DarkDialog.Show(this, "Restart the game?", "Azeroth Survivors is running. It restarts to host co-op.", "Restart", "Cancel"))
+        if (ask && GameRunning && !DarkDialog.Show(this, "Restart the game?", "Azeroth Survivors is running. It restarts to host co-op.", "Restart", "Cancel"))
             return;
         _launching = true;
         StartButton.IsEnabled = false;
@@ -282,10 +285,10 @@ public partial class CoopWindow : Window
         Refresh();
     }
 
-    async Task KickAsync(PartyMember member)
+    async Task KickAsync(PartyMember member, bool ask = true)
     {
         if (_host is null) return;
-        if (!DarkDialog.Show(this, $"Remove {member.Name}?", $"{member.Name} can't rejoin this lobby.", "Remove", "Cancel", danger: true))
+        if (ask && !DarkDialog.Show(this, $"Remove {member.Name}?", $"{member.Name} can't rejoin this lobby.", "Remove", "Cancel", danger: true))
             return;
         if (member.Member is { } id) _invited.Remove(id);
         _removed.Add(member.Id);
@@ -493,10 +496,13 @@ public partial class CoopWindow : Window
         }
     }
 
-    void AddLog(string text, bool danger = false) => AddLogLine(new TextBlock
+    void AddLog(string text, bool danger = false)
     {
-        Text = text, TextWrapping = TextWrapping.Wrap, Foreground = danger ? Danger : Muted, FontStyle = FontStyles.Italic,
-    });
+        AddLogLine(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = danger ? Danger : Muted, FontStyle = FontStyles.Italic });
+        OverlayLine(null, false, text);
+        // Others coming and going, and the game starting, also show in the corner of the game.
+        if (!text.StartsWith("You ")) OverlayHub.Toast("Lobby", text);
+    }
 
     void AddChat(ChatLine line)
     {
@@ -507,6 +513,7 @@ public partial class CoopWindow : Window
         });
         block.Inlines.Add(new System.Windows.Documents.Run(": " + line.Text));
         AddLogLine(block);
+        OverlayLine(line.From, line.FromHost, line.Text);
     }
 
     void AddLogLine(TextBlock block)
@@ -909,7 +916,7 @@ public partial class CoopWindow : Window
             var join = await CoopJoin.ConnectAsync(code, _name, _key, JoinPasswordBox.Password,
                 line => Dispatcher.BeginInvoke(() => { StatusList.Children.Clear(); AddStatus(line); }), cancel.Token);
             _join = join;
-            LogList.Children.Clear();
+            ClearLog();
             _roster.Clear();
             _started = false;
             join.Status += line => Dispatcher.BeginInvoke(() =>

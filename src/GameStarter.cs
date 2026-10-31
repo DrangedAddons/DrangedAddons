@@ -1,9 +1,6 @@
 using System.Diagnostics;
-using System.IO.Pipes;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json.Nodes;
 using Microsoft.Win32;
 
 namespace DrangedAddons;
@@ -40,11 +37,11 @@ public static class GameStarter
             if (pair.IndexOf('=') is > 0 and var i && IsAllowed(pair[..i])) variables[pair[..i]] = pair[(i + 1)..];
         foreach (var (name, value) in env ?? new Dictionary<string, string>()) variables[name] = value;
 
-        OverlaySession? session = null;
+        OverlayConnection? session = null;
         var state = PlayerState?.Invoke(game.Id);
         if (game.HasOverlay && state?.Overlay != false && InstallLayer() is not null)
         {
-            session = new OverlaySession(game.Name, state?.OverlayHotkey);
+            session = new OverlayConnection(game, state?.OverlayHotkey);
             session.Listen(); // before the game starts, so the overlay finds the pipe on its first try
             variables["DRANGED_OVERLAY_ENABLE"] = "1";
             variables["DRANGED_OVERLAY_PIPE"] = session.Name;
@@ -141,110 +138,6 @@ public static class GameStarter
                 OverlayLog.Write("couldn't install the overlay: " + ex.Message);
                 return null;
             }
-        }
-    }
-
-    /// <summary>
-    /// The pipe to one game's overlay: tells it the hotkey and game, and hears what it says (logged for now; lobby,
-    /// friends and chat come next). Lives until the game exits; the overlay reconnects if the pipe drops.
-    /// </summary>
-    sealed class OverlaySession : IDisposable
-    {
-        readonly CancellationTokenSource _stop = new();
-        readonly string _game;
-        readonly string? _hotkey;
-
-        public string Name { get; } = "DrangedOverlay-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
-
-        public OverlaySession(string game, string? hotkey)
-        {
-            _game = game;
-            _hotkey = hotkey;
-        }
-
-        public void Listen() => _ = ServeAsync();
-
-        public void Follow(int processId)
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    using var process = Process.GetProcessById(processId);
-                    await process.WaitForExitAsync(_stop.Token);
-                }
-                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or OperationCanceledException) { }
-                Dispose();
-            });
-        }
-
-        async Task ServeAsync()
-        {
-            var cancel = _stop.Token;
-            while (!cancel.IsCancellationRequested)
-            {
-                try
-                {
-                    // Buffered both ways: with none, each side's write waits for the other to read, and both write first.
-                    await using var pipe = new NamedPipeServerStream(Name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
-                        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, 64 * 1024, 64 * 1024);
-                    await pipe.WaitForConnectionAsync(cancel);
-                    await SendAsync(pipe, Hello(), cancel);
-                    while (await ReadAsync(pipe, cancel) is { } message) Heard(message);
-                }
-                catch (OperationCanceledException) { return; }
-                catch (IOException) { }
-            }
-        }
-
-        JsonObject Hello()
-        {
-            var (modifiers, key) = OverlayHotkey.Parse(_hotkey) ?? OverlayHotkey.Parse(OverlayHotkey.Default)!.Value;
-            return new JsonObject
-            {
-                ["t"] = "hello", ["game"] = _game, ["vk"] = System.Windows.Input.KeyInterop.VirtualKeyFromKey(key),
-                ["ctrl"] = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control),
-                ["alt"] = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Alt),
-                ["shift"] = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift),
-            };
-        }
-
-        void Heard(JsonNode message)
-        {
-            switch ((string?)message["t"])
-            {
-                case "hello":
-                    OverlayLog.Write($"{_game}: overlay {(string?)message["version"]} ({(string?)message["api"]}) connected");
-                    break;
-                case "problem":
-                    OverlayLog.Write($"{_game}: overlay problem: {(string?)message["text"]}");
-                    break;
-            }
-        }
-
-        static async Task SendAsync(Stream pipe, JsonNode message, CancellationToken cancel)
-        {
-            var body = Encoding.UTF8.GetBytes(message.ToJsonString());
-            await pipe.WriteAsync(BitConverter.GetBytes(body.Length), cancel);
-            await pipe.WriteAsync(body, cancel); // no flush: on a pipe it waits until the overlay has read it
-        }
-
-        static async Task<JsonNode?> ReadAsync(Stream pipe, CancellationToken cancel)
-        {
-            var header = new byte[4];
-            try { await pipe.ReadExactlyAsync(header, cancel); }
-            catch (EndOfStreamException) { return null; }
-            var length = BitConverter.ToInt32(header);
-            if (length is < 0 or > 1024 * 1024) return null;
-            var body = new byte[length];
-            await pipe.ReadExactlyAsync(body, cancel);
-            try { return JsonNode.Parse(body) ?? new JsonObject(); }
-            catch (System.Text.Json.JsonException) { return new JsonObject(); }
-        }
-
-        public void Dispose()
-        {
-            if (!_stop.IsCancellationRequested) _stop.Cancel();
         }
     }
 }

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.40.0
+- **Invite to lobby, from inside the game.** In the overlay's Friends, every online friend has Invite to lobby: with
+  a lobby of yours that has room it invites them; otherwise it opens a New lobby window in the game with them ticked
+  (who can join, a password, more friends to invite, and who to bring along if you're hosting). Create lobby opens
+  it and sends the invites; your game only restarts when you start the lobby's game. From someone else's lobby you
+  leave it first, and the overlay says so.
+- **The Friends window in the app now matches the overlay's**, and both do the same things: you at the top, one
+  search box that filters friends and, from two letters, finds members to add; lobby invites and friend requests to
+  answer; friends online with Invite to lobby and Join; offline friends folded away; requests you've sent (Cancel);
+  Remove friend under the ⋯ menu. Round pictures with status dots in both.
+- In the app, Invite to lobby on a friend opens the co-op window's New lobby screen with them added; it now works
+  without a lobby open too. The host's Lobby window in the overlay has New lobby as well.
+- The game behind the overlay is dimmed more, and the overlay's windows are no longer see-through.
+
 ## 0.39.0
 - **The in-game overlay, laid out like Steam's.** Shift+Tab dims the game and shows a top bar (the game and how
   long you've played this session, the clock, Back to game) and a dock along the bottom that opens each module in

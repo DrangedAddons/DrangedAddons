@@ -412,7 +412,7 @@ void Style()
     s.ItemSpacing = ImVec2(10, 8);
     s.WindowBorderSize = 1;
     auto* c = s.Colors;
-    c[ImGuiCol_WindowBg] = rgb(0x16181D, 0.97f);
+    c[ImGuiCol_WindowBg] = rgb(0x16181D);
     c[ImGuiCol_ChildBg] = rgb(0x1F232B);
     c[ImGuiCol_PopupBg] = rgb(0x1F232B);
     c[ImGuiCol_Border] = rgb(0x323844);

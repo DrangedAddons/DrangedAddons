@@ -259,18 +259,22 @@ int main(int argc, char** argv)
 
     for (int frame = 0; frame < frames; frame++)
     {
-        // VKTEST_CLICK=x,y: one click there at frame 60 (after the overlay has its state).
-        static int clickX = -1, clickY = -1;
+        // VKTEST_CLICK=x,y[;x,y...]: one click at each, from frame 60, 30 frames apart (after the overlay has its state).
+        static int clicks[8][2];
+        static int clickCount = 0;
         if (frame == 0)
         {
-            char at[32] = {};
-            if (GetEnvironmentVariableA("VKTEST_CLICK", at, sizeof at)) sscanf(at, "%d,%d", &clickX, &clickY);
+            char at[128] = {};
+            if (GetEnvironmentVariableA("VKTEST_CLICK", at, sizeof at))
+                for (char* part = strtok(at, ";"); part && clickCount < 8; part = strtok(nullptr, ";"))
+                    if (sscanf(part, "%d,%d", &clicks[clickCount][0], &clicks[clickCount][1]) == 2) clickCount++;
         }
-        if (clickX >= 0 && frame == 60)
+        if (frame >= 60 && (frame - 60) % 30 == 0 && (frame - 60) / 30 < clickCount)
         {
             // Move, press and release together: the real cursor isn't over this hidden window, so Windows says the
             // mouse left as soon as ImGui asks, and a click spread over frames would lose its hover.
-            LPARAM at = MAKELPARAM(clickX, clickY);
+            auto* c = clicks[(frame - 60) / 30];
+            LPARAM at = MAKELPARAM(c[0], c[1]);
             PostMessageW(window, WM_MOUSEMOVE, 0, at);
             PostMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, at);
             PostMessageW(window, WM_LBUTTONUP, 0, at);

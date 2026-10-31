@@ -119,6 +119,19 @@ public partial class CoopWindow
         Show(Screen.Start);
     }
 
+    /// <summary>The in-game new-lobby window's Create lobby: the same as this window's, with what it chose.</summary>
+    public Task CreateLobbyFromOverlayAsync(bool locked, string password, IEnumerable<string> bring, IEnumerable<CoopPlayer> invite)
+    {
+        if (_busy) return Task.CompletedTask;
+        _bring.Clear();
+        _bring.UnionWith(bring);
+        _stageInvites.Clear();
+        foreach (var player in invite) _stageInvites[player.Id] = player;
+        StageLockedCheck.IsChecked = locked;
+        StagePasswordBox.Password = password;
+        return CreateLobbyAsync(ask: false);
+    }
+
     public Task ChatFromOverlayAsync(string text)
     {
         text = text.Trim();

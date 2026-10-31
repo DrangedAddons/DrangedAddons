@@ -72,8 +72,12 @@ public partial class MainWindow
             _friendsWindow.Activate();
             return;
         }
-        _friendsWindow = new FriendsWindow(_coopPresence) { Owner = this };
+        _friendsWindow = new FriendsWindow(_coopPresence) { Owner = this, Context = FriendsContextNow };
+        _friendsWindow.InviteToLobby += InviteToLobby;
+        _friendsWindow.JoinLobby += (code, from) => _ = JoinLobbyAsync(code, from, activate: true);
+        _friendsWindow.DeclineInvite += from => _ = DeclineInviteAsync(from);
         _friendsWindow.Closed += (_, _) => _friendsWindow = null;
+        _friendsWindow.Refresh();
         _friendsWindow.Show();
     }
 

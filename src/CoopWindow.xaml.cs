@@ -156,7 +156,7 @@ public partial class CoopWindow : Window
                 break;
             case Screen.Stage:
                 StatusList.Children.Clear();
-                Show(Screen.Host);
+                Show(_host is not null ? Screen.Host : _join is not null ? Screen.Joined : _beforeStage is Screen.Host or Screen.Joined ? Screen.Start : _beforeStage);
                 break;
             default:
                 if (!ConfirmEnd()) return;
@@ -302,16 +302,28 @@ public partial class CoopWindow : Window
     readonly HashSet<string> _bring = [];
     readonly Dictionary<string, CoopPlayer> _stageInvites = new();
 
-    void NewLobby_Click(object sender, RoutedEventArgs e)
+    void NewLobby_Click(object sender, RoutedEventArgs e) => Stage(null);
+
+    /// <summary>The screen Cancel goes back to from the new-lobby screen.</summary>
+    Screen _beforeStage = Screen.Start;
+
+    /// <summary>
+    /// Opens the new-lobby screen: from this player's lobby (everyone in it ticked to come along), from no lobby, or
+    /// from someone else's (left when the new one opens). <paramref name="invite"/> starts ticked to be invited.
+    /// </summary>
+    public void Stage(CoopPlayer? invite)
     {
-        if (_host is null || _busy) return;
+        if (_busy) return;
         _bring.Clear();
-        foreach (var member in _host.Party.Members) _bring.Add(member.Id);
+        if (_host is not null) foreach (var member in _host.Party.Members) _bring.Add(member.Id);
         _stageInvites.Clear();
-        StageLockedCheck.IsChecked = _host.Locked;
-        StagePasswordBox.Password = HostPasswordBox.Password;
+        if (invite is not null) _stageInvites[invite.Id] = invite;
+        StageLockedCheck.IsChecked = _host?.Locked ?? false;
+        StagePasswordBox.Password = _host is not null ? HostPasswordBox.Password : "";
         StatusList.Children.Clear();
+        if (_screen != Screen.Stage) _beforeStage = _screen is Screen.Join ? Screen.Start : _screen;
         Show(Screen.Stage);
+        if (_join?.Party is { } joined) AddStatus($"You leave {joined.Host}'s lobby when you create this one, and your game restarts in solo.");
     }
 
     void StagePassword_Changed(object sender, RoutedEventArgs e) => StagePasswordHint.Visibility = Visible(StagePasswordBox.Password.Length == 0);
@@ -319,8 +331,9 @@ public partial class CoopWindow : Window
     /// <summary>Everyone in this lobby, ticked to come along, then members online to invite; at most a full party.</summary>
     void ShowStage()
     {
-        if (_screen != Screen.Stage || _host is null) return;
-        var members = _host.Party.Members;
+        if (_screen != Screen.Stage) return;
+        IReadOnlyList<PartyMember> members = _host?.Party.Members ?? [];
+        BringHeading.Visibility = BringCard.Visibility = Visible(_host is not null);
         _bring.IntersectWith(members.Select(m => m.Id));
         var count = 1 + _bring.Count + _stageInvites.Count;
         StageCount.Text = $"{count}/{Slots}";
@@ -367,23 +380,26 @@ public partial class CoopWindow : Window
         }
     }
 
-    async void CreateLobby_Click(object sender, RoutedEventArgs e) => await CreateLobbyAsync();
+    async void CreateLobby_Click(object sender, RoutedEventArgs e) => await CreateLobbyAsync(ask: true);
 
     /// <summary>
-    /// Opens the new lobby, lets in who's coming along and who's invited, moves those coming along (their managers
-    /// leave this lobby before joining the new one), then closes this lobby and the game. The new lobby's game starts
-    /// with Start game, as any lobby's does.
+    /// Opens the new lobby and lets in who's coming along and who's invited. From this player's lobby: moves those
+    /// coming along (their managers leave it before joining the new one), then closes it and the game. From someone
+    /// else's: leaves it first (the game restarts in solo). The new lobby's game starts with Start game, as any
+    /// lobby's does. The overlay asks its own question first (<paramref name="ask"/> false).
     /// </summary>
-    async Task CreateLobbyAsync()
+    async Task CreateLobbyAsync(bool ask)
     {
         var old = _host;
-        if (old is null || _busy) return;
-        var bring = old.Party.Members.Where(m => _bring.Contains(m.Id) && m.Member is not null).ToList();
-        var left = old.Party.Members.Count - bring.Count;
-        var playing = GameRunning;
-        if (playing || left > 0)
+        if (_busy) return;
+        var leaving = _join?.Party;
+        var bring = old?.Party.Members.Where(m => _bring.Contains(m.Id) && m.Member is not null).ToList() ?? [];
+        var left = (old?.Party.Members.Count ?? 0) - bring.Count;
+        var playing = old is not null && GameRunning;
+        if (ask && (playing || left > 0 || leaving is not null))
         {
             var what = new List<string>();
+            if (leaving is not null) what.Add($"You leave {leaving.Host}'s lobby, and your game restarts in solo.");
             if (playing) what.Add("Your game closes, and starts again when you start the new lobby's game.");
             if (bring.Count > 0) what.Add($"{string.Join(", ", bring.Select(m => m.Name))} move{(bring.Count == 1 ? "s" : "")} with you.");
             if (left > 0) what.Add("Everyone else leaves the party and their game restarts in solo.");
@@ -396,6 +412,11 @@ public partial class CoopWindow : Window
         CoopHost? next = null;
         try
         {
+            if (leaving is not null)
+            {
+                await EndAsync();
+                await RestartSoloAsync();
+            }
             using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var port = CoopTunnel.FreeLocalPort();
             next = await CoopHost.StartAsync(port, _name, cancel.Token, CoopGameId);
@@ -404,14 +425,18 @@ public partial class CoopWindow : Window
             foreach (var member in bring) await next.AllowAsync(member.Member!);
             foreach (var player in _stageInvites.Values) await next.AllowAsync(player.Id);
 
-            foreach (var member in bring) await old.MoveAsync(member.Id, next.Code);
-            // They leave this lobby on their own; give them a moment before it closes on them.
-            for (var waited = 0; waited < 50 && old.Party.Members.Any(m => bring.Any(b => b.Id == m.Id)); waited++)
-                await Task.Delay(100);
-            _host = null;
-            _invited.Clear();
-            await old.DisposeAsync();
-            await CloseGamesAsync();
+            if (old is not null)
+            {
+                foreach (var member in bring) await old.MoveAsync(member.Id, next.Code);
+                // They leave this lobby on their own; give them a moment before it closes on them.
+                for (var waited = 0; waited < 50 && old.Party.Members.Any(m => bring.Any(b => b.Id == m.Id)); waited++)
+                    await Task.Delay(100);
+                _host = null;
+                _invited.Clear();
+                await old.DisposeAsync();
+                await CloseGamesAsync();
+            }
+            else _hosting(true);
 
             _hostGamePort = port;
             UseHost(next);

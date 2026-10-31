@@ -49,6 +49,12 @@ public static class OverlayHub
         lock (Connections) return [.. Connections];
     }
 
+    /// <summary>
+    /// Raised (on the UI thread, shortly after <see cref="Changed"/>) for windows in the app that show the same things,
+    /// like Friends.
+    /// </summary>
+    public static event Action? Updated;
+
     /// <summary>Something an overlay shows changed: they're all brought up to date shortly (changes come in bursts).</summary>
     public static void Changed()
     {
@@ -58,10 +64,10 @@ public static class OverlayHub
             dispatcher.BeginInvoke(Changed);
             return;
         }
-        if (All().Count == 0) return;
         _debounce ??= new DispatcherTimer(TimeSpan.FromMilliseconds(150), DispatcherPriority.Background, (_, _) =>
         {
             _debounce!.Stop();
+            Updated?.Invoke();
             foreach (var c in All()) c.Push();
         }, dispatcher);
         _debounce.Stop();

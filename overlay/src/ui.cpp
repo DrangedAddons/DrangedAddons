@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <set>
 #include <string>
 
 namespace overlay {
@@ -31,7 +32,7 @@ std::string Icon(unsigned cp)
 }
 
 constexpr unsigned IconPeople = 0xE716, IconGroup = 0xE902, IconChat = 0xE8BD, IconInfo = 0xE946, IconClose = 0xE711,
-                   IconAddFriend = 0xE8FA, IconLock = 0xE72E, IconCopy = 0xE8C8, IconPlay = 0xE768;
+                   IconAddFriend = 0xE8FA, IconLock = 0xE72E, IconCopy = 0xE8C8, IconPlay = 0xE768, IconMore = 0xE712;
 
 /// The name's letter on a tile coloured from the name, the way the manager draws members without a picture.
 ImU32 TileColour(const std::string& name)
@@ -71,10 +72,40 @@ void Picture(const std::string& id, const std::string& name, float size, float a
 
 unsigned StateColour(const std::string& state)
 {
-    if (state == "online") return Ready;
-    if (state == "ingame") return 0x5DA9E9;
-    if (state == "away") return Accent;
-    return Muted;
+    if (state == "online") return 0x3BA55D;
+    if (state == "ingame") return 0x4C9BF0;
+    if (state == "away") return 0xE8A33A;
+    return 0x747F8D;
+}
+
+/// A member in a friends list: round picture (or initials) with a status dot, as the manager's Friends window draws them.
+void Round(const std::string& id, const std::string& name, float size, const std::string& state)
+{
+    auto* draw = ImGui::GetWindowDrawList();
+    ImVec2 a = ImGui::GetCursorScreenPos(), b(a.x + size, a.y + size), c(a.x + size / 2, a.y + size / 2);
+    float alpha = state == "offline" ? 0.55f : 1;
+    if (auto* tex = Avatar(id))
+        draw->AddImageRounded(tex->GetTexRef(), a, b, ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, (int)(255 * alpha)), size / 2);
+    else
+    {
+        draw->AddCircleFilled(c, size / 2, Rgb(Panel2));
+        draw->AddCircle(c, size / 2, Rgb(Line));
+        std::string initials;
+        for (size_t i = 0; i < name.size() && initials.size() < 2; i++)
+            if (i == 0 || name[i - 1] == ' ') initials += (char)toupper((unsigned char)name[i]);
+        ImGui::PushFont(g_bold, size * 0.4f);
+        ImVec2 t = ImGui::CalcTextSize(initials.c_str());
+        draw->AddText(ImVec2(c.x - t.x / 2, c.y - t.y / 2), Rgb(Accent, (int)(255 * alpha)), initials.c_str());
+        ImGui::PopFont();
+    }
+    if (!state.empty())
+    {
+        float r = size * 0.18f;
+        ImVec2 dot(b.x - r + 1, b.y - r + 1);
+        draw->AddCircleFilled(dot, r + 2, Rgb(0x16181D));
+        draw->AddCircleFilled(dot, r, Rgb(StateColour(state)));
+    }
+    ImGui::Dummy(ImVec2(size, size));
 }
 
 bool AccentButton(const char* label, const ImVec2& size = ImVec2(0, 0))
@@ -140,9 +171,34 @@ std::string Field(const std::string& name, const std::string& value) { return js
 
 // ---- Windows and confirmations ----
 
-enum Module { Friends, Lobby, Chat, Overview, ModuleCount };
-const char* ModuleNames[] = { "friends", "lobby", "chat", "overview" };
-bool g_shown[ModuleCount] = { true, true, false, false };
+enum Module { Friends, Lobby, Chat, Overview, Stage, ModuleCount };
+const char* ModuleNames[] = { "friends", "lobby", "chat", "overview", "stage" };
+bool g_shown[ModuleCount] = { true, true, false, false, false };
+
+/// What the New lobby window has chosen so far.
+struct Staging
+{
+    bool locked = false;
+    char password[64] = "";
+    std::set<std::string> bring;  // party ids from this lobby coming along
+    std::set<std::string> invite; // member ids to invite
+} g_stage;
+
+/// Opens the New lobby window: everyone in this lobby (if hosting) ticked to come along, and <invite> ticked to invite.
+void OpenStage(const std::string& invite)
+{
+    g_stage = {};
+    auto& l = State().lobby;
+    if (l.kind == json::Value::Object && l["role"].str() == "host")
+    {
+        g_stage.locked = l["locked"].flag();
+        for (auto& s : l["slots"].items)
+            if (!s["host"].flag()) g_stage.bring.insert(s["id"].str());
+    }
+    if (!invite.empty()) g_stage.invite.insert(invite);
+    g_shown[Stage] = true;
+    ImGui::SetWindowFocus("###stage");
+}
 std::wstring g_windowsFile;
 bool g_windowsDirty = false;
 
@@ -237,7 +293,7 @@ void DrawFriends()
     auto& you = state.you;
     if (you.kind == json::Value::Object)
     {
-        Picture(you["id"].str(), you["name"].str(), 40);
+        Round(you["id"].str(), you["name"].str(), 40, "ingame");
         ImGui::SameLine();
         ImGui::BeginGroup();
         ImGui::PushFont(g_bold, 16);
@@ -256,9 +312,18 @@ void DrawFriends()
         return;
     }
 
+    // Filters friends; from two letters the manager also searches members (anyone who's used it) to add.
     static char search[64] = "";
+    static std::string asked;
+    static ULONGLONG typedAt = 0;
     ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##search", "Search friends", search, sizeof search);
+    if (ImGui::InputTextWithHint("##search", "Search friends, or find members to add", search, sizeof search)) typedAt = GetTickCount64();
+    std::string query = search;
+    if (query != asked && GetTickCount64() - typedAt > 350)
+    {
+        asked = query;
+        Act("search", Field("q", query.size() >= 2 ? query : ""));
+    }
     auto matches = [](const std::string& name) {
         if (!search[0]) return true;
         std::string a = name, b = search;
@@ -269,13 +334,45 @@ void DrawFriends()
 
     ImGui::BeginChild("##list", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
 
+    // Members found who aren't friends yet.
+    auto& found = f["search"];
+    if (query.size() >= 2 && found.kind == json::Value::Object && found["query"].str() == query)
+    {
+        Heading("MEMBERS");
+        if (found["results"].items.empty()) MutedText(("Nobody called \u201C" + query + "\u201D has used DrangedAddons yet.").c_str());
+        for (auto& p : found["results"].items)
+        {
+            ImGui::PushID(("found" + p["id"].str()).c_str());
+            Round(p["id"].str(), p["name"].str(), 32, "");
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::TextUnformatted(p["name"].str().c_str());
+            auto relation = p["relation"].str();
+            if (!relation.empty())
+            {
+                ImGui::PushFont(nullptr, 13);
+                ImGui::TextColored(Rgbf(Muted), "%s", relation == "incoming" ? "Asked to be your friend" : "Request sent");
+                ImGui::PopFont();
+            }
+            ImGui::EndGroup();
+            if (relation != "outgoing")
+            {
+                const char* label = relation == "incoming" ? "Accept" : "Add friend";
+                AlignRight(ButtonWidth(label));
+                if (AccentButton(label)) Act(relation == "incoming" ? "acceptFriend" : "addFriend", Field("id", p["id"].str()));
+            }
+            ImGui::PopID();
+        }
+        ImGui::Separator();
+    }
+
     // Lobby invites, then friend requests: both want an answer.
     for (auto& invite : f["invites"].items)
     {
         auto& from = invite["from"];
         ImGui::PushID(("invite" + from["id"].str()).c_str());
         Heading("LOBBY INVITE");
-        Picture(from["id"].str(), from["name"].str(), 32);
+        Round(from["id"].str(), from["name"].str(), 32, "");
         ImGui::SameLine();
         ImGui::BeginGroup();
         ImGui::Text("%s invited you", from["name"].str().c_str());
@@ -294,7 +391,7 @@ void DrawFriends()
         for (auto& p : f["incoming"].items)
         {
             ImGui::PushID(("req" + p["id"].str()).c_str());
-            Picture(p["id"].str(), p["name"].str(), 32);
+            Round(p["id"].str(), p["name"].str(), 32, "");
             ImGui::SameLine();
             ImGui::BeginGroup();
             ImGui::TextUnformatted(p["name"].str().c_str());
@@ -308,12 +405,13 @@ void DrawFriends()
     }
 
     // Friends: in a game or online first, then away, then offline (folded).
+    bool hosting = f["hosting"].flag();
     auto row = [&](const json::Value& p) {
         if (!matches(p["name"].str())) return;
         ImGui::PushID(p["id"].str().c_str());
         auto st = p["state"].str();
         bool offline = st == "offline";
-        Picture(p["id"].str(), p["name"].str(), 32, offline ? 0.5f : 1);
+        Round(p["id"].str(), p["name"].str(), 32, st);
         ImGui::SameLine();
         ImGui::BeginGroup();
         ImGui::PushStyleColor(ImGuiCol_Text, offline ? Rgbf(Muted) : Rgbf(0xE6E8EC));
@@ -329,17 +427,38 @@ void DrawFriends()
         ImGui::PopFont();
         ImGui::PopStyleColor();
         ImGui::EndGroup();
-        if (p["invitable"].flag())
+        // Invite (to your lobby) or Invite to lobby (a new one, set up in the New lobby window); Join their open lobby;
+        // the rest in a menu.
+        bool canInvite = !offline && !p["inLobby"].flag();
+        bool canJoin = lobby.kind == json::Value::Object && lobby["joinable"].flag();
+        const char* inviteLabel = hosting ? "Invite" : "Invite to lobby";
+        auto more = Icon(IconMore) + "##more";
+        float width = ButtonWidth(more.c_str()) + (canInvite ? ButtonWidth(inviteLabel) + 6 : 0) + (canJoin ? ButtonWidth("Join") + 6 : 0);
+        AlignRight(width);
+        if (canJoin)
         {
-            AlignRight(ButtonWidth("Invite"));
-            if (ImGui::Button("Invite")) Act("invite", Field("id", p["id"].str()));
-        }
-        else if (lobby.kind == json::Value::Object && lobby["joinable"].flag())
-        {
-            AlignRight(ButtonWidth("Join"));
-            if (ImGui::Button("Join"))
+            if (AccentButton("Join"))
                 AskFirst("Join " + p["name"].str() + "'s lobby?", "Your game restarts to join when they start theirs.", "Join", "join",
                          Field("code", lobby["code"].str()));
+            ImGui::SameLine(0, 6);
+        }
+        if (canInvite)
+        {
+            if (ImGui::Button(inviteLabel))
+            {
+                if (hosting) Act("invite", Field("id", p["id"].str()));
+                else OpenStage(p["id"].str());
+            }
+            ImGui::SameLine(0, 6);
+        }
+        if (ImGui::Button(more.c_str())) ImGui::OpenPopup("##menu");
+        if (ImGui::BeginPopup("##menu"))
+        {
+            if (ImGui::MenuItem(("Remove " + p["name"].str() + " from friends").c_str()))
+                AskFirst("Remove " + p["name"].str() + " from your friends?",
+                         "You'll both stop seeing each other in Friends. You can add each other again later.", "Remove", "removeFriend",
+                         Field("id", p["id"].str()), true);
+            ImGui::EndPopup();
         }
         ImGui::PopID();
     };
@@ -357,9 +476,30 @@ void DrawFriends()
         ImGui::PushStyleColor(ImGuiCol_Text, Rgbf(Muted));
         bool showOffline = ImGui::CollapsingHeader(heading);
         ImGui::PopStyleColor();
-        if (showOffline)
+        if (showOffline || search[0])
             for (auto& p : f["friends"].items)
                 if (p["state"].str() == "offline") row(p);
+    }
+    if (!f["outgoing"].items.empty())
+    {
+        ImGui::Spacing();
+        Heading("SENT");
+        for (auto& p : f["outgoing"].items)
+        {
+            if (!matches(p["name"].str())) continue;
+            ImGui::PushID(("out" + p["id"].str()).c_str());
+            Round(p["id"].str(), p["name"].str(), 32, "");
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::TextUnformatted(p["name"].str().c_str());
+            ImGui::PushFont(nullptr, 13);
+            ImGui::TextColored(Rgbf(Muted), "Waiting for them");
+            ImGui::PopFont();
+            ImGui::EndGroup();
+            AlignRight(ButtonWidth("Cancel"));
+            if (ImGui::Button("Cancel")) Act("cancelRequest", Field("id", p["id"].str()));
+            ImGui::PopID();
+        }
     }
     ImGui::EndChild();
     ImGui::End();
@@ -489,6 +629,9 @@ void DrawLobby()
                 AskFirst("Start the game?", "Your game restarts to host co-op, and everyone's starts with it.", "Start game", "start");
             ImGui::SameLine();
         }
+        if (ImGui::Button("New lobby")) OpenStage("");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set up a new lobby, bring players from this one, then switch to it");
+        ImGui::SameLine();
         if (DangerButton("Close lobby"))
             AskFirst("Close the lobby?", "Everyone in it is disconnected and your game restarts in solo.", "Close lobby", "close", "", true);
     }
@@ -593,6 +736,119 @@ void DrawOverview()
     ImGui::End();
 }
 
+/// The New lobby window: the in-game version of the manager's (CoopWindow, Screen.Stage). Who comes along from this
+/// lobby (when hosting), who can join, and friends to invite; Create lobby sends it all to the manager.
+void DrawStage()
+{
+    auto& io = ImGui::GetIO();
+    if (!BeginModule(Stage, (Icon(IconGroup) + "  New lobby###stage").c_str(), ImVec2(io.DisplaySize.x / 2 - 220, io.DisplaySize.y * 0.45f - 280),
+                     ImVec2(440, 560)))
+        return;
+    auto& state = State();
+    auto& l = state.lobby;
+    auto& f = state.friends;
+    bool hosting = l.kind == json::Value::Object && l["role"].str() == "host";
+    bool joined = l.kind == json::Value::Object && !hosting;
+    int count = 1 + (int)g_stage.bring.size() + (int)g_stage.invite.size();
+    const int size = 5;
+
+    ImGui::BeginChild("##choices", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() - 8), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+    if (joined) MutedText(("You leave " + l["host"].str() + "'s lobby when you create this one, and your game restarts in solo.").c_str());
+    if (hosting)
+    {
+        Heading("BRING FROM THIS LOBBY");
+        bool anyone = false;
+        for (auto& s : l["slots"].items)
+        {
+            if (s["host"].flag()) continue;
+            anyone = true;
+            auto id = s["id"].str();
+            bool on = g_stage.bring.count(id) > 0;
+            ImGui::BeginDisabled(!on && count >= size);
+            if (ImGui::Checkbox((s["name"].str() + "##bring" + id).c_str(), &on))
+            {
+                if (on) g_stage.bring.insert(id);
+                else g_stage.bring.erase(id);
+            }
+            ImGui::EndDisabled();
+        }
+        if (!anyone) MutedText("Nobody else is in this lobby.");
+        ImGui::Spacing();
+    }
+
+    Heading("WHO CAN JOIN");
+    ImGui::Checkbox("Locked", &g_stage.locked);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only members you invite can join");
+    ImGui::SameLine(0, 24);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(Rgbf(Muted), "Password");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##password", "None", g_stage.password, sizeof g_stage.password, ImGuiInputTextFlags_Password);
+    ImGui::Spacing();
+
+    char heading[48];
+    snprintf(heading, sizeof heading, "INVITE  ·  %d/%d WITH YOU", count, size);
+    Heading(heading);
+    bool anyFriend = false;
+    for (auto& p : f["friends"].items)
+    {
+        if (p["state"].str() == "offline" || p["inLobby"].flag()) continue;
+        anyFriend = true;
+        auto id = p["id"].str();
+        ImGui::PushID(("stage" + id).c_str());
+        bool on = g_stage.invite.count(id) > 0;
+        ImGui::BeginDisabled(!on && count >= size);
+        ImGui::AlignTextToFramePadding();
+        if (ImGui::Checkbox("##on", &on))
+        {
+            if (on) g_stage.invite.insert(id);
+            else g_stage.invite.erase(id);
+        }
+        ImGui::SameLine();
+        Round(id, p["name"].str(), 26, p["state"].str());
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(p["name"].str().c_str());
+        ImGui::EndDisabled();
+        ImGui::PopID();
+    }
+    if (!anyFriend) MutedText("None of your friends are online.");
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    float w = ButtonWidth("Cancel") + ButtonWidth("Create lobby") + ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - w);
+    if (ImGui::Button("Cancel")) g_shown[Stage] = false, g_windowsDirty = true;
+    ImGui::SameLine();
+    if (AccentButton("Create lobby"))
+    {
+        auto list = [](const std::set<std::string>& ids) {
+            std::string out = "[";
+            for (auto& id : ids) out += (out.size() > 1 ? "," : "") + json::Quote(id);
+            return out + "]";
+        };
+        auto fields = std::string("\"locked\":") + (g_stage.locked ? "true" : "false") + "," + Field("password", g_stage.password) +
+                      ",\"bring\":" + list(g_stage.bring) + ",\"invite\":" + list(g_stage.invite);
+        // Anything that restarts the game or leaves people behind is asked first, as in the manager.
+        std::string what;
+        if (joined) what = "You leave " + l["host"].str() + "'s lobby, and your game restarts in solo. ";
+        if (hosting)
+        {
+            what += "Your game closes, and starts again when you start the new lobby's game. ";
+            int left = 0;
+            for (auto& s : l["slots"].items) left += !s["host"].flag() && !g_stage.bring.count(s["id"].str());
+            if (!g_stage.bring.empty()) what += std::to_string(g_stage.bring.size()) + (g_stage.bring.size() == 1 ? " player moves" : " players move") + " with you. ";
+            if (left) what += "Everyone else leaves the party and their game restarts in solo.";
+        }
+        if (what.empty()) Act("createLobby", fields);
+        else AskFirst("Create the new lobby?", what, "Create lobby", "createLobby", fields);
+        g_shown[Stage] = false;
+        g_windowsDirty = true;
+    }
+    ImGui::End();
+}
+
 // ---- The frame ----
 
 void DrawTopBar()
@@ -674,7 +930,7 @@ void DrawDock()
         {
             g_shown[item.module] = !on;
             g_windowsDirty = true;
-            if (!on) ImGui::SetWindowFocus(item.tip);
+            if (!on) ImGui::SetWindowFocus((std::string("###") + ModuleNames[item.module]).c_str());
         }
         ImGui::PopStyleColor(2);
         if (ImGui::IsItemHovered())
@@ -760,13 +1016,14 @@ void DrawUi(bool open, bool hint)
     auto& io = ImGui::GetIO();
     if (open)
     {
-        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 150));
+        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 205));
         DrawTopBar();
         auto& state = State();
         if (g_shown[Friends]) DrawFriends();
         if (state.lobbies && g_shown[Lobby]) DrawLobby();
         if (state.lobbies && g_shown[Chat]) DrawChat();
         if (g_shown[Overview]) DrawOverview();
+        if (state.lobbies && g_shown[Stage]) DrawStage();
         DrawDock();
         DrawConfirm();
         if (g_windowsDirty)

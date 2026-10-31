@@ -10,11 +10,52 @@ public partial class MainWindow
     /// <summary>Friends online and friend requests last time, to notify overlays of what's new.</summary>
     HashSet<string>? _overlayOnline, _overlayRequests;
 
+    /// <summary>Each game's overlay's member search: what it searched for and who was found.</summary>
+    readonly Dictionary<string, (string Query, List<CoopFound> Found)> _overlaySearch = new();
+
     void StartOverlay()
     {
         OverlayHub.Provide = OverlaySnapshot;
         OverlayHub.Handle = OverlayAction;
+        OverlayHub.Updated += () => _friendsWindow?.Refresh();
         Avatars.Loaded += OverlayHub.Changed;
+    }
+
+    /// <summary>You and your lobby, for the Friends window.</summary>
+    FriendsContext FriendsContextNow() => new(AccountName, Account.LoadOwnPicture(), _coopPresence?.State ?? "offline", _coopPresence?.Game,
+        _coopWindow is { IsHosting: true, LobbyFull: false }, _coopWindow?.LobbyCode, _coopWindow?.LobbyMembers ?? [],
+        _coopInvites.Where(i => DateTime.UtcNow - i.At < TimeSpan.FromMinutes(15)).Select(i => (i.From, i.Code)).ToList());
+
+    /// <summary>Invite to lobby on a friend: to your lobby when you host one with room, else a new lobby set up with them in it.</summary>
+    void InviteToLobby(CoopPlayer friend)
+    {
+        if (_coopWindow is { IsHosting: true, LobbyFull: false } coop)
+        {
+            _ = coop.InviteFromOverlayAsync(friend);
+            return;
+        }
+        OpenCoopWindow();
+        _coopWindow?.Stage(friend);
+    }
+
+    async Task JoinLobbyAsync(string code, CoopPlayer? invitedBy, bool activate)
+    {
+        if (invitedBy is not null) _coopInvites.RemoveAll(i => i.From.Id == invitedBy.Id);
+        OverlayHub.Changed();
+        if (activate) OpenCoopWindow();
+        else CoopForOverlay();
+        if (_coopWindow is { } coop) await coop.JoinFromOverlayAsync(code);
+    }
+
+    async Task DeclineInviteAsync(CoopPlayer from)
+    {
+        _coopInvites.RemoveAll(i => i.From.Id == from.Id);
+        OverlayHub.Changed();
+        try
+        {
+            if (_coopPresence is { } presence) await presence.DeclineAsync(from);
+        }
+        catch (Exception ex) when (ex is CoopException or System.Net.WebSockets.WebSocketException) { }
     }
 
     /// <summary>This player's member id: what the co-op service shows others (a hash of the install key).</summary>
@@ -60,6 +101,7 @@ public partial class MainWindow
                 {
                     ["id"] = f.Id, ["name"] = live?.Name ?? f.Name, ["state"] = state, ["label"] = Account.Label(state, live?.Game),
                     ["lobby"] = lobby, ["invitable"] = hosting && state != "offline" && !lobbyMembers.Contains(f.Id),
+                    ["inLobby"] = lobbyMembers.Contains(f.Id),
                 });
                 Picture(f.Id, live?.Avatar ?? f.Avatar);
                 known[f.Id] = live ?? f;
@@ -76,7 +118,32 @@ public partial class MainWindow
                 invites.Add(new JsonObject { ["from"] = new JsonObject { ["id"] = from.Id, ["name"] = from.Name }, ["code"] = code });
                 Picture(from.Id, from.Avatar);
             }
-            friends = new JsonObject { ["friends"] = list, ["incoming"] = incoming, ["invites"] = invites };
+            var outgoing = new JsonArray();
+            foreach (var p in presence.Friends.Outgoing)
+            {
+                outgoing.Add(new JsonObject { ["id"] = p.Id, ["name"] = p.Name });
+                Picture(p.Id, p.Avatar);
+            }
+            // Members the overlay searched for who aren't friends yet, with where things stand with each.
+            JsonObject? search = null;
+            if (_overlaySearch.GetValueOrDefault(gameId) is { Query: { Length: > 0 } query } found)
+            {
+                var results = new JsonArray();
+                foreach (var hit in found.Found.Where(h => !presence.IsFriend(h.Player.Id)))
+                {
+                    var relation = presence.Friends.Incoming.Any(p => p.Id == hit.Player.Id) ? "incoming"
+                        : presence.Friends.Outgoing.Any(p => p.Id == hit.Player.Id) ? "outgoing" : null;
+                    results.Add(new JsonObject { ["id"] = hit.Player.Id, ["name"] = hit.Player.Name, ["relation"] = relation });
+                    Picture(hit.Player.Id, hit.Player.Avatar);
+                }
+                search = new JsonObject { ["query"] = query, ["results"] = results };
+            }
+            var joined = _coopWindow is { IsHosting: false, LobbyCode: not null } ? coopHostName() : null;
+            friends = new JsonObject
+            {
+                ["friends"] = list, ["incoming"] = incoming, ["outgoing"] = outgoing, ["invites"] = invites, ["search"] = search,
+                ["hosting"] = hosting, ["joined"] = joined,
+            };
         }
 
         JsonObject? lobbyState = null;
@@ -88,6 +155,8 @@ public partial class MainWindow
         }
 
         return new OverlayHub.Snapshot(you, friends, lobbyState, OverlayAddons(gameId), pictures);
+
+        string? coopHostName() => (string?)_coopWindow?.OverlayLobby(me)?["host"];
     }
 
     /// <summary>The game's installed addons: from the list on screen when it's that game's (with updates), else from what was installed.</summary>
@@ -127,15 +196,36 @@ public partial class MainWindow
                     await coop.InviteFromOverlayAsync(player);
                     break;
                 case "acceptInvite" when id is not null && code is not null:
-                    _coopInvites.RemoveAll(i => i.From.Id == id);
-                    await CoopForOverlay()?.JoinFromOverlayAsync(code)!;
+                    await JoinLobbyAsync(code, _coopInvites.FirstOrDefault(i => i.From.Id == id).From, activate: false);
                     break;
-                case "declineInvite" when id is not null:
-                    if (_coopInvites.FirstOrDefault(i => i.From.Id == id) is { From: { } from } && presence is not null) await presence.DeclineAsync(from);
-                    _coopInvites.RemoveAll(i => i.From.Id == id);
+                case "declineInvite" when _coopInvites.FirstOrDefault(i => i.From.Id == id) is { From: { } from }:
+                    await DeclineInviteAsync(from);
                     break;
                 case "join" when code is not null:
-                    await CoopForOverlay()?.JoinFromOverlayAsync(code)!;
+                    await JoinLobbyAsync(code, null, activate: false);
+                    break;
+                case "search":
+                    var query = ((string?)action["q"] ?? "").Trim();
+                    if (query.Length < 2 || presence is null) _overlaySearch.Remove(gameId);
+                    else
+                    {
+                        var hits = await presence.SearchAsync(query);
+                        _overlaySearch[gameId] = (query, hits);
+                    }
+                    break;
+                case "addFriend" when presence is not null && id is not null:
+                    await presence.AddFriendAsync(id);
+                    break;
+                case "cancelRequest" or "removeFriend" when presence is not null && id is not null:
+                    await presence.RemoveFriendAsync(id);
+                    break;
+                case "createLobby":
+                    // The in-game new-lobby window: who comes along from this lobby (party ids), who to invite (member ids).
+                    var bring = (action["bring"] as JsonArray ?? []).Select(n => (string?)n).OfType<string>().ToList();
+                    var invite = (action["invite"] as JsonArray ?? []).Select(n => (string?)n).OfType<string>()
+                        .Select(m => presence?.Players.FirstOrDefault(p => p.Id == m)).OfType<CoopPlayer>().ToList();
+                    if (CoopForOverlay() is { } stager)
+                        await stager.CreateLobbyFromOverlayAsync((bool?)action["locked"] == true, (string?)action["password"] ?? "", bring, invite);
                     break;
                 case "host":
                     await CoopForOverlay()?.HostFromOverlayAsync()!;

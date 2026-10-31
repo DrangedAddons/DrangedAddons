@@ -551,6 +551,8 @@ function cleanProfile(id, b) {
       id, name, description: text(b.description, 300), status, builtin,
       order: Number.isInteger(b.order) ? Math.max(0, Math.min(b.order, 999)) : 100,
       install, connectivity, partySize: party, coop,
+      // The manager's in-game overlay: on unless the game is presence only, or turned off for it.
+      overlay: typeof b.overlay === "boolean" ? b.overlay : connectivity !== "presence-only",
       notes: { hosting: text(n.hosting, 300), joining: text(n.joining, 300), lobby: text(n.lobby, 300), inGame: text(n.inGame, 300), state: text(n.state, 300) },
     },
   };

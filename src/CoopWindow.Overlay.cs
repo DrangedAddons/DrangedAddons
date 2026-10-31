@@ -84,6 +84,9 @@ public partial class CoopWindow
         {
             ["role"] = _host is not null ? "host" : "join", ["code"] = LobbyCode, ["host"] = party.Host, ["started"] = party.Started,
             ["locked"] = _host?.Locked ?? false, ["password"] = _host?.HasPassword ?? false, ["size"] = Slots,
+            // The host's own password (it never leaves this PC: the overlay is in a game on it), so the overlay can show
+            // and edit it as this window does; and the line under the settings.
+            ["passwordText"] = _host is not null ? HostPasswordBox.Password : null, ["access"] = AccessLine,
             ["slots"] = slots, ["invited"] = invited, ["log"] = log,
         };
     }
@@ -130,6 +133,17 @@ public partial class CoopWindow
         StageLockedCheck.IsChecked = locked;
         StagePasswordBox.Password = password;
         return CreateLobbyAsync(ask: false);
+    }
+
+    /// <summary>Who can join, from the overlay: the same as changing them here (and shown here too).</summary>
+    public Task SettingsFromOverlayAsync(bool locked, string password)
+    {
+        if (_host is null) return Task.CompletedTask;
+        LockedCheck.IsChecked = locked;
+        HostPasswordBox.Password = password;
+        _passwordDelay.Stop(); // applied now, not after the typing pause
+        PasswordHint.Visibility = Visible(password.Length == 0);
+        return ApplySettingsAsync();
     }
 
     public Task ChatFromOverlayAsync(string text)

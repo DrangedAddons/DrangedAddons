@@ -139,10 +139,21 @@ public partial class MainWindow
                 }
                 search = new JsonObject { ["query"] = query, ["results"] = results };
             }
+            // Members online who aren't friends: the lobby's Invite list offers them after friends, as the app's does.
+            var others = new JsonArray();
+            foreach (var p in presence.Players.Where(p => p.Id != me && !presence.IsFriend(p.Id)).OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                others.Add(new JsonObject
+                {
+                    ["id"] = p.Id, ["name"] = p.Name, ["state"] = p.State, ["label"] = Account.Label(p.State, p.Game),
+                    ["inLobby"] = lobbyMembers.Contains(p.Id),
+                });
+                Picture(p.Id, p.Avatar);
+            }
             var joined = _coopWindow is { IsHosting: false, LobbyCode: not null } ? coopHostName() : null;
             friends = new JsonObject
             {
-                ["friends"] = list, ["incoming"] = incoming, ["outgoing"] = outgoing, ["invites"] = invites, ["search"] = search,
+                ["friends"] = list, ["others"] = others, ["incoming"] = incoming, ["outgoing"] = outgoing, ["invites"] = invites, ["search"] = search,
                 ["hosting"] = hosting, ["joined"] = joined,
             };
         }
@@ -239,6 +250,9 @@ public partial class MainWindow
                     break;
                 case "leave" or "close" when _coopWindow is { } coop:
                     await coop.EndFromOverlayAsync();
+                    break;
+                case "settings" when _coopWindow is { } coop:
+                    await coop.SettingsFromOverlayAsync((bool?)action["locked"] == true, (string?)action["password"] ?? "");
                     break;
                 case "chat" when _coopWindow is { } coop && (string?)action["text"] is { } text:
                     await coop.ChatFromOverlayAsync(text);

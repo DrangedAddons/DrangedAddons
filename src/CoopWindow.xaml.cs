@@ -583,13 +583,17 @@ public partial class CoopWindow : Window
 
     const int Slots = 5; // the game's party size
 
+    /// <summary>Who can get in, in a line: under the lobby's settings here and in the overlay.</summary>
+    string AccessLine => _host is null ? ""
+        : _host.Locked ? "Only members you invite can join."
+        : _host.HasPassword ? "Anyone with the code and password can join. Invited members skip the password."
+        : "Anyone with the code can join.";
+
     void ShowLobbyInfo()
     {
         if (_host is not null)
         {
-            AccessText.Text = _host.Locked ? "Only members you invite can join."
-                : _host.HasPassword ? "Anyone with the code and password can join. Invited members skip the password."
-                : "Anyone with the code can join.";
+            AccessText.Text = AccessLine;
         }
         else if (_join?.Party is { } party)
         {

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.41.0
+- **The overlay's Lobby now looks and works like the app's lobby window.** The lobby code in its own card with
+  Copy; Who can join beside it, where the host changes Locked and the password from inside the game (the app's
+  window shows the change too) with the line saying who can get in, or for players who joined, the host and whether
+  the game has started; Players with the slot dots and count; each player in a card with their picture, outlined
+  Host and You badges, their state and ping on the right, and Remove; invited members and open slots below.
+- Invite on an open slot opens Invite members, as in the app: a search, friends online, then everyone else online,
+  each with Invite (or In lobby, Invited).
+- Lobby chat sits beside the players, as in the app, instead of in a window of its own (its dock button is gone).
+- The buttons are bottom right in the app's order: New lobby, Close lobby, Start game (Game started once it is);
+  Leave lobby for players who joined.
+
 ## 0.40.1
 - The app's Friends window only offers Invite to lobby while Azeroth Survivors is running (or Invite when you host
   a lobby with room). With neither, there's nothing to invite a friend to, so there's no button. The overlay is

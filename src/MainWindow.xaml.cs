@@ -682,7 +682,7 @@ public partial class MainWindow : Window
                 if (_gitChecks.TryGetValue(MainFolder(row, flavor), out var known) && DateTime.UtcNow - known.At < GitCheckReuse)
                     row.SetGit(known.Status, known.Text);
                 else
-                    _ = CheckGitAsync(row, flavor, fetch: true);
+                    _ = CheckGitAsync(row, flavor);
             }
         }
 
@@ -807,7 +807,7 @@ public partial class MainWindow : Window
     static readonly TimeSpan GitCheckReuse = TimeSpan.FromMinutes(10);
     readonly Dictionary<string, (GitStatus? Status, string Text, DateTime At)> _gitChecks = new(StringComparer.OrdinalIgnoreCase);
 
-    async Task CheckGitAsync(AddonRow row, GameFlavor flavor, bool fetch)
+    async Task CheckGitAsync(AddonRow row, GameFlavor flavor)
     {
         var dir = MainFolder(row, flavor);
         row.SetGit(null, "checking GitHub…");
@@ -815,8 +815,9 @@ public partial class MainWindow : Window
         string text;
         try
         {
-            // Off the UI thread: starting processes is slow enough to stutter the window.
-            status = await Task.Run(() => GitRepo.GetStatusAsync(dir, fetch));
+            // Off the UI thread: it reads the .git folder and hashes any files whose time changed.
+            var repo = row.Remote.Name;
+            status = await Task.Run(() => GitRepo.GetStatusAsync(dir, repo, _github));
             text = status.Summary;
         }
         catch (GitException ex)
@@ -848,7 +849,7 @@ public partial class MainWindow : Window
             row.SetBusy(null);
             Evaluate(row, flavor);
         }
-        await CheckGitAsync(row, flavor, fetch: false);
+        await CheckGitAsync(row, flavor);
     }
 
     void Evaluate(AddonRow row, GameFlavor flavor)

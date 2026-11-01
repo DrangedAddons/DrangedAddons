@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.41.3
+- **No more PC-wide stutter when the app starts or you switch games.** On some PCs every program that starts stalls
+  the whole desktop for a moment, and checking addons that are Git working copies started 5-7 git runs each, at
+  start and on game switches. Their status (branch, release tag, uncommitted files) is now read straight from the
+  .git folder, and how far they are behind or ahead of GitHub comes from GitHub, so no git runs at all. Git only
+  runs when you click Pull, or to count commits GitHub hasn't seen yet.
+- New files Git doesn't track yet no longer count as uncommitted files.
+- The GitHub CLI is only asked for its login when no GitHub token is saved in the app.
+
 ## 0.41.2
 - The every-15-seconds check for which game you're playing (for In game) no longer holds up the window for about a
   third of a second. It listed every running program once per WoW version; it now lists them once, off the window's

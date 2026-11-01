@@ -46,7 +46,8 @@ public sealed class GitHubClient
 
     // A token saved in the app wins; otherwise GH_TOKEN / GITHUB_TOKEN or the GitHub CLI's login (looked up once in
     // the background). Tokens are only ever sent to api.github.com.
-    static readonly Task<string?> TokenTask = Task.Run(FindToken);
+    // Only looked for when no token is saved: asking the GitHub CLI starts a process, which on some PCs stalls the desktop.
+    static readonly Lazy<Task<string?>> TokenTask = new(() => Task.Run(FindToken));
     static volatile string? _savedToken;
     static volatile string? _rejectedToken;
 
@@ -74,7 +75,7 @@ public sealed class GitHubClient
     static async Task<string?> CurrentTokenAsync()
     {
         if (TestAnonymous && _savedToken is null) return null;
-        var token = _savedToken ?? await TokenTask;
+        var token = _savedToken ?? await TokenTask.Value;
         return token is not null && token == _rejectedToken ? null : token;
     }
 

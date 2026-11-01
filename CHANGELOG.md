@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.42.0
+- **Lobbies cost the co-op service far less.** The host's manager sends its 10-second ping samples together (every
+  minute by default) instead of one every 10 seconds, and sends each player's ping to the others over the direct
+  link instead of through the service. Players see the same pings, as often; session history keeps every sample.
+  Roughly 6× more lobby-hours fit in Cloudflare's free daily limits.
+- How often, and whether pings go direct, come from the co-op service (set on the platform dashboard) when a lobby
+  opens. A player whose manager is older still gets pings the old way, and an older host still works, at the old cost.
+
 ## 0.41.3
 - **No more PC-wide stutter when the app starts or you switch games.** On some PCs every program that starts stalls
   the whole desktop for a moment, and checking addons that are Git working copies started 5-7 git runs each, at

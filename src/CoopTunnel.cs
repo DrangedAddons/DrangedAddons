@@ -328,6 +328,17 @@ public sealed class CoopHost : IAsyncDisposable
     readonly Dictionary<string, QuicConnection> _connections = new();
     /// <summary>Round trips measured to each player since the last telemetry report, in ms.</summary>
     readonly Dictionary<string, List<double>> _pings = new();
+    /// <summary>
+    /// From the co-op service when the lobby opened (its trim settings, set on the platform dashboard): how often to
+    /// send the 10-second ping samples (together), and whether players' pings go to them over the direct link. A
+    /// service from before the settings says neither: every 10 s, through it.
+    /// </summary>
+    int _telemetrySeconds = 10;
+    bool _pingsDirect;
+    readonly List<JsonObject> _samples = [];
+    /// <summary>Each player's ping feed (pings over the direct link), and players whose manager can't take one.</summary>
+    readonly Dictionary<string, QuicStream> _pingFeeds = new();
+    readonly HashSet<string> _noPingFeed = new();
     CoopTunnel.Rendezvous? _rendezvous;
 
     public string Code { get; }
@@ -366,6 +377,8 @@ public sealed class CoopHost : IAsyncDisposable
             var first = await host._rendezvous.ReceiveAsync(cancel);
             if ((string?)first?["t"] == "hosting")
             {
+                host._telemetrySeconds = Math.Clamp((int?)first["telemetry"] ?? 10, 10, 300);
+                host._pingsDirect = (bool?)first["pingsDirect"] == true;
                 _ = host.RunAsync();
                 _ = host.ReportAsync();
                 return host;
@@ -549,6 +562,7 @@ public sealed class CoopHost : IAsyncDisposable
             }
             SetMember(id, m => m is null ? null : m with { State = MemberState.Connected });
             _ = PingAsync(id, connection, cancel);
+            if (_pingsDirect) _ = OpenPingFeedAsync(id, connection, cancel);
                         if (Started) await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "start" });
             while (!cancel.IsCancellationRequested)
             {
@@ -616,8 +630,52 @@ public sealed class CoopHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Every 10 s: each player's ping over that time (average, best, worst, jitter) to the lobby on the co-op service
-    /// (for the platform dashboard), and the average into the party list so every player sees it.
+    /// A one-way stream to a player that carries everyone's ping every 10 s, so their lobby shows them without the
+    /// co-op service passing them on. A player's manager from before this doesn't accept the stream: they get pings
+    /// through the co-op service instead, as before.
+    /// </summary>
+    async Task OpenPingFeedAsync(string id, QuicConnection connection, CancellationToken cancel)
+    {
+        try
+        {
+            using var open = CancellationTokenSource.CreateLinkedTokenSource(cancel);
+            open.CancelAfter(TimeSpan.FromSeconds(5));
+            var stream = await connection.OpenOutboundStreamAsync(QuicStreamType.Unidirectional, open.Token);
+            lock (_lock) _pingFeeds[id] = stream;
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or QuicException or ObjectDisposedException)
+        {
+            lock (_lock) _noPingFeed.Add(id);
+        }
+    }
+
+    /// <summary>Everyone's ping, as a line of JSON, down each player's ping feed.</summary>
+    async Task SendPingFeedsAsync()
+    {
+        List<(string Id, QuicStream Stream)> feeds;
+        JsonObject pings = new();
+        lock (_lock)
+        {
+            feeds = [.. _pingFeeds.Where(f => _members.ContainsKey(f.Key)).Select(f => (f.Key, f.Value))];
+            foreach (var m in _members.Values)
+                if (m.Ping is { } ms) pings[m.Id] = ms;
+        }
+        var line = Encoding.UTF8.GetBytes(new JsonObject { ["pings"] = pings }.ToJsonString() + "\n");
+        foreach (var (id, stream) in feeds)
+        {
+            try { await stream.WriteAsync(line, _stop.Token); }
+            catch (Exception ex) when (ex is QuicException or ObjectDisposedException or OperationCanceledException)
+            {
+                lock (_lock) _pingFeeds.Remove(id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every 10 s: each player's ping over that time (average, best, worst, jitter) as a sample. The samples go to the
+    /// lobby on the co-op service (for the platform dashboard) together, every telemetry interval; the averages go to
+    /// every player: over the direct link when the lobby does pings that way, else in the party list through the
+    /// co-op service (as they do for players whose manager can't take the direct feed).
     /// </summary>
     async Task ReportAsync()
     {
@@ -639,8 +697,16 @@ public sealed class CoopHost : IAsyncDisposable
                     var jitter = ms.Count > 1 ? ms.Zip(ms.Skip(1), (a, b) => Math.Abs(a - b)).Average() : 0;
                     pings[id] = new JsonObject { ["avg"] = Math.Round(ms.Average()), ["min"] = Math.Round(ms.Min()), ["max"] = Math.Round(ms.Max()), ["jitter"] = Math.Round(jitter) };
                 }
-                await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "telemetry", ["pings"] = pings });
+                _samples.Add(new JsonObject { ["t"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ["pings"] = pings });
+                if (_samples.Count * 10 >= _telemetrySeconds)
+                {
+                    var samples = new JsonArray([.. _samples]);
+                    _samples.Clear();
+                    // "pings" too, the latest: what a co-op service from before batching reads.
+                    await _rendezvous!.TrySendAsync(new JsonObject { ["t"] = "telemetry", ["samples"] = samples, ["pings"] = pings.DeepClone() });
+                }
                 var changed = false;
+                bool throughService;
                 lock (_lock)
                 {
                     foreach (var (id, ms) in window)
@@ -652,8 +718,14 @@ public sealed class CoopHost : IAsyncDisposable
                             changed = true;
                         }
                     }
+                    throughService = !_pingsDirect || _members.Keys.Any(_noPingFeed.Contains);
                 }
-                if (changed) await SendPartyAsync();
+                if (_pingsDirect) await SendPingFeedsAsync();
+                if (changed)
+                {
+                    if (throughService) await SendPartyAsync();
+                    else PartyChanged?.Invoke(Party); // this window; the players had theirs down their feeds
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -823,6 +895,7 @@ public sealed class CoopJoin : IAsyncDisposable
                     RemoteEndPoint = target,
                     LocalEndPoint = new IPEndPoint(IPAddress.Any, localPort),
                     MaxInboundBidirectionalStreams = 1, // the host's ping stream (see CoopHost.PingAsync)
+                    MaxInboundUnidirectionalStreams = 1, // and its ping feed: everyone's pings (CoopHost.OpenPingFeedAsync)
                     ClientAuthenticationOptions = new SslClientAuthenticationOptions
                     {
                         ApplicationProtocols = [CoopTunnel.Alpn],
@@ -857,24 +930,60 @@ public sealed class CoopJoin : IAsyncDisposable
         _ = EchoPingsAsync();
     }
 
-    /// <summary>Sends the host's ping bytes straight back, so it can time the round trip.</summary>
+    /// <summary>
+    /// The host's streams to this player: its ping stream (two-way: the bytes go straight back so it can time the round
+    /// trip) and its ping feed (one-way: everyone's pings, into the party list).
+    /// </summary>
     async Task EchoPingsAsync()
     {
         var cancel = _stop.Token;
         try
         {
-            await using var stream = await _connection!.AcceptInboundStreamAsync(cancel);
-            var buffer = new byte[8];
             while (!cancel.IsCancellationRequested)
             {
-                await stream.ReadExactlyAsync(buffer, cancel);
-                await stream.WriteAsync(buffer, cancel);
+                var stream = await _connection!.AcceptInboundStreamAsync(cancel);
+                _ = stream.Type == QuicStreamType.Unidirectional ? ReadPingFeedAsync(stream) : EchoAsync(stream);
             }
         }
-        catch (Exception ex) when (ex is OperationCanceledException or QuicException or ObjectDisposedException or EndOfStreamException)
+        catch (Exception ex) when (ex is OperationCanceledException or QuicException or ObjectDisposedException)
         {
-            // The link closed, or a host from before pings: nothing to echo.
+            // The link closed.
         }
+
+        async Task EchoAsync(QuicStream stream)
+        {
+            await using var _ = stream;
+            var buffer = new byte[8];
+            try
+            {
+                while (!cancel.IsCancellationRequested)
+                {
+                    await stream.ReadExactlyAsync(buffer, cancel);
+                    await stream.WriteAsync(buffer, cancel);
+                }
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or QuicException or ObjectDisposedException or EndOfStreamException) { }
+        }
+    }
+
+    /// <summary>Lines of {"pings":{id: ms}} from the host: each player's ping, into the party list.</summary>
+    async Task ReadPingFeedAsync(QuicStream stream)
+    {
+        await using var _ = stream;
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        try
+        {
+            while (await reader.ReadLineAsync(_stop.Token) is { } line)
+            {
+                if (Party is not { } party || JsonNode.Parse(line)?["pings"] is not JsonObject pings) continue;
+                var members = party.Members.Select(m => pings[m.Id] is { } v && v.GetValue<int>() is var ms && ms != m.Ping ? m with { Ping = ms } : m).ToList();
+                if (members.SequenceEqual(party.Members)) continue;
+                Party = party with { Members = members };
+                PartyChanged?.Invoke(Party);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or QuicException or ObjectDisposedException or IOException or System.Text.Json.JsonException
+                                       or InvalidOperationException or FormatException) { }
     }
 
     static PartyInfo? ParseParty(JsonNode? data)

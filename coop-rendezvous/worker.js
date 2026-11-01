@@ -79,7 +79,22 @@ const CHATS_PER_5S = 5;
 const INVITE_GAP_MS = 5000; // the same member, at most once per 5 seconds
 const INVITES_PER_MINUTE = 20;
 const SESSION_SAMPLES = 360; // 10 s apart: the last hour
-const SESSION_STALE_MS = 90000; // a session not reported for this long is gone (its lobby object stopped)
+const SESSION_STALE_MS = 90000; // at least: a session not reported for this long is gone (its lobby object stopped)
+// How lobbies use the free plan's daily limits, set from the platform dashboard (/config): how often the host's
+// manager sends its ping samples (every 10 s each, sent together), how often a lobby reports its session to the
+// dashboard (events report straight away), and whether players' pings go to the others over the direct link instead
+// of through here. A lobby takes them when it opens.
+const TRIM_DEFAULTS = { telemetrySeconds: 60, reportSeconds: 60, pingsDirect: true };
+
+function cleanTrim(b) {
+  const seconds = (v, min, max, fallback) => (Number.isInteger(v) ? Math.min(Math.max(v, min), max) : fallback);
+  b = b && typeof b === "object" ? b : {};
+  return {
+    telemetrySeconds: Math.round(seconds(b.telemetrySeconds, 10, 300, TRIM_DEFAULTS.telemetrySeconds) / 10) * 10,
+    reportSeconds: seconds(b.reportSeconds, 10, 600, TRIM_DEFAULTS.reportSeconds),
+    pingsDirect: typeof b.pingsDirect === "boolean" ? b.pingsDirect : TRIM_DEFAULTS.pingsDirect,
+  };
+}
 const SESSION_EVENTS = 300;
 const SESSION_ARCHIVE_MAX = 300;
 const SESSION_ARCHIVE_DAYS = 30;
@@ -104,7 +119,7 @@ export default {
     if (url.pathname === "/avatar" || /^\/avatar\/[0-9a-f]{16}$/.test(url.pathname)) {
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
     }
-    if (url.pathname === "/stats" || /^\/sessions(\/history|\/[0-9a-f-]{12})?$/.test(url.pathname)) {
+    if (url.pathname === "/stats" || url.pathname === "/config" || /^\/sessions(\/history|\/[0-9a-f-]{12})?$/.test(url.pathname)) {
       if (!(await isAdmin(request, env))) return new Response("not allowed", { status: 401 });
       return env.PRESENCE.get(env.PRESENCE.idFromName("global")).fetch(request);
     }
@@ -200,14 +215,16 @@ export class Lobby {
 
     if (role === "host") {
       if (host) return refuse("taken");
+      const trim = await this.trimSettings();
       this.state.acceptWebSocket(server);
       server.serializeAttachment({
         role: "host", id: "host", name: cleanName(params.get("name")) || "Host", ip, locked: false, pw: null, allow: [], banned: [],
         // Before games were named, only Azeroth Survivors hosted.
         session: crypto.randomUUID().slice(0, 12), game: cleanGame(params.get("game")) ?? "azeroth-survivors",
-        opened: Date.now(), where: place(request),
+        opened: Date.now(), where: place(request), trim, reported: 0,
       });
-      server.send(JSON.stringify({ t: "hosting" }));
+      // Managers from before the settings ignore them: they send every 10 s and pings through here.
+      server.send(JSON.stringify({ t: "hosting", telemetry: trim.telemetrySeconds, pingsDirect: trim.pingsDirect }));
       await this.state.storage.deleteAll(); // a fresh lobby under a code used before
       await this.event("opened", null);
       await this.report();
@@ -330,44 +347,78 @@ export class Lobby {
     }
   }
 
-  /** A party, start or telemetry message from the host: keep what the session view needs, then report it. */
+  /** The trim settings from the Presence object (as the dashboard set them); the defaults if it can't be asked. */
+  async trimSettings() {
+    try {
+      const reply = await this.env.PRESENCE.get(this.env.PRESENCE.idFromName("global")).fetch("https://presence/internal/config");
+      return cleanTrim(await reply.json());
+    } catch {
+      return { ...TRIM_DEFAULTS };
+    }
+  }
+
+  /**
+   * A party, start or telemetry message from the host: keep what the session view needs, then report it. Something
+   * happening (a player's state changing, the game starting) reports straight away; telemetry waits for the next report
+   * (TRIM: reportSeconds), and a party update that only changed pings writes and reports nothing.
+   */
   async sessionUpdate(message) {
     const now = Date.now();
+    let happened = false;
     const start = async () => {
       if (await this.state.storage.get("started")) return;
       await this.state.storage.put("started", now);
       await this.event("started", null);
+      happened = true;
     };
     if (message.t === "start") await start();
     if (message.t === "party" && message.data && typeof message.data === "object") {
       const before = (await this.state.storage.get("states")) ?? {};
-      const roster = (await this.state.storage.get("roster")) ?? {};
       const states = {};
       for (const m of Array.isArray(message.data.members) ? message.data.members : [])
         if (typeof m?.id === "string" && typeof m.state === "string") states[m.id] = m.state.slice(0, 12);
-      await this.state.storage.put("states", states);
-      for (const [id, state] of Object.entries(states)) {
-        if (state === before[id] || !roster[id]) continue;
-        if (state === "Connected") await this.event("connected", roster[id].name);
-        else if (state === "Failed") await this.event("failed", roster[id].name);
+      if (JSON.stringify(states) !== JSON.stringify(before)) {
+        const roster = (await this.state.storage.get("roster")) ?? {};
+        await this.state.storage.put("states", states);
+        for (const [id, state] of Object.entries(states)) {
+          if (state === before[id] || !roster[id]) continue;
+          if (state === "Connected") await this.event("connected", roster[id].name);
+          else if (state === "Failed") await this.event("failed", roster[id].name);
+        }
+        happened = true;
       }
       if (message.data.started === true) await start();
     }
     if (message.t === "telemetry") {
-      const pings = {};
-      for (const [id, p] of Object.entries(message.pings && typeof message.pings === "object" ? message.pings : {}).slice(0, 8))
-        if (/^p[0-9a-f]{8}$/.test(id) && cleanPing(p)) pings[id] = cleanPing(p);
+      // Several 10-second samples at once ({samples: [{t, pings}]}), or one ({pings}) from managers before batching.
+      const clean = (raw) => {
+        const pings = {};
+        for (const [id, p] of Object.entries(raw && typeof raw === "object" ? raw : {}).slice(0, 8))
+          if (/^p[0-9a-f]{8}$/.test(id) && cleanPing(p)) pings[id] = cleanPing(p);
+        return pings;
+      };
+      const batch = Array.isArray(message.samples)
+        ? message.samples.slice(-30).map((x) => ({ t: Number.isFinite(x?.t) && x.t <= now && x.t > now - 3600000 ? x.t : now, pings: clean(x?.pings) }))
+        : [{ t: now, pings: clean(message.pings) }];
       const samples = (await this.state.storage.get("samples")) ?? [];
-      samples.push({ t: now, p: Object.fromEntries(Object.entries(pings).map(([id, p]) => [id, p.avg])) });
-      await this.state.storage.put({ samples: samples.slice(-SESSION_SAMPLES), pings });
+      for (const x of batch) samples.push({ t: x.t, p: Object.fromEntries(Object.entries(x.pings).map(([id, p]) => [id, p.avg])) });
+      await this.state.storage.put({ samples: samples.slice(-SESSION_SAMPLES), pings: batch[batch.length - 1].pings });
     }
-    await this.report();
+    await this.report(happened);
   }
 
-  /** The session as the dashboard sees it, handed to the Presence object (which /sessions reads). */
-  async report() {
-    const host = this.sockets("host")[0]?.deserializeAttachment();
-    if (host?.session) await this.tellPresence(await this.snapshot(host));
+  /**
+   * The session as the dashboard sees it, handed to the Presence object (which /sessions reads): straight away when
+   * something happened, otherwise once per TRIM reportSeconds.
+   */
+  async report(now = true) {
+    const ws = this.sockets("host")[0];
+    const host = ws?.deserializeAttachment();
+    if (!host?.session) return;
+    const every = (host.trim?.reportSeconds ?? 10) * 1000;
+    if (!now && Date.now() - (host.reported ?? 0) < every) return;
+    ws.serializeAttachment({ ...host, reported: Date.now() });
+    await this.tellPresence(await this.snapshot(host));
   }
 
   /**
@@ -611,8 +662,10 @@ export class Presence {
     if (url.pathname === "/sessions/history") return this.sessionHistory(); // and these
     if (url.pathname.startsWith("/sessions/")) return this.oneSession(url.pathname.slice("/sessions/".length));
     if (url.pathname.startsWith("/profiles")) return this.gameProfiles(request, url, request.headers.get("X-Platform-Admin") === "1");
+    if (url.pathname === "/config") return this.trimConfig(request); // the token was checked before it got here
     // Only lobby objects reach this: the Worker's front door never forwards /internal/ here.
     if (url.pathname === "/internal/session" && request.method === "POST") return this.storeSession(await request.json());
+    if (url.pathname === "/internal/config") return this.trimConfig(new Request(request.url));
     const params = url.searchParams;
     const key = params.get("key") ?? params.get("id") ?? "";
     const name = cleanName(params.get("name"));
@@ -851,11 +904,29 @@ export class Presence {
   }
 
   /** Open lobbies and games in progress for the dashboard; a session that stopped reporting is dropped. */
+  /** The trim settings (see TRIM_DEFAULTS): read, or (PUT, from the dashboard) changed. Open lobbies keep theirs. */
+  async trimConfig(request) {
+    let trim = cleanTrim(await this.state.storage.get("config"));
+    if (request.method === "PUT") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("expected JSON", { status: 400 });
+      }
+      trim = cleanTrim(body);
+      await this.state.storage.put("config", trim);
+    }
+    return new Response(JSON.stringify(trim), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  }
+
   async sessions() {
     const now = Date.now();
     const out = [];
+    // Lobbies report once per reportSeconds: one isn't lost until it's missed about three.
+    const stale = Math.max(SESSION_STALE_MS, cleanTrim(await this.state.storage.get("config")).reportSeconds * 3000 + 30000);
     for (const [key, s] of await this.state.storage.list({ prefix: "session:" })) {
-      if (now - s.updated > SESSION_STALE_MS) {
+      if (now - s.updated > stale) {
         await this.archiveSession(s, s.updated, "Lost contact");
         await this.state.storage.delete(key);
       } else out.push(s);

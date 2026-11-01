@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.41.1
+- Switching games in the side bar no longer makes the mouse lag. Each switch to a game version with Git working copies
+  re-checked every one of them at once (a burst of git runs, fetches included). Their status is now reused for 10
+  minutes when you switch back, at most two git runs go at a time, and they start off the window's thread. Refresh
+  still checks them straight away.
+
 ## 0.41.0
 - **The overlay's Lobby now looks and works like the app's lobby window.** The lobby code in its own card with
   Copy; Who can join beside it, where the host changes Locked and the password from inside the game (the app's

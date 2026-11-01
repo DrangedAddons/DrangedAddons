@@ -35,6 +35,10 @@ public static class GitRepo
     static readonly TimeSpan FreshFetch = TimeSpan.FromMinutes(2);
     static readonly Dictionary<string, (string Fingerprint, DateTime FetchedUtc)> Fetches = new(StringComparer.OrdinalIgnoreCase);
 
+    // A status check is 5-7 git runs per working copy. Started together for every copy in a game version, they stalled
+    // the whole PC for seconds (a fetch also starts the credential helper), so only this many run at once.
+    static readonly SemaphoreSlim Running = new(2);
+
     public static async Task<GitStatus> GetStatusAsync(string dir, bool fetch)
     {
         if (fetch && !await FetchIsFreshAsync(dir))
@@ -103,6 +107,19 @@ public static class GitRepo
     }
 
     static async Task<string> RunAsync(string dir, params string[] args)
+    {
+        await Running.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await RunNowAsync(dir, args).ConfigureAwait(false);
+        }
+        finally
+        {
+            Running.Release();
+        }
+    }
+
+    static async Task<string> RunNowAsync(string dir, string[] args)
     {
         var info = new ProcessStartInfo("git")
         {

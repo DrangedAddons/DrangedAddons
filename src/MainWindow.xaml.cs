@@ -609,7 +609,11 @@ public partial class MainWindow : Window
     async Task RefreshAsync(bool quiet = false)
     {
         if (_working) return;
-        if (!quiet) SetWorking(true, "Checking GitHub for updates…");
+        if (!quiet)
+        {
+            SetWorking(true, "Checking GitHub for updates…");
+            _gitChecks.Clear(); // a check you asked for asks Git again too
+        }
         var before = Signature(_remote);
         var hadError = _loadError is not null;
         try
@@ -673,7 +677,13 @@ public partial class MainWindow : Window
                 _rows.Add(row);
             }
             foreach (var row in _rows.Where(r => r.State == AddonState.DevCopy))
-                _ = CheckGitAsync(row, flavor, fetch: true);
+            {
+                // Switching game or version and back reuses a recent answer instead of running git again.
+                if (_gitChecks.TryGetValue(MainFolder(row, flavor), out var known) && DateTime.UtcNow - known.At < GitCheckReuse)
+                    row.SetGit(known.Status, known.Text);
+                else
+                    _ = CheckGitAsync(row, flavor, fetch: true);
+            }
         }
 
         // Rows are rebuilt on refresh / game change: keep an open details page on the same addon if it's still listed.
@@ -793,18 +803,28 @@ public partial class MainWindow : Window
         Path.Combine(flavor.AddOnsPath,
             _manifest.For(flavor.AddOnsPath).GetValueOrDefault(row.Name)?.Folders.FirstOrDefault() ?? row.Name);
 
+    // The last Git answer per working copy folder, reused when switching game or version. Refresh and a pull ask again.
+    static readonly TimeSpan GitCheckReuse = TimeSpan.FromMinutes(10);
+    readonly Dictionary<string, (GitStatus? Status, string Text, DateTime At)> _gitChecks = new(StringComparer.OrdinalIgnoreCase);
+
     async Task CheckGitAsync(AddonRow row, GameFlavor flavor, bool fetch)
     {
+        var dir = MainFolder(row, flavor);
         row.SetGit(null, "checking GitHub…");
+        GitStatus? status = null;
+        string text;
         try
         {
-            var status = await GitRepo.GetStatusAsync(MainFolder(row, flavor), fetch);
-            row.SetGit(status, status.Summary);
+            // Off the UI thread: starting processes is slow enough to stutter the window.
+            status = await Task.Run(() => GitRepo.GetStatusAsync(dir, fetch));
+            text = status.Summary;
         }
         catch (GitException ex)
         {
-            row.SetGit(null, ex.Message);
+            text = ex.Message;
         }
+        _gitChecks[dir] = (status, text, DateTime.UtcNow);
+        row.SetGit(status, text);
         UpdateSummary();
     }
 

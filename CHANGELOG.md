@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.41.2
+- The every-15-seconds check for which game you're playing (for In game) no longer holds up the window for about a
+  third of a second. It listed every running program once per WoW version; it now lists them once, off the window's
+  thread, and shares that list.
+
 ## 0.41.1
 - Switching games in the side bar no longer makes the mouse lag. Each switch to a game version with Git working copies
   re-checked every one of them at once (a burst of git runs, fetches included). Their status is now reused for 10

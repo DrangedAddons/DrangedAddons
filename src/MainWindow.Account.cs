@@ -30,7 +30,11 @@ public partial class MainWindow
     /// <summary>In game and idle-away change on their own: checked every 15 seconds.</summary>
     void StartAccount()
     {
-        _accountTick.Tick += (_, _) => UpdateCoopPresence();
+        _accountTick.Tick += async (_, _) =>
+        {
+            await Task.Run(Account.RunningPrograms); // the slow part, off the UI thread; In game reads this list
+            UpdateCoopPresence();
+        };
         _accountTick.Start();
         Avatars.Loaded += () =>
         {

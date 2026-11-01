@@ -77,11 +77,35 @@ public static class Account
     }
 
     /// <summary>Whether the game is running (any copy of its program).</summary>
-    public static bool IsRunning(string exe)
+    public static bool IsRunning(string exe) =>
+        RunningPrograms().Contains(Path.GetFileNameWithoutExtension(exe));
+
+    // Listing processes takes about 40 ms with a few hundred running, and WoW asks once per version, so one list
+    // serves every question for a couple of seconds.
+    static readonly TimeSpan RunningFresh = TimeSpan.FromSeconds(2);
+    static readonly object RunningLock = new();
+    static HashSet<string> _running = [];
+    static DateTime _runningAt;
+
+    /// <summary>Names of the programs running now (without .exe); listed again when the last list is over 2 s old.</summary>
+    public static HashSet<string> RunningPrograms()
     {
-        var processes = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(exe));
-        foreach (var p in processes) p.Dispose();
-        return processes.Length > 0;
+        lock (RunningLock)
+        {
+            if (DateTime.UtcNow - _runningAt < RunningFresh) return _running;
+        }
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in Process.GetProcesses())
+        {
+            names.Add(p.ProcessName);
+            p.Dispose();
+        }
+        lock (RunningLock)
+        {
+            _running = names;
+            _runningAt = DateTime.UtcNow;
+            return names;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]

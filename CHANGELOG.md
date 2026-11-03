@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.42.1
+- Repos in the DrangedAddons organisation tagged with the `app` topic (desktop apps like IO Hub) no longer show up
+  as addons.
+
 ## 0.42.0
 - **Lobbies cost the co-op service far less.** The host's manager sends its 10-second ping samples together (every
   minute by default) instead of one every 10 seconds, and sends each player's ping to the others over the direct

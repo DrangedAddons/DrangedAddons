@@ -223,6 +223,9 @@ public sealed class GitHubClient
                 var topics = repo.TryGetProperty("topics", out var t) && t.ValueKind == JsonValueKind.Array
                     ? t.EnumerateArray().Select(x => x.GetString() ?? "").ToList()
                     : [];
+                // Desktop apps in the org (e.g. IO Hub) carry the "app" topic: they aren't addons to install.
+                if (topics.Contains("app", StringComparer.OrdinalIgnoreCase))
+                    continue;
                 var game = TestGames.TryGetValue(name, out var testGame) ? testGame : GameDefinition.ForTopics(topics);
                 repos.Add((name, OptionalString(repo, "description") ?? "", OptionalString(repo, "default_branch") ?? "main", game));
             }

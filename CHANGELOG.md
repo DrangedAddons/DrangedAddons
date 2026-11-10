@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.42.2
+- Behind the scenes: the addon list, installing, versions, settings and the Git working-copy reader moved into a
+  shared library (`core/`) that has nothing Windows-only in it, ready for a Mac version for WoW players. Nothing
+  changes in how the app works.
+
 ## 0.42.1
 - Repos in the DrangedAddons organisation tagged with the `app` topic (desktop apps like IO Hub) no longer show up
   as addons.

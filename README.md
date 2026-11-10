@@ -89,6 +89,10 @@ connectivity, security) is its own app in the private repo
 
 ## Build
 
+The repo has two projects: `core/` (DrangedAddons.Core: the addon list from GitHub, installing, versions,
+settings, Git working copies; plain .NET with nothing Windows-only, to share with a Mac app) and `src/` (the Windows
+app: screens, tray, co-op, overlay, installer). Building `src` builds `core` with it.
+
 ```
 dotnet build src
 dotnet publish src -c Release -o publish   # → publish\DrangedAddons.exe (self-contained, no .NET install needed)

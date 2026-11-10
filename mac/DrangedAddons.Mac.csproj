@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- DrangedAddons for Mac: WoW addons only (list, install, update, uninstall, launch), on the shared core library.
+       Avalonia draws the screens. Build the .app with mac/build-app.sh (on a Mac, or the Mac build workflow). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DrangedAddons.Mac</RootNamespace>
+    <!-- Same name as the Windows app, so the core's InternalsVisibleTo covers both. -->
+    <AssemblyName>DrangedAddons</AssemblyName>
+    <!-- Releases build with -p:Version from the tag (see .github/workflows). -->
+    <Version>0.43.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.23" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\core\DrangedAddons.Core.csproj" />
+    <AvaloniaResource Include="Assets\**" />
+    <!-- The Windows app's art, shared rather than copied: version logos, Battle.net version icons, the game icon. -->
+    <AvaloniaResource Include="..\src\logo.png" Link="Assets\logo.png" />
+    <AvaloniaResource Include="..\src\logos\*.png" Link="Assets\logos\%(Filename)%(Extension)" />
+    <AvaloniaResource Include="..\src\versionicons\*.png" Link="Assets\versionicons\%(Filename)%(Extension)" />
+    <AvaloniaResource Include="..\src\gameicons\wow.png" Link="Assets\gameicons\wow.png" />
+  </ItemGroup>
+
+</Project>

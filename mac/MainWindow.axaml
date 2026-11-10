@@ -1,0 +1,293 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DrangedAddons.Mac"
+        x:Class="DrangedAddons.Mac.MainWindow"
+        Title="DrangedAddons" Icon="/Assets/logo.png" Width="1040" Height="660" MinWidth="720" MinHeight="440"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}" FontSize="13">
+    <!-- On a Mac these are the menu bar at the top of the screen; elsewhere NativeMenuBar shows them in the window. -->
+    <NativeMenu.Menu>
+        <NativeMenu>
+            <NativeMenuItem Header="File">
+                <NativeMenu>
+                    <NativeMenuItem Header="Open AddOns folder" Click="OpenFolderMenu_Click"/>
+                    <NativeMenuItem Header="Change game folder…" Click="ChooseFolderMenu_Click"/>
+                    <NativeMenuItemSeparator/>
+                    <NativeMenuItem Header="Show beta versions" ToggleType="CheckBox" Click="Beta_Click"/>
+                </NativeMenu>
+            </NativeMenuItem>
+            <NativeMenuItem Header="Help">
+                <NativeMenu>
+                    <NativeMenuItem Header="DrangedAddons on GitHub" Click="OpenAppRepo_Click"/>
+                    <NativeMenuItem Header="About DrangedAddons" Click="About_Click"/>
+                </NativeMenu>
+            </NativeMenuItem>
+        </NativeMenu>
+    </NativeMenu.Menu>
+
+    <Window.Styles>
+        <Style Selector="TextBlock.colhead">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="11,0,0,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+        <Style Selector="TextBlock.cell">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="12,0,8,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+    </Window.Styles>
+
+    <DockPanel>
+    <NativeMenuBar DockPanel.Dock="Top"/>
+
+    <!-- Game side bar: World of Warcraft (the Mac app is for WoW). Its icon follows the picked version. -->
+    <Border DockPanel.Dock="Left" Width="64" Background="{StaticResource RailBrush}" BorderBrush="{StaticResource LineBrush}"
+            BorderThickness="0,0,1,0">
+        <StackPanel Margin="0,10,0,0">
+            <Button Classes="rail selected" ToolTip.Tip="World of Warcraft">
+                <Image x:Name="RailIcon" Width="36" Height="36" Stretch="Uniform"/>
+            </Button>
+        </StackPanel>
+    </Border>
+
+    <Grid Margin="20,16,20,20" RowDefinitions="Auto,*,Auto">
+        <!-- Top bar: game logo, search, game version, play, ⋯ menu. -->
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+            <!-- Official art from logos\ for the picked version, or a drawn wordmark for versions without one. -->
+            <Grid Margin="0,0,14,0" VerticalAlignment="Center" Width="132" Height="72">
+                <Image x:Name="GameLogoImage" Width="126" Height="72" Stretch="Uniform" HorizontalAlignment="Center"/>
+                <Border x:Name="GameLogoTag" HorizontalAlignment="Right" VerticalAlignment="Bottom" Padding="5,0" CornerRadius="3"
+                        Background="{StaticResource AccentBrush}" IsVisible="False" ZIndex="1">
+                    <TextBlock x:Name="GameLogoTagText" FontSize="10" FontWeight="Bold" Foreground="Black"/>
+                </Border>
+                <StackPanel x:Name="GameLogoText" VerticalAlignment="Center" IsVisible="False">
+                    <TextBlock Text="WORLD of" FontFamily="Georgia" FontSize="11" FontWeight="Bold"
+                               HorizontalAlignment="Center" Foreground="{Binding #GameLogoTitle.Foreground}"/>
+                    <TextBlock x:Name="GameLogoTitle" Text="WARCRAFT" FontFamily="Georgia" FontSize="20" FontWeight="Bold"
+                               HorizontalAlignment="Center" Margin="0,-3,0,0" Foreground="#F2B33D"/>
+                    <Border x:Name="GameLogoEditionBox" HorizontalAlignment="Center" Margin="0,2,0,0" Padding="7,1" CornerRadius="3"
+                            Background="#3A2C10" BorderBrush="#F2B33D" BorderThickness="1">
+                        <TextBlock x:Name="GameLogoEdition" FontFamily="Georgia" FontSize="9" FontWeight="Bold" Foreground="#F2B33D"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+            <TextBox x:Name="SearchBox" Grid.Column="1" Classes="search" VerticalAlignment="Center" Height="38" FontSize="14"
+                     Watermark="Search addons…  (⌘F)" TextChanged="Search_TextChanged">
+                <TextBox.InnerLeftContent>
+                    <PathIcon Data="{StaticResource SearchIcon}" Width="13" Height="13" Margin="10,0,0,0"
+                              Foreground="{StaticResource MutedBrush}"/>
+                </TextBox.InnerLeftContent>
+            </TextBox>
+            <ComboBox x:Name="FlavorList" Grid.Column="2" Classes="dark" Width="210" Height="38" Margin="12,0,0,0"
+                      VerticalAlignment="Center" FontSize="14" ToolTip.Tip="Game version" SelectionChanged="Flavor_SelectionChanged">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="local:FlavorItem">
+                        <StackPanel Orientation="Horizontal">
+                            <Image Source="{Binding Icon}" Width="18" Height="18" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <!-- A plain icon: most people start the game from Battle.net, so it shouldn't compete with the list. -->
+            <Button x:Name="PlayButton" Grid.Column="3" Classes="icon" Width="38" Height="38" Margin="6,0,0,0"
+                    VerticalAlignment="Center" Click="Play_Click">
+                <PathIcon Data="{StaticResource PlayIcon}" Width="16" Height="16"/>
+            </Button>
+            <Button x:Name="GameMenuButton" Grid.Column="4" Classes="btn ghost" Width="38" Height="38" Padding="0"
+                    Margin="6,0,0,0" VerticalAlignment="Center" Click="GameMenu_Click" ToolTip.Tip="Game folder options">
+                <PathIcon Data="{StaticResource MoreIcon}" Width="16" Height="16"/>
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem x:Name="OpenFolderItem" Header="Open AddOns folder" Click="OpenFolder_Click"/>
+                        <MenuItem Header="Change game folder…" Click="ChooseFolder_Click"/>
+                    </ContextMenu>
+                </Button.ContextMenu>
+            </Button>
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="0,14,0,0">
+            <!-- No WoW folder yet -->
+            <StackPanel x:Name="NoWowPanel" IsVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        MaxWidth="460" Spacing="12">
+                <Image Source="/Assets/logo.png" Width="72" Height="72"/>
+                <TextBlock Text="Where is World of Warcraft?" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                <TextBlock TextWrapping="Wrap" TextAlignment="Center" Foreground="{StaticResource MutedBrush}"
+                           Text="DrangedAddons looks in /Applications/World of Warcraft. Pick the World of Warcraft folder (the one holding _retail_, _classic_ and so on)."/>
+                <Button Classes="btn accent" Content="Choose folder…" HorizontalAlignment="Center" Padding="22,8"
+                        Click="ChooseFolder_Click"/>
+            </StackPanel>
+
+            <DockPanel x:Name="ListPanel">
+                <!-- Tabs (installed / everything); the selected tab's gold underline sits on a full-width rule. -->
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <Border Height="1" VerticalAlignment="Bottom" Background="{StaticResource LineBrush}"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                        <RadioButton x:Name="MyAddonsTab" GroupName="AddonTabs" Classes="tab" Content="My Addons" IsChecked="True"
+                                     IsCheckedChanged="Tab_Changed"/>
+                        <RadioButton x:Name="BrowseTab" GroupName="AddonTabs" Classes="tab" Content="Browse"
+                                     IsCheckedChanged="Tab_Changed"/>
+                    </StackPanel>
+                </Grid>
+                <!-- Toolbar: Update all; list tools (filter, refresh) on the right. -->
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="FilterButton" Classes="icon" Click="Filter_Click" ToolTip.Tip="Filter">
+                            <PathIcon Data="{StaticResource FilterIcon}"/>
+                            <Button.ContextMenu>
+                                <ContextMenu x:Name="FilterMenu">
+                                    <MenuItem x:Name="FilterAll" Header="All addons" ToggleType="CheckBox" IsChecked="True"
+                                              Click="FilterItem_Click"/>
+                                    <Separator/>
+                                    <MenuItem Header="Updates available" Tag="updates" ToggleType="CheckBox" Click="FilterItem_Click"/>
+                                    <MenuItem Header="Up to date" Tag="uptodate" ToggleType="CheckBox" Click="FilterItem_Click"/>
+                                    <MenuItem Header="Not installed" Tag="notinstalled" ToggleType="CheckBox" Click="FilterItem_Click"/>
+                                    <MenuItem Header="Beta versions" Tag="beta" ToggleType="CheckBox" Click="FilterItem_Click"/>
+                                    <MenuItem Header="Git working copies" Tag="git" ToggleType="CheckBox" Click="FilterItem_Click"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+                        <Button x:Name="RefreshButton" Classes="icon" Margin="4,0,0,0" Click="Refresh_Click"
+                                ToolTip.Tip="Check for updates">
+                            <PathIcon Data="{StaticResource RefreshIcon}"/>
+                        </Button>
+                    </StackPanel>
+                    <Button x:Name="UpdateAllButton" Classes="btn accent" Content="Update all" HorizontalAlignment="Left"
+                            Click="UpdateAll_Click" IsEnabled="False"/>
+                </DockPanel>
+                <!-- Column header: select-all for the rows shown. Same padding and border as a row, so the boxes line up. -->
+                <Border x:Name="ListHeader" DockPanel.Dock="Top" Margin="0,0,0,4" Padding="10,7" CornerRadius="6"
+                        Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                    <DockPanel>
+                        <CheckBox x:Name="SelectAllCheck" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,-6,4,-6"
+                                  Click="SelectAll_Click" ToolTip.Tip="Select all addons shown"/>
+                        <TextBlock DockPanel.Dock="Right" Text="Action" Foreground="{StaticResource MutedBrush}" FontSize="12"
+                                   FontWeight="SemiBold" Width="140" Margin="9,0,0,0" TextAlignment="Center" VerticalAlignment="Center"/>
+                        <Border DockPanel.Dock="Right" Width="1" Margin="0,-7" Background="{StaticResource LineBrush}"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Border Width="1" Margin="0,-7" Background="{StaticResource LineBrush}"/>
+                            <TextBlock Text="Installed" Width="109" Classes="colhead"/>
+                            <Border Width="1" Margin="0,-7" Background="{StaticResource LineBrush}"/>
+                            <TextBlock Text="Latest" Width="109" Classes="colhead"/>
+                            <Border Width="1" Margin="0,-7" Background="{StaticResource LineBrush}"/>
+                            <TextBlock Text="Author" Width="169" Classes="colhead"/>
+                        </StackPanel>
+                        <TextBlock Text="Name" Classes="colhead" Padding="44,0,0,0"/>
+                    </DockPanel>
+                </Border>
+                <Grid>
+                    <!-- Addon list: one compact row per addon. -->
+                    <ScrollViewer x:Name="ListScroll" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="AddonList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:AddonItem">
+                                    <Border Classes="row" Classes.selected="{Binding IsSelected}">
+                                        <Border.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Reinstall" Click="RowReinstall_Click" IsEnabled="{Binding CanUninstall}"/>
+                                                <MenuItem Header="Browse folder" Click="RowBrowse_Click" IsEnabled="{Binding CanBrowse}"/>
+                                                <MenuItem Header="View on GitHub" Click="RowGitHub_Click"/>
+                                                <Separator/>
+                                                <MenuItem Header="Delete addon" Foreground="{StaticResource DangerBrush}"
+                                                          Click="RowDelete_Click" IsEnabled="{Binding CanUninstall}"/>
+                                            </ContextMenu>
+                                        </Border.ContextMenu>
+                                        <DockPanel>
+                                            <!-- Tick for bulk actions. -->
+                                            <CheckBox DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,-6,4,-6"
+                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}"/>
+                                            <!-- One thing on the right: a button when there's something to do, else a label. -->
+                                            <Grid DockPanel.Dock="Right" Width="150">
+                                                <TextBlock Text="{Binding RowLabel}" Foreground="{Binding RowLabelBrush}" FontSize="12"
+                                                           FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                           Margin="10,0,0,0" IsVisible="{Binding ShowRowLabel}"/>
+                                                <Button Classes="btn" Classes.accent="{Binding IsPrimaryAction}"
+                                                        Classes.busy="{Binding IsBusy}" Padding="0,3" Width="140"
+                                                        AutomationProperties.Name="{Binding ActionText}"
+                                                        Margin="10,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                        IsVisible="{Binding ShowRowAction}" Click="Action_Click">
+                                                    <Grid Width="138">
+                                                        <Border Background="{StaticResource ProgressFillBrush}" Margin="0,-3"
+                                                                HorizontalAlignment="Left" Width="{Binding ProgressWidth}"/>
+                                                        <TextBlock Text="{Binding ActionText}" HorizontalAlignment="Center"/>
+                                                    </Grid>
+                                                </Button>
+                                            </Grid>
+                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding InstalledCell}" Width="110" Classes="cell"/>
+                                                <TextBlock Text="{Binding LatestCell}" Width="110" Classes="cell"/>
+                                                <TextBlock Text="{Binding AuthorCell}" Width="170" Classes="cell"/>
+                                            </StackPanel>
+                                            <Grid Width="32" Height="32" Margin="0,0,12,0" VerticalAlignment="Center">
+                                                <Border CornerRadius="6" Background="{StaticResource Panel2Brush}"
+                                                        BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                                        IsVisible="{Binding !HasIcon}">
+                                                    <TextBlock Text="{Binding Initial}" FontSize="15" FontWeight="SemiBold"
+                                                               Foreground="{StaticResource AccentBrush}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <Image Source="{Binding Icon}" Stretch="Uniform" IsVisible="{Binding HasIcon}"/>
+                                            </Grid>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <Border Classes="beta" IsVisible="{Binding IsBeta}" ToolTip.Tip="{Binding BetaTip}">
+                                                        <TextBlock Text="BETA" Foreground="White" FontSize="9.5" FontWeight="Bold"/>
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding RowSubText}" Foreground="{StaticResource MutedBrush}"
+                                                           FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                               TextWrapping="Wrap" MaxWidth="460" Foreground="{StaticResource MutedBrush}" IsVisible="False"/>
+
+                    <!-- Bulk actions for the ticked addons. -->
+                    <Border x:Name="BulkBar" IsVisible="False" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                            Margin="0,0,0,12" Padding="10,8" CornerRadius="8" BoxShadow="0 3 20 0 #99000000"
+                            Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <Border CornerRadius="9" Background="{StaticResource AccentBrush}" Padding="8,1" VerticalAlignment="Center">
+                                <TextBlock x:Name="BulkCountText" Foreground="{StaticResource AccentTextBrush}" FontWeight="SemiBold"/>
+                            </Border>
+                            <TextBlock Text="selected" VerticalAlignment="Center" Margin="8,0,16,0"/>
+                            <Button x:Name="BulkUpdateButton" Classes="btn ghost" Click="BulkUpdate_Click" Margin="0,0,6,0"/>
+                            <Button x:Name="BulkInstallButton" Classes="btn ghost" Click="BulkInstall_Click" Margin="0,0,6,0"/>
+                            <Button x:Name="BulkReinstallButton" Classes="btn ghost" Click="BulkReinstall_Click" Margin="0,0,6,0"/>
+                            <Button x:Name="BulkDeleteButton" Classes="btn ghost" Click="BulkDelete_Click"
+                                    Foreground="{StaticResource DangerBrush}"/>
+                            <Button Content="✕" Classes="btn ghost" Click="BulkClear_Click" Margin="14,0,0,0"
+                                    ToolTip.Tip="Clear the selection (Esc)"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </DockPanel>
+        </Grid>
+
+        <!-- Status bar: what happened, this hour's GitHub allowance, version. -->
+        <DockPanel Grid.Row="2" Margin="0,8,0,0">
+            <TextBlock x:Name="VersionText" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}"/>
+            <StackPanel x:Name="UsagePanel" DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,18,0" IsVisible="False">
+                <TextBlock Text="GitHub" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Grid Width="90" Height="6" VerticalAlignment="Center">
+                    <Border CornerRadius="3" Background="{StaticResource Panel2Brush}"/>
+                    <Border x:Name="UsageFill" CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+                </Grid>
+                <TextBlock x:Name="UsageText" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </StackPanel>
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
+        </DockPanel>
+    </Grid>
+    </DockPanel>
+</Window>

@@ -1,0 +1,40 @@
+# Builds the Mac app (DrangedAddons.app, Apple Silicon and Intel) whenever the Mac app or the shared core changes,
+# so Mac-only breakage shows up straight away. The zips are attached to the run as an artifact for testing; a version
+# tag (release.yml) attaches them to the release.
+name: Mac build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'mac/**'
+      - 'src/logo.png'
+      - 'src/logos/**'
+      - 'src/versionicons/**'
+      - 'src/gameicons/**'
+      - '.github/workflows/mac.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: App version
+        run: echo "VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/DrangedAddons.csproj | tr -d '\r')" >> "$GITHUB_ENV"
+
+      - name: Build DrangedAddons.app
+        run: |
+          bash mac/build-app.sh osx-arm64 "$VERSION"
+          bash mac/build-app.sh osx-x64 "$VERSION"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DrangedAddons-mac-${{ env.VERSION }}
+          path: artifacts/*.zip

@@ -80,6 +80,20 @@ Windows SmartScreen may warn about an unrecognised app the first time: choose **
 
 Addon icons come from an `icon.ico` (or `icon.png`) at the root of each addon repo.
 
+## Mac app
+
+`mac/` is DrangedAddons for Mac: World of Warcraft addons only, built with Avalonia on the same `core/` library and
+styled like the Windows app (it uses the same logos and version icons from `src/`). Each release attaches
+`DrangedAddons-mac-apple-silicon.zip` and `DrangedAddons-mac-intel.zip`, and every push that changes `core/` or
+`mac/` builds them on GitHub's Macs (the **Mac build** workflow), with the zips on the run.
+
+The app isn't signed with an Apple Developer ID, so the first time macOS refuses to open it. Open **System
+Settings → Privacy & Security**, scroll down to the message about DrangedAddons and click **Open Anyway**. (In a
+terminal, `xattr -dr com.apple.quarantine /Applications/DrangedAddons.app` does the same.)
+
+`mac/build-app.sh <osx-arm64|osx-x64> <version>` builds the .app on a Mac. `dotnet run --project mac` also runs it on
+Windows, which is how its screens are checked here.
+
 ## Platform dashboard
 
 The admin dashboard for the co-op platform (services, live counts from the Worker's `/stats`, game profiles,

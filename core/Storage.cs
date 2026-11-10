@@ -2,12 +2,14 @@ using System.Text.Json;
 
 namespace DrangedAddons;
 
-/// <summary>JSON files under %AppData%\DrangedAddons.</summary>
+/// <summary>JSON files under %AppData%\DrangedAddons (Windows) or ~/Library/Application Support/DrangedAddons (Mac).</summary>
 public static class Storage
 {
     // Test builds (DRANGEDADDONS_DEV=1) keep their own settings so they never touch the real app's.
     public static readonly string Dir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        OperatingSystem.IsMacOS()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support")
+            : Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         Environment.GetEnvironmentVariable("DRANGEDADDONS_DEV") == "1" ? "DrangedAddons-dev" : "DrangedAddons");
 
     static readonly JsonSerializerOptions Options = new() { WriteIndented = true };

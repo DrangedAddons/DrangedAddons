@@ -60,7 +60,13 @@ public static class WowLocator
         var candidates = new List<string>();
         if (RegistryInstallPath() is { } registered)
             candidates.Add(registered);
-        foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
+        if (OperatingSystem.IsMacOS())
+        {
+            // Battle.net installs it in /Applications; some people pick their own Applications folder.
+            candidates.Add("/Applications/World of Warcraft");
+            candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Applications", "World of Warcraft"));
+        }
+        else foreach (var drive in DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
         {
             var r = drive.RootDirectory.FullName;
             candidates.Add(Path.Combine(r, "Program Files (x86)", "World of Warcraft"));
@@ -96,8 +102,10 @@ public static class WowLocator
             {
                 var name = Path.GetFileName(dir);
                 if (!FlavorFolder.IsMatch(name)) continue;
+                // Mac versions hold "World of Warcraft.app" (a folder) where Windows has Wow.exe.
                 var isGame = Directory.Exists(Path.Combine(dir, "Interface"))
-                             || Directory.EnumerateFiles(dir, "Wow*.exe").Any();
+                             || Directory.EnumerateFiles(dir, "Wow*.exe").Any()
+                             || Directory.EnumerateDirectories(dir, "World of Warcraft*.app").Any();
                 if (!isGame) continue;
                 flavors.Add(new GameFlavor(name, DisplayName(name), Path.Combine(dir, "Interface", "AddOns")));
             }

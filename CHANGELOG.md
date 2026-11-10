@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.43.0
+- **DrangedAddons for Mac (preview), for World of Warcraft.** The same addon list, look and layout as the Windows
+  app: the version logo and icons, search, the version picker with installed counts, My Addons and Browse,
+  install, update and Update all, tick boxes with bulk Update / Install / Reinstall / Delete, the filter, and the
+  GitHub allowance meter. It finds WoW in /Applications (or the folder you pick), deletes to the Trash, and Play
+  starts the picked version. Download `DrangedAddons-mac-apple-silicon.zip` (M1 and newer) or
+  `DrangedAddons-mac-intel.zip` from the release. Not in it yet: addon details pages, column editing, self-update,
+  and the Windows-only parts (co-op, the overlay, Azeroth Survivors).
+- Windows: nothing changes, apart from recognising a WoW version folder by its `World of Warcraft.app` as well.
+
 ## 0.42.2
 - Behind the scenes: the addon list, installing, versions, settings and the Git working-copy reader moved into a
   shared library (`core/`) that has nothing Windows-only in it, ready for a Mac version for WoW players. Nothing

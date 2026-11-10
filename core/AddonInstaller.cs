@@ -203,7 +203,7 @@ public static class AddonInstaller
         }
     }
 
-    /// <summary>Moves the addon's folders to the Recycle Bin.</summary>
+    /// <summary>Moves the addon's folders to the Recycle Bin (the Trash on a Mac).</summary>
     public static void Uninstall(string addOnsPath, IEnumerable<string> folders)
     {
         foreach (var folder in folders)
@@ -212,7 +212,7 @@ public static class AddonInstaller
             if (!Directory.Exists(dir)) continue;
             if (IsDevCopy(dir))
                 throw new InvalidOperationException($"{folder} is a Git working copy, so it was left untouched.");
-            FileSystem.DeleteDirectory(dir, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+            MoveToTrash(dir, directory: true);
         }
     }
 
@@ -237,13 +237,41 @@ public static class AddonInstaller
         return files;
     }
 
-    /// <summary>Moves the given files to the Recycle Bin.</summary>
+    /// <summary>Moves the given files to the Recycle Bin (the Trash on a Mac).</summary>
     public static void RecycleFiles(IEnumerable<string> files)
     {
         foreach (var file in files)
         {
             if (File.Exists(file))
-                FileSystem.DeleteFile(file, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+                MoveToTrash(file, directory: false);
+        }
+    }
+
+    static void MoveToTrash(string path, bool directory)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            if (directory) FileSystem.DeleteDirectory(path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+            else FileSystem.DeleteFile(path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+            return;
+        }
+        // ~/.Trash is the Finder's Trash for the startup disk; a name already there gets the time added, like Finder does.
+        var trash = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".Trash");
+        Directory.CreateDirectory(trash);
+        var name = Path.GetFileName(path.TrimEnd('/', '\\'));
+        var target = Path.Combine(trash, name);
+        if (Directory.Exists(target) || File.Exists(target))
+            target = Path.Combine(trash, $"{name} {DateTime.Now:HH.mm.ss}");
+        try
+        {
+            if (directory) Directory.Move(path, target);
+            else File.Move(path, target);
+        }
+        catch (IOException)
+        {
+            // Another disk (e.g. WoW on an external drive): ~/.Trash can't take it by renaming, so delete instead.
+            if (directory) Directory.Delete(path, recursive: true);
+            else File.Delete(path);
         }
     }
 

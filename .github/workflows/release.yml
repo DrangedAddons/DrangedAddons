@@ -55,3 +55,25 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" publish/DrangedAddons.exe \
             --title "DrangedAddons ${GITHUB_REF_NAME}" --notes-file notes.md
+
+  # The Mac app (WoW only) for the same version, added to the release the Windows job made.
+  mac:
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build DrangedAddons.app
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          bash mac/build-app.sh osx-arm64 "$VERSION"
+          bash mac/build-app.sh osx-x64 "$VERSION"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" artifacts/*.zip

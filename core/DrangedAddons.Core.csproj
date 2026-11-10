@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- What every DrangedAddons app shares: the addon list from GitHub, installing, versions, settings, Git working
+       copies. Plain .NET with nothing Windows-only, so a Mac app can use it too; screens stay in each app. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DrangedAddons</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The Windows app uses a few internal helpers (GetJsonAsync, SaveCaches, ...). -->
+    <InternalsVisibleTo Include="DrangedAddons" />
+  </ItemGroup>
+
+</Project>

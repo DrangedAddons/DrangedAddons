@@ -30,6 +30,7 @@ public static class WowLocator
 
     public static string? RegistryInstallPath()
     {
+        if (!OperatingSystem.IsWindows()) return null; // the registry is Windows-only; other systems look in folders
         foreach (var key in new[]
                  {
                      @"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft",

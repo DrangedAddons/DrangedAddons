@@ -184,7 +184,13 @@ public sealed class GitHubClient
     // every repo. Null until a check has succeeded, so the first check of a run still walks the repos.
     List<RemoteAddon>? _addonSnapshot;
     string? _snapshotETag;
-    int _snapshotProfiles; // GameProfiles.Version when it was made: a new game profile can claim repos by topic
+    int _snapshotProfiles; // GamesVersion when it was made: a new game profile can claim repos by topic
+
+    /// <summary>The game a repo's addons are for, from its GitHub topics. The app sets this from its games; WoW until then.</summary>
+    public static Func<IReadOnlyList<string>, string> GameForTopics { get; set; } = _ => "wow";
+
+    /// <summary>Goes up when the games that claim topics change, so a cached addon list is rebuilt.</summary>
+    public static Func<int> GamesVersion { get; set; } = () => 0;
 
     static readonly JsonSerializerOptions CompactJson = new();
 
@@ -193,7 +199,7 @@ public sealed class GitHubClient
     static HttpClient CreateHttp()
     {
         var http = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd($"DrangedAddons-Manager/{typeof(GitHubClient).Assembly.GetName().Version}");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd($"DrangedAddons-Manager/{(System.Reflection.Assembly.GetEntryAssembly() ?? typeof(GitHubClient).Assembly).GetName().Version}");
         return http;
     }
 
@@ -202,7 +208,7 @@ public sealed class GitHubClient
         var fetched = await FetchJsonAsync($"https://api.github.com/orgs/{Org}/repos?type=public&per_page=100", ct);
         // Test game overrides are applied while building the list, so a dev run always rebuilds.
         if (fetched.NotModified && _addonSnapshot is not null && fetched.ETag == _snapshotETag && TestGames.Count == 0
-            && _snapshotProfiles == GameProfiles.Version
+            && _snapshotProfiles == GamesVersion()
             && !PushedRecently(fetched.Body))
             return _addonSnapshot;
         var reposJson = fetched.Body
@@ -226,7 +232,7 @@ public sealed class GitHubClient
                 // Desktop apps in the org (e.g. IO Hub) carry the "app" topic: they aren't addons to install.
                 if (topics.Contains("app", StringComparer.OrdinalIgnoreCase))
                     continue;
-                var game = TestGames.TryGetValue(name, out var testGame) ? testGame : GameDefinition.ForTopics(topics);
+                var game = TestGames.TryGetValue(name, out var testGame) ? testGame : GameForTopics(topics);
                 repos.Add((name, OptionalString(repo, "description") ?? "", OptionalString(repo, "default_branch") ?? "main", game));
             }
         }
@@ -235,7 +241,7 @@ public sealed class GitHubClient
         var list = addons.OfType<RemoteAddon>().OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
         _addonSnapshot = list;
         _snapshotETag = fetched.ETag;
-        _snapshotProfiles = GameProfiles.Version;
+        _snapshotProfiles = GamesVersion();
         await Task.Run(SaveCaches);
         return list;
     }

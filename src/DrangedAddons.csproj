@@ -33,6 +33,7 @@
          A build without the DLL just has no overlay. -->
     <EmbeddedResource Include="..\overlay\bin\DrangedOverlay64.dll" LogicalName="DrangedOverlay64.dll" Condition="Exists('..\overlay\bin\DrangedOverlay64.dll')" />
     <EmbeddedResource Include="..\overlay\DrangedOverlay64.json" LogicalName="DrangedOverlay64.json" />
+    <ProjectReference Include="..\core\DrangedAddons.Core.csproj" />
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
   </ItemGroup>

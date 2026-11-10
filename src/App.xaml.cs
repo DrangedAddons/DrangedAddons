@@ -26,6 +26,9 @@ public partial class App : Application
     {
         // Dialogs may show before the main window; closing one mustn't end the app.
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        // The shared addon list files repos under this app's games (and platform profiles).
+        GitHubClient.GameForTopics = GameDefinition.ForTopics;
+        GitHubClient.GamesVersion = () => GameProfiles.Version;
         bool keepRunning;
         try
         {
